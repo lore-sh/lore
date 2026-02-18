@@ -86,13 +86,13 @@ describe("toss core service", () => {
     expect(history[0]?.kind).toBe("apply");
   });
 
-  test("apply rejects non-additive operation types", async () => {
+  test("apply rejects unknown operation types", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
     const badPlanPath = await writePlanFile(dir, "bad.json", {
-      message: "attempt delete",
-      operations: [{ type: "delete", table: "expenses", where: { id: 1 } }],
+      message: "attempt unknown operation",
+      operations: [{ type: "rename_table", table: "expenses", to: "costs" }],
     });
 
     try {
@@ -111,6 +111,117 @@ describe("toss core service", () => {
     await initDatabase({ dbPath });
 
     expect(() => readQuery("DELETE FROM expenses", { dbPath })).toThrow();
+  });
+
+  test("apply supports schema evolution and data migration operations", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const createPath = await writePlanFile(dir, "create.json", {
+      message: "create ledger and legacy tables",
+      operations: [
+        {
+          type: "create_table",
+          table: "ledger",
+          columns: [
+            { name: "item", type: "TEXT", notNull: true },
+            { name: "amount", type: "TEXT", notNull: true },
+            { name: "note", type: "TEXT" },
+            { name: "category", type: "TEXT" },
+          ],
+        },
+        {
+          type: "create_table",
+          table: "legacy",
+          columns: [{ name: "dummy", type: "TEXT" }],
+        },
+      ],
+    });
+
+    const insertPath = await writePlanFile(dir, "insert.json", {
+      message: "seed rows",
+      operations: [
+        { type: "insert", table: "ledger", values: { item: "dinner", amount: "1200", note: "meal", category: null } },
+        { type: "insert", table: "ledger", values: { item: "lunch", amount: "850", note: "meal", category: null } },
+      ],
+    });
+
+    const migrationPath = await writePlanFile(dir, "migration.json", {
+      message: "migrate ledger schema and clean old data",
+      operations: [
+        {
+          type: "update",
+          table: "ledger",
+          values: { category: "food" },
+          where: { item: "dinner" },
+        },
+        {
+          type: "delete",
+          table: "ledger",
+          where: { item: "lunch" },
+        },
+        {
+          type: "alter_column_type",
+          table: "ledger",
+          column: "amount",
+          newType: "INTEGER",
+        },
+        {
+          type: "drop_column",
+          table: "ledger",
+          column: "note",
+        },
+        {
+          type: "drop_table",
+          table: "legacy",
+        },
+      ],
+    });
+
+    await applyPlan(createPath, { dbPath });
+    await applyPlan(insertPath, { dbPath });
+    await applyPlan(migrationPath, { dbPath });
+
+    const rows = readQuery("SELECT item, amount, category, typeof(amount) AS amount_type FROM ledger", { dbPath });
+    expect(rows).toEqual([{ item: "dinner", amount: 1200, category: "food", amount_type: "integer" }]);
+
+    const noteColumn = readQuery("SELECT COUNT(*) AS c FROM pragma_table_info('ledger') WHERE name='note'", { dbPath });
+    expect(noteColumn).toEqual([{ c: 0 }]);
+
+    const legacyTable = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='legacy'", { dbPath });
+    expect(legacyTable).toEqual([{ c: 0 }]);
+  });
+
+  test("apply rejects update/delete without where predicates", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const createPath = await writePlanFile(dir, "create.json", {
+      message: "create ledger table",
+      operations: [
+        {
+          type: "create_table",
+          table: "ledger",
+          columns: [
+            { name: "item", type: "TEXT", notNull: true },
+            { name: "amount", type: "INTEGER", notNull: true },
+          ],
+        },
+      ],
+    });
+    await applyPlan(createPath, { dbPath });
+
+    const badUpdatePath = await writePlanFile(dir, "bad-update.json", {
+      message: "unsafe update",
+      operations: [{ type: "update", table: "ledger", values: { amount: 1 }, where: {} }],
+    });
+    const badDeletePath = await writePlanFile(dir, "bad-delete.json", {
+      message: "unsafe delete",
+      operations: [{ type: "delete", table: "ledger", where: {} }],
+    });
+
+    await expect(applyPlan(badUpdatePath, { dbPath })).rejects.toThrow();
+    await expect(applyPlan(badDeletePath, { dbPath })).rejects.toThrow();
   });
 
   test("revert insert commit safely rebuilds head", async () => {
@@ -199,6 +310,8 @@ describe("toss core service", () => {
     expect(agents.includes("Unified toss workflow")).toBe(true);
     expect(skill.includes("name: toss")).toBe(true);
     expect(skill.includes("Remember Flow (read-before-apply)")).toBe(true);
+    expect(skill.includes("Schema cleanup -> include `drop_column` / `drop_table`")).toBe(true);
+    expect(skill.includes("Type migration -> include `alter_column_type`")).toBe(true);
     expect(agents.includes("toss:init:skills:start")).toBe(true);
     expect(skill.includes("pragma_table_info")).toBe(true);
     expect(skill.includes("retry once")).toBe(true);

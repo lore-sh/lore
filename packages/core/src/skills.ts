@@ -15,7 +15,7 @@ export interface GeneratedSkills {
 function tossSkillContent(workspacePath: string): string {
   return `---
 name: toss
-description: Use toss CLI to remember/store personal data and recall/query it safely with read-before-apply and additive-only operations.
+description: Use toss CLI to remember/store data, evolve schemas with migrations, and recall/query safely via read-before-apply workflows.
 ---
 
 # toss
@@ -45,6 +45,10 @@ bun run --cwd "${workspacePath}" toss read --sql "SELECT m.name AS table_name, p
    - Missing table -> include \`create_table\`
    - Missing column -> include \`add_column\`
    - New record -> include \`insert\`
+   - Data correction/backfill -> include \`update\` with explicit \`where\`
+   - Data cleanup -> include \`delete\` with explicit \`where\`
+   - Schema cleanup -> include \`drop_column\` / \`drop_table\` if explicitly requested
+   - Type migration -> include \`alter_column_type\` when the user asks to change storage type
 3. Apply plan:
 \`\`\`bash
 cat <<'JSON' | bun run --cwd "${workspacePath}" toss apply --plan -
@@ -52,6 +56,7 @@ cat <<'JSON' | bun run --cwd "${workspacePath}" toss apply --plan -
 JSON
 \`\`\`
 4. If apply fails due to schema mismatch, re-read schema and retry once with corrected plan.
+5. For schema migration tasks, run a verification read query and summarize before/after impact.
 
 ## Recall Flow
 1. Convert intent to read-only SQL (\`SELECT\` or \`WITH ... SELECT\` only).
@@ -62,10 +67,15 @@ bun run --cwd "${workspacePath}" toss read --sql "<SELECT ...>" --json
 3. Return structured results and short interpretation.
 
 ## Hard Rules
-- Never emit destructive operations (update/delete/drop/alter type change).
 - Keep one semantic unit per apply.
 - Always include non-empty \`message\`.
 - Prefer stdin for apply (\`--plan -\`).
+- Never run \`update\` or \`delete\` without explicit \`where\`.
+- Prefer staged migrations:
+  1) additive change (\`add_column\` / new table),
+  2) data backfill (\`update\`),
+  3) verification read,
+  4) cleanup (\`drop_column\` / \`drop_table\`).
 
 ## References
 - Product background and use cases: [references/context.md](references/context.md)
@@ -87,6 +97,7 @@ This separation keeps the execution layer deterministic and safe.
 1. Humans should not need schema/migration design.
 2. Data is owned by individuals (local-first SQLite).
 3. Be bold with safety: append-only history + revert.
+4. Schema should evolve continuously with data migration, not stay fixed forever.
 
 ## 2-layer model
 - Operation Log: immutable source of truth (\`_toss_log\`)
@@ -128,9 +139,18 @@ Allowed operation types:
 - \`create_table\`
 - \`add_column\`
 - \`insert\`
+- \`update\` (requires non-empty \`where\`)
+- \`delete\` (requires non-empty \`where\`)
+- \`drop_table\`
+- \`drop_column\`
+- \`alter_column_type\`
 
-Forbidden in MVP:
-- \`drop_table\`, \`drop_column\`, \`alter_column_type\`, \`update\`, \`delete\`
+Schema evolution best practice:
+1. Read schema snapshot first.
+2. Additive migration first (\`create_table\`, \`add_column\`).
+3. Backfill/correct data (\`update\`).
+4. Verify with read query.
+5. Cleanup old structures (\`drop_column\`, \`drop_table\`) only after verification.
 
 ## read contract
 \`toss read --sql "<query>" [--json]\`
@@ -165,10 +185,10 @@ function agentsBlock(skills: GeneratedSkills): string {
   return `${AGENTS_BLOCK_START}
 ## Skills
 ### Available skills
-- toss: Unified toss workflow for remember/store and recall/query, with read-before-apply and additive-only safety. (file: ${skills.skillPath})
+- toss: Unified toss workflow for remember/store, schema evolution + data migration, and recall/query with read-before-apply safety. (file: ${skills.skillPath})
 ### How to use skills
 - Trigger rules: Use \`toss\` whenever user intent touches toss memory, storage, query, or analysis.
-- For writes: always run schema introspection first, then build additive-only OperationPlan.
+- For writes: always run schema introspection first, then build OperationPlan with explicit migration intent.
 - For reads: generate read-only SQL only.
 - Execution: Skills should call toss through \`bun run --cwd "${resolve(dirname(skills.agentsPath))}" toss ...\`.
 ${AGENTS_BLOCK_END}

@@ -46,6 +46,18 @@ function hasLaterReferencesToColumn(laterEntries: LogEntry[], table: string, col
       if (operation.type === "add_column") {
         return operation.column.name === columnName;
       }
+      if (operation.type === "update") {
+        return Object.hasOwn(operation.values, columnName) || Object.hasOwn(operation.where, columnName);
+      }
+      if (operation.type === "delete") {
+        return Object.hasOwn(operation.where, columnName);
+      }
+      if (operation.type === "drop_column") {
+        return operation.column === columnName;
+      }
+      if (operation.type === "alter_column_type") {
+        return operation.column === columnName;
+      }
       return false;
     }),
   );
@@ -53,6 +65,19 @@ function hasLaterReferencesToColumn(laterEntries: LogEntry[], table: string, col
 
 export function validateRevertSafety(target: LogEntry, activeApplyLogsAfterTarget: LogEntry[]): void {
   for (const operation of target.operations) {
+    if (
+      operation.type === "drop_table" ||
+      operation.type === "drop_column" ||
+      operation.type === "alter_column_type" ||
+      operation.type === "update" ||
+      operation.type === "delete"
+    ) {
+      throw new TossError(
+        "UNSAFE_REVERT",
+        `Cannot revert ${target.id}: revert for ${operation.type} commits is not supported safely yet`,
+      );
+    }
+
     if (operation.type === "create_table") {
       if (hasLaterOperationsOnTable(activeApplyLogsAfterTarget, operation.table)) {
         throw new TossError(

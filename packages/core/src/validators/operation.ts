@@ -51,10 +51,70 @@ const insertSchema = z
   })
   .strict();
 
+const whereSchema = z.record(z.string(), scalarValueSchema).refine((value) => Object.keys(value).length > 0, {
+  message: "where must not be empty",
+});
+
+const dropTableSchema = z
+  .object({
+    type: z.literal("drop_table"),
+    table: z.string().trim().min(1),
+  })
+  .strict();
+
+const dropColumnSchema = z
+  .object({
+    type: z.literal("drop_column"),
+    table: z.string().trim().min(1),
+    column: z.string().trim().min(1),
+  })
+  .strict();
+
+const alterColumnTypeSchema = z
+  .object({
+    type: z.literal("alter_column_type"),
+    table: z.string().trim().min(1),
+    column: z.string().trim().min(1),
+    newType: z.string().trim().min(1),
+  })
+  .strict();
+
+const updateSchema = z
+  .object({
+    type: z.literal("update"),
+    table: z.string().trim().min(1),
+    values: z.record(z.string(), scalarValueSchema).refine((value) => Object.keys(value).length > 0, {
+      message: "update values must not be empty",
+    }),
+    where: whereSchema,
+  })
+  .strict();
+
+const deleteSchema = z
+  .object({
+    type: z.literal("delete"),
+    table: z.string().trim().min(1),
+    where: whereSchema,
+  })
+  .strict();
+
 export const operationPlanSchema = z
   .object({
     message: z.string().trim().min(1),
-    operations: z.array(z.discriminatedUnion("type", [createTableSchema, addColumnSchema, insertSchema])).min(1),
+    operations: z
+      .array(
+        z.discriminatedUnion("type", [
+          createTableSchema,
+          addColumnSchema,
+          insertSchema,
+          dropTableSchema,
+          dropColumnSchema,
+          alterColumnTypeSchema,
+          updateSchema,
+          deleteSchema,
+        ]),
+      )
+      .min(1),
     source: sourceSchema.optional(),
   })
   .strict();
@@ -82,6 +142,25 @@ function validateColumn(
   assertIdentifier(column.name, `${operationLabel}.column`);
   if (!COLUMN_TYPE_PATTERN.test(column.type)) {
     throw new TossError("INVALID_OPERATION", `${operationLabel}.column type is invalid: ${column.type}`);
+  }
+}
+
+function assertColumnType(value: string, label: string): void {
+  if (!COLUMN_TYPE_PATTERN.test(value)) {
+    throw new TossError("INVALID_OPERATION", `${label} is invalid: ${value}`);
+  }
+}
+
+function assertPredicate(
+  values: Record<string, string | number | boolean | null>,
+  label: string,
+): void {
+  const keys = Object.keys(values);
+  if (keys.length === 0) {
+    throw new TossError("INVALID_OPERATION", `${label} must not be empty`);
+  }
+  for (const key of keys) {
+    assertIdentifier(key, `${label} key`);
   }
 }
 
@@ -123,13 +202,29 @@ function semanticValidation(plan: OperationPlan): void {
     }
 
     if (operation.type === "insert") {
-      const keys = Object.keys(operation.values);
-      if (keys.length === 0) {
-        throw new TossError("INVALID_OPERATION", "insert values must not be empty");
-      }
-      for (const key of keys) {
-        assertIdentifier(key, "insert.values key");
-      }
+      assertPredicate(operation.values, "insert.values");
+      continue;
+    }
+
+    if (operation.type === "drop_column") {
+      assertIdentifier(operation.column, "drop_column.column");
+      continue;
+    }
+
+    if (operation.type === "alter_column_type") {
+      assertIdentifier(operation.column, "alter_column_type.column");
+      assertColumnType(operation.newType, "alter_column_type.newType");
+      continue;
+    }
+
+    if (operation.type === "update") {
+      assertPredicate(operation.values, "update.values");
+      assertPredicate(operation.where, "update.where");
+      continue;
+    }
+
+    if (operation.type === "delete") {
+      assertPredicate(operation.where, "delete.where");
     }
   }
 }

@@ -32,7 +32,46 @@ export interface InsertOperation {
   values: Record<string, JsonPrimitive>;
 }
 
-export type Operation = CreateTableOperation | AddColumnOperation | InsertOperation;
+export interface DropTableOperation {
+  type: "drop_table";
+  table: string;
+}
+
+export interface DropColumnOperation {
+  type: "drop_column";
+  table: string;
+  column: string;
+}
+
+export interface AlterColumnTypeOperation {
+  type: "alter_column_type";
+  table: string;
+  column: string;
+  newType: string;
+}
+
+export interface UpdateOperation {
+  type: "update";
+  table: string;
+  values: Record<string, JsonPrimitive>;
+  where: Record<string, JsonPrimitive>;
+}
+
+export interface DeleteOperation {
+  type: "delete";
+  table: string;
+  where: Record<string, JsonPrimitive>;
+}
+
+export type Operation =
+  | CreateTableOperation
+  | AddColumnOperation
+  | InsertOperation
+  | DropTableOperation
+  | DropColumnOperation
+  | AlterColumnTypeOperation
+  | UpdateOperation
+  | DeleteOperation;
 
 export interface OperationPlan {
   message: string;
