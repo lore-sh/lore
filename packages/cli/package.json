@@ -1,0 +1,12 @@
+{
+  "name": "@toss/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "toss": "./src/main.ts"
+  },
+  "dependencies": {
+    "@toss/core": "workspace:*"
+  }
+}
