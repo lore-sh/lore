@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -178,5 +178,29 @@ describe("toss core service", () => {
     await applyPlan(insertPath, { dbPath });
 
     expect(() => revertCommit(createCommit.id, { dbPath })).toThrow();
+  });
+
+  test("init can generate skills and AGENTS.md for Claude Code", async () => {
+    const { dir, dbPath } = createTestContext();
+    const result = await initDatabase({ dbPath, generateSkills: true, workspacePath: dir });
+
+    expect(result.generatedSkills).not.toBeNull();
+    if (!result.generatedSkills) {
+      throw new Error("generatedSkills should be present");
+    }
+
+    expect(existsSync(result.generatedSkills.skillPath)).toBe(true);
+    expect(existsSync(join(result.generatedSkills.referencesDir, "context.md"))).toBe(true);
+    expect(existsSync(join(result.generatedSkills.referencesDir, "contracts.md"))).toBe(true);
+    expect(existsSync(result.generatedSkills.agentsPath)).toBe(true);
+
+    const agents = readFileSync(result.generatedSkills.agentsPath, "utf8");
+    const skill = readFileSync(result.generatedSkills.skillPath, "utf8");
+    expect(agents.includes("Unified toss workflow")).toBe(true);
+    expect(skill.includes("name: toss")).toBe(true);
+    expect(skill.includes("Remember Flow (read-before-apply)")).toBe(true);
+    expect(agents.includes("toss:init:skills:start")).toBe(true);
+    expect(skill.includes("pragma_table_info")).toBe(true);
+    expect(skill.includes("retry once")).toBe(true);
   });
 });

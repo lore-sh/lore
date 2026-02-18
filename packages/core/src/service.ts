@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { activeApplyLogs, appendLog, listLogsAscending, listLogsDescending } from "./log";
 import { executeOperations } from "./executors/apply";
 import { executeReadSql } from "./executors/read";
+import { generateSkills, type GeneratedSkills } from "./skills";
 import {
   assertInitialized,
   closeDatabase,
@@ -21,11 +22,19 @@ export interface ServiceOptions {
   dbPath?: string;
 }
 
-export async function initDatabase(options: ServiceOptions = {}): Promise<{ dbPath: string }> {
+export interface InitDatabaseOptions extends ServiceOptions {
+  generateSkills?: boolean;
+  workspacePath?: string;
+}
+
+export async function initDatabase(
+  options: InitDatabaseOptions = {},
+): Promise<{ dbPath: string; generatedSkills: GeneratedSkills | null }> {
   const { db, dbPath } = openDatabase(options.dbPath);
   try {
     initializeStorage(db);
-    return { dbPath };
+    const generatedSkills = options.generateSkills ? await generateSkills(options.workspacePath) : null;
+    return { dbPath, generatedSkills };
   } finally {
     closeDatabase(db);
   }

@@ -16,7 +16,7 @@ function usage(): string {
     "toss CLI (MVP)",
     "",
     "Commands:",
-    "  toss init",
+    "  toss init [--no-skills]",
     "  toss apply --plan <file|->",
     "  toss read --sql \"<SELECT...>\" [--json]",
     "  toss status",
@@ -50,11 +50,19 @@ function summarize(entry: LogEntry): Record<string, unknown> {
 }
 
 async function runInit(args: string[]): Promise<void> {
-  if (args.length > 0) {
-    throw new Error("init does not accept positional arguments");
+  const noSkills = hasFlag(args, "--no-skills");
+  const invalidArgs = args.filter((arg) => arg !== "--no-skills");
+  if (invalidArgs.length > 0) {
+    throw new Error("init accepts only --no-skills");
   }
-  const result = await initDatabase();
+  const result = await initDatabase({ generateSkills: !noSkills, workspacePath: process.cwd() });
   console.log(`Initialized toss database at ${result.dbPath}`);
+  if (result.generatedSkills) {
+    console.log(`Generated skills at ${result.generatedSkills.skillsRoot}`);
+    console.log(`Updated agents file at ${result.generatedSkills.agentsPath}`);
+  } else {
+    console.log("Skipped skill generation (--no-skills)");
+  }
 }
 
 async function runApply(args: string[]): Promise<void> {

@@ -9,7 +9,7 @@
     "@types/bun": "^1.3.3"
   },
   "scripts": {
-    "toss": "bun run --cwd packages/cli src/main.ts",
+    "toss": "bun run ./packages/cli/src/main.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test"
   }

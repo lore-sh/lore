@@ -4,4 +4,6 @@ bun.lock
 *.db-shm
 *.db-wal
 .DS_Store
+.toss/
+AGENTS.md
 private/
