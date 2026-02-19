@@ -61,7 +61,7 @@ export function assertTableHasPrimaryKey(db: Database, table: string): string[] 
 
 export function tableDDL(db: Database, table: string): string | null {
   const row = db
-    .query("SELECT sql FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
+    .query("SELECT sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1")
     .get(table) as { sql: string | null } | null;
   return row?.sql ?? null;
 }
@@ -316,7 +316,7 @@ function normalizeSql(sql: string | null): string | null {
     }
 
     flushSpace(ch);
-    out += ch;
+    out += ch >= "a" && ch <= "z" ? ch.toUpperCase() : ch;
     if (ch === "'") {
       inSingle = true;
     } else if (ch === '"') {

@@ -175,6 +175,21 @@ function readIdentifier(sql: string, start: number): { end: number } {
     throw new TossError("INVALID_OPERATION", "Malformed quoted identifier in CREATE TABLE");
   }
 
+  if (ch === "'") {
+    let i = start + 1;
+    while (i < sql.length) {
+      if (sql[i] === "'") {
+        if (sql[i + 1] === "'") {
+          i += 2;
+          continue;
+        }
+        return { end: i + 1 };
+      }
+      i += 1;
+    }
+    throw new TossError("INVALID_OPERATION", "Malformed single-quoted identifier in CREATE TABLE");
+  }
+
   if (ch === "`") {
     let i = start + 1;
     while (i < sql.length) {
@@ -246,18 +261,778 @@ function rewriteCreateTableName(ddlSql: string, newTable: string): string {
   }
 
   const nameStart = i;
-  const firstIdent = readIdentifier(ddlSql, i);
+  const firstIdent = readIdentifierToken(ddlSql, i);
   i = firstIdent.end;
   i = skipWhitespace(ddlSql, i);
+  let sourceTableName = firstIdent.name;
   if (ddlSql[i] === ".") {
     i += 1;
     i = skipWhitespace(ddlSql, i);
-    const secondIdent = readIdentifier(ddlSql, i);
+    const secondIdent = readIdentifierToken(ddlSql, i);
+    sourceTableName = secondIdent.name;
     i = secondIdent.end;
   }
   const nameEnd = i;
+  const rewritten = `${ddlSql.slice(0, nameStart)}${quoteIdentifier(newTable)}${ddlSql.slice(nameEnd)}`;
+  return rewriteSelfReferentialForeignKeyTargets(rewritten, sourceTableName, newTable);
+}
 
-  return `${ddlSql.slice(0, nameStart)}${quoteIdentifier(newTable)}${ddlSql.slice(nameEnd)}`;
+function readIdentifierToken(sql: string, start: number): { name: string; end: number } {
+  const parsed = parseIdentifierToken(sql, start);
+  if (!parsed) {
+    throw new TossError("INVALID_OPERATION", "Malformed identifier in CREATE TABLE");
+  }
+  return { name: parsed.name, end: parsed.end };
+}
+
+function parseIdentifierToken(sql: string, start: number): { name: string; end: number; quoted: boolean } | null {
+  const ch = sql[start];
+  if (!ch) {
+    return null;
+  }
+
+  if (ch === '"') {
+    let i = start + 1;
+    let name = "";
+    while (i < sql.length) {
+      const cur = sql[i]!;
+      const next = sql[i + 1];
+      if (cur === '"' && next === '"') {
+        name += '"';
+        i += 2;
+        continue;
+      }
+      if (cur === '"') {
+        return { name, end: i + 1, quoted: true };
+      }
+      name += cur;
+      i += 1;
+    }
+    throw new TossError("INVALID_OPERATION", "Malformed quoted identifier in CREATE TABLE");
+  }
+
+  if (ch === "'") {
+    let i = start + 1;
+    let name = "";
+    while (i < sql.length) {
+      const cur = sql[i]!;
+      const next = sql[i + 1];
+      if (cur === "'" && next === "'") {
+        name += "'";
+        i += 2;
+        continue;
+      }
+      if (cur === "'") {
+        return { name, end: i + 1, quoted: true };
+      }
+      name += cur;
+      i += 1;
+    }
+    throw new TossError("INVALID_OPERATION", "Malformed single-quoted identifier in CREATE TABLE");
+  }
+
+  if (ch === "`") {
+    let i = start + 1;
+    let name = "";
+    while (i < sql.length) {
+      const cur = sql[i]!;
+      const next = sql[i + 1];
+      if (cur === "`" && next === "`") {
+        name += "`";
+        i += 2;
+        continue;
+      }
+      if (cur === "`") {
+        return { name, end: i + 1, quoted: true };
+      }
+      name += cur;
+      i += 1;
+    }
+    throw new TossError("INVALID_OPERATION", "Malformed backtick identifier in CREATE TABLE");
+  }
+
+  if (ch === "[") {
+    const end = sql.indexOf("]", start + 1);
+    if (end < 0) {
+      throw new TossError("INVALID_OPERATION", "Malformed bracket identifier in CREATE TABLE");
+    }
+    return { name: sql.slice(start + 1, end), end: end + 1, quoted: true };
+  }
+
+  const isIdentifierStartChar = (ch: string): boolean => /^(?:[_$]|\p{ID_Start})$/u.test(ch);
+  const isIdentifierContinueChar = (ch: string): boolean => /^(?:[_$]|\p{ID_Continue})$/u.test(ch);
+  const readCodePoint = (index: number): { value: string; next: number } | null => {
+    if (index >= sql.length) {
+      return null;
+    }
+    const codePoint = sql.codePointAt(index);
+    if (codePoint === undefined) {
+      return null;
+    }
+    const value = String.fromCodePoint(codePoint);
+    return { value, next: index + value.length };
+  };
+
+  const first = readCodePoint(start);
+  if (!first || !isIdentifierStartChar(first.value)) {
+    return null;
+  }
+
+  let i = first.next;
+  while (i < sql.length) {
+    const next = readCodePoint(i);
+    if (!next || !isIdentifierContinueChar(next.value)) {
+      break;
+    }
+    i = next.next;
+  }
+  return { name: sql.slice(start, i), end: i, quoted: false };
+}
+
+function skipLeadingTrivia(sql: string, start: number): number {
+  let i = start;
+  while (i < sql.length) {
+    i = skipWhitespace(sql, i);
+    const ch = sql[i];
+    const next = sql[i + 1];
+    if (ch === "-" && next === "-") {
+      i += 2;
+      while (i < sql.length && sql[i] !== "\n") {
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      if (end < 0) {
+        throw new TossError("INVALID_OPERATION", "Malformed block comment in CREATE TABLE");
+      }
+      i = end + 2;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+function isWordBoundary(ch: string | undefined): boolean {
+  if (!ch) {
+    return true;
+  }
+  return !/[A-Za-z0-9_]/.test(ch);
+}
+
+function equalsSqliteIdentifier(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+  const asciiIdentifier = /^[A-Za-z0-9_$]+$/;
+  if (!asciiIdentifier.test(left) || !asciiIdentifier.test(right)) {
+    return false;
+  }
+  return left.toUpperCase() === right.toUpperCase();
+}
+
+function rewriteSelfReferentialForeignKeyTargets(ddlSql: string, sourceTable: string, newTable: string): string {
+  const replacements: Array<{ start: number; end: number; value: string }> = [];
+  let i = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (i < ddlSql.length) {
+    const ch = ddlSql[i]!;
+    const next = ddlSql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBacktick) {
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+
+    if (
+      i + 10 <= ddlSql.length &&
+      ddlSql.slice(i, i + 10).toUpperCase() === "REFERENCES" &&
+      isWordBoundary(ddlSql[i - 1]) &&
+      isWordBoundary(ddlSql[i + 10])
+    ) {
+      let j = skipLeadingTrivia(ddlSql, i + 10);
+      const firstStart = j;
+      const first = parseIdentifierToken(ddlSql, firstStart);
+      if (!first) {
+        i += 10;
+        continue;
+      }
+
+      let schemaName: string | null = null;
+      let targetName = first.name;
+      let targetStart = firstStart;
+      let targetEnd = first.end;
+      j = skipLeadingTrivia(ddlSql, first.end);
+      if (ddlSql[j] === ".") {
+        j += 1;
+        j = skipLeadingTrivia(ddlSql, j);
+        const secondStart = j;
+        const second = parseIdentifierToken(ddlSql, secondStart);
+        if (second) {
+          schemaName = first.name;
+          targetName = second.name;
+          targetStart = secondStart;
+          targetEnd = second.end;
+          j = second.end;
+        }
+      }
+
+      const matchesSelf =
+        equalsSqliteIdentifier(targetName, sourceTable) &&
+        (schemaName === null || equalsSqliteIdentifier(schemaName, "main"));
+      if (matchesSelf) {
+        replacements.push({
+          start: targetStart,
+          end: targetEnd,
+          value: quoteIdentifier(newTable),
+        });
+      }
+      i = j;
+      continue;
+    }
+
+    i += 1;
+  }
+
+  if (replacements.length === 0) {
+    return ddlSql;
+  }
+
+  let rewritten = ddlSql;
+  for (const replacement of replacements.toReversed()) {
+    rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`;
+  }
+  return rewritten;
+}
+
+function findCreateTablePayloadRange(ddlSql: string): { start: number; end: number } {
+  let i = 0;
+  let open = -1;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (i < ddlSql.length) {
+    const ch = ddlSql[i]!;
+    const next = ddlSql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBacktick) {
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "(") {
+      if (open < 0) {
+        open = i;
+        depth = 1;
+      } else {
+        depth += 1;
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === ")" && open >= 0) {
+      depth -= 1;
+      if (depth === 0) {
+        return { start: open + 1, end: i };
+      }
+      i += 1;
+      continue;
+    }
+
+    i += 1;
+  }
+
+  throw new TossError("INVALID_OPERATION", "Malformed CREATE TABLE statement: column list not found");
+}
+
+function splitTopLevelCommaList(sql: string): string[] {
+  const segments: string[] = [];
+  let start = 0;
+  let i = 0;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBacktick) {
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ")") {
+      if (depth > 0) {
+        depth -= 1;
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      segments.push(sql.slice(start, i));
+      start = i + 1;
+      i += 1;
+      continue;
+    }
+
+    i += 1;
+  }
+
+  const tail = sql.slice(start);
+  if (tail.trim().length > 0) {
+    segments.push(tail);
+  }
+  return segments;
+}
+
+function findConstraintStart(segment: string, from: number): number {
+  const constraintKeywords = new Set([
+    "CONSTRAINT",
+    "PRIMARY",
+    "NOT",
+    "UNIQUE",
+    "CHECK",
+    "DEFAULT",
+    "COLLATE",
+    "REFERENCES",
+    "GENERATED",
+    "AS",
+  ]);
+  let i = from;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (i < segment.length) {
+    const ch = segment[i]!;
+    const next = segment[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBacktick) {
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ")") {
+      if (depth > 0) {
+        depth -= 1;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (depth === 0 && /[A-Za-z_]/.test(ch) && isWordBoundary(segment[i - 1])) {
+      let j = i + 1;
+      while (j < segment.length && /[A-Za-z_]/.test(segment[j]!)) {
+        j += 1;
+      }
+      const word = segment.slice(i, j).toUpperCase();
+      if (constraintKeywords.has(word) && isWordBoundary(segment[j])) {
+        return i;
+      }
+      i = j;
+      continue;
+    }
+
+    i += 1;
+  }
+
+  return segment.length;
+}
+
+function rewriteColumnSegmentType(segment: string, identifierEnd: number, newType: string): string {
+  let typeStart = identifierEnd;
+  while (typeStart < segment.length && /\s/.test(segment[typeStart]!)) {
+    typeStart += 1;
+  }
+
+  if (typeStart >= segment.length) {
+    return `${segment.trimEnd()} ${newType}`;
+  }
+
+  const constraintStart = findConstraintStart(segment, typeStart);
+  const prefix = segment.slice(0, typeStart).trimEnd();
+  const suffix = segment.slice(constraintStart).trimStart();
+  if (suffix.length === 0) {
+    return `${prefix} ${newType}`;
+  }
+  return `${prefix} ${newType} ${suffix}`;
+}
+
+function rewriteColumnTypeInCreateTable(ddlSql: string, column: string, newType: string): string {
+  const payloadRange = findCreateTablePayloadRange(ddlSql);
+  const payload = ddlSql.slice(payloadRange.start, payloadRange.end);
+  const segments = splitTopLevelCommaList(payload);
+  const tableConstraintLead = new Set(["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"]);
+  let rewritten = false;
+
+  const rewrittenSegments = segments.map((segment) => {
+    const lead = parseIdentifierToken(segment, skipLeadingTrivia(segment, 0));
+    if (!lead) {
+      return segment;
+    }
+    if (!lead.quoted && tableConstraintLead.has(lead.name.toUpperCase())) {
+      return segment;
+    }
+    if (lead.name !== column) {
+      return segment;
+    }
+    rewritten = true;
+    return rewriteColumnSegmentType(segment, lead.end, newType);
+  });
+
+  if (!rewritten) {
+    throw new TossError("INVALID_OPERATION", `Column does not exist in CREATE TABLE SQL: ${column}`);
+  }
+
+  return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;
 }
 
 function executeRestoreTable(db: Database, operation: RestoreTableOperation): void {
@@ -311,8 +1086,8 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
 
 function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperation): void {
   const newType = normalizeColumnType(operation.newType);
-  const tableName = quoteIdentifier(operation.table);
-  const tableInfo = db.query(`PRAGMA table_info(${tableName})`).all() as TableInfoRow[];
+  const requestedTableName = quoteIdentifier(operation.table);
+  const tableInfo = db.query(`PRAGMA table_info(${requestedTableName})`).all() as TableInfoRow[];
   if (tableInfo.length === 0) {
     throw new TossError("INVALID_OPERATION", `Table does not exist: ${operation.table}`);
   }
@@ -322,6 +1097,16 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
     throw new TossError("INVALID_OPERATION", `Column does not exist: ${operation.table}.${operation.column}`);
   }
 
+  const tableDdlRow = db
+    .query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1")
+    .get(operation.table) as { name: string; sql: string | null } | null;
+  if (!tableDdlRow?.sql) {
+    throw new TossError("INVALID_OPERATION", `Table DDL is not available: ${operation.table}`);
+  }
+  const resolvedTableName = tableDdlRow.name;
+  const tableName = quoteIdentifier(resolvedTableName);
+  const rewrittenDdl = rewriteColumnTypeInCreateTable(tableDdlRow.sql, operation.column, newType);
+
   const secondaryObjects = db
     .query(
       `
@@ -330,24 +1115,10 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
       WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
       `,
     )
-    .all(operation.table) as Array<{ type: "index" | "trigger"; name: string; sql: string }>;
+    .all(resolvedTableName) as Array<{ type: "index" | "trigger"; name: string; sql: string }>;
 
   const tempTable = `__toss_tmp_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTempTable = quoteIdentifier(tempTable);
-  const columnDefinitions = tableInfo.map((column) => {
-    const typeToken = column.name === operation.column ? newType : normalizeColumnType(column.type || "TEXT");
-    const tokens = [quoteIdentifier(column.name), typeToken];
-    if (column.notnull === 1) {
-      tokens.push("NOT NULL");
-    }
-    if (column.dflt_value !== null) {
-      tokens.push("DEFAULT", column.dflt_value);
-    }
-    if (column.pk > 0) {
-      tokens.push("PRIMARY KEY");
-    }
-    return tokens.join(" ");
-  });
 
   const columnList = tableInfo.map((column) => quoteIdentifier(column.name)).join(", ");
   const selectList = tableInfo
@@ -360,13 +1131,26 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
     })
     .join(", ");
 
-  db.run(`CREATE TABLE ${quotedTempTable} (${columnDefinitions.join(", ")})`);
-  db.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${tableName}`);
-  db.run(`DROP TABLE ${tableName}`);
-  db.run(`ALTER TABLE ${quotedTempTable} RENAME TO ${tableName}`);
+  db.run("SAVEPOINT toss_alter_column_type");
+  try {
+    db.run(rewriteCreateTableName(rewrittenDdl, tempTable));
+    db.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${tableName}`);
+    db.run(`DROP TABLE ${tableName}`);
+    db.run(`ALTER TABLE ${quotedTempTable} RENAME TO ${tableName}`);
 
-  for (const object of secondaryObjects) {
-    db.run(object.sql);
+    for (const object of secondaryObjects) {
+      db.run(object.sql);
+    }
+    db.run("RELEASE toss_alter_column_type");
+  } catch (error) {
+    try {
+      db.run(`DROP TABLE IF EXISTS ${quotedTempTable}`);
+    } catch {
+      // no-op
+    }
+    db.run("ROLLBACK TO toss_alter_column_type");
+    db.run("RELEASE toss_alter_column_type");
+    throw error;
   }
 }
 

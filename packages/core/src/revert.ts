@@ -114,9 +114,6 @@ export function fetchLaterEffects(db: Database, seq: number): { rows: StoredRowE
 function primitiveValues(row: Record<string, unknown>): Record<string, JsonPrimitive> {
   const values: Record<string, JsonPrimitive> = {};
   for (const [key, value] of Object.entries(row)) {
-    if (key === "__toss_rowid") {
-      continue;
-    }
     if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       values[key] = value;
       continue;
