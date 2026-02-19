@@ -6,6 +6,7 @@ import {
   COMMIT_TABLE,
   openDatabase,
   runInTransactionWithDeferredForeignKeys,
+  tableExists,
 } from "./db";
 import { TossError, isTossError } from "./errors";
 import {
@@ -27,13 +28,6 @@ import {
 import { schemaHash } from "./rows";
 import type { DatabaseOptions, RevertConflict, RevertResult } from "./types";
 import type { Database } from "bun:sqlite";
-
-function tableExists(db: Database, tableName: string): boolean {
-  const row = db
-    .query("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
-    .get(tableName) as { ok?: number } | null;
-  return row?.ok === 1;
-}
 
 export function detectSchemaConflicts(
   schemaEffects: StoredSchemaEffect[],

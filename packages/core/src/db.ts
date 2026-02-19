@@ -172,7 +172,7 @@ export function initializeStorage(db: Database): void {
   `).run(MAIN_REF_NAME, now);
 }
 
-function hasTable(db: Database, name: string): boolean {
+export function tableExists(db: Database, name: string): boolean {
   const row = db
     .query("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
     .get(name) as { ok?: number } | null;
@@ -192,7 +192,7 @@ export function isInitialized(db: Database): boolean {
     SNAPSHOT_TABLE,
   ];
   for (const table of requiredTables) {
-    if (!hasTable(db, table)) {
+    if (!tableExists(db, table)) {
       return false;
     }
   }

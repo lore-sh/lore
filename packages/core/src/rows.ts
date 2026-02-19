@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { listUserTables } from "./db";
 import { TossError } from "./errors";
-import { quoteIdentifier } from "./sql";
+import { isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "./sql";
 import type { JsonObject, JsonPrimitive } from "./types";
 
 export interface TableInfoRow {
@@ -418,13 +418,6 @@ function normalizeSql(sql: string | null): string | null {
   return out.trim();
 }
 
-function isWordBoundary(char: string | undefined): boolean {
-  if (!char) {
-    return true;
-  }
-  return !/[A-Za-z0-9_]/.test(char);
-}
-
 function readQuotedIdentifier(segment: string, start: number): { raw: string; next: number } | null {
   const quote = segment[start];
   if (!quote || (quote !== '"' && quote !== "`" && quote !== "[")) {
@@ -483,141 +476,6 @@ function leadingIdentifier(segment: string): { name: string; next: number } | nu
   return { name: bare.raw, next: bare.next };
 }
 
-function splitTopLevelCommaList(payload: string): string[] {
-  const parts: string[] = [];
-  let start = 0;
-  let i = 0;
-  let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-
-  while (i < payload.length) {
-    const ch = payload[i]!;
-    const next = payload[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-
-    if (ch === "(") {
-      depth += 1;
-      i += 1;
-      continue;
-    }
-    if (ch === ")") {
-      if (depth > 0) {
-        depth -= 1;
-      }
-      i += 1;
-      continue;
-    }
-    if (ch === "," && depth === 0) {
-      parts.push(payload.slice(start, i).trim());
-      start = i + 1;
-      i += 1;
-      continue;
-    }
-
-    i += 1;
-  }
-  const tail = payload.slice(start).trim();
-  if (tail.length > 0) {
-    parts.push(tail);
-  }
-  return parts;
-}
-
 function parseColumnDefinitionsFromCreateTable(tableSql: string | null): Map<string, string> {
   const defs = new Map<string, string>();
   if (!tableSql) {
@@ -635,7 +493,7 @@ function parseColumnDefinitionsFromCreateTable(tableSql: string | null): Map<str
 
   const payload = tableSql.slice(open + 1, end);
   const segments = splitTopLevelCommaList(payload);
-  const tableConstraint = /^(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)\b/i;
+  const tableConstraint = /^\s*(CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)\b/i;
   for (const segment of segments) {
     if (tableConstraint.test(segment)) {
       continue;

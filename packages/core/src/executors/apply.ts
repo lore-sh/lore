@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { TossError } from "../errors";
 import { type TableInfoRow, whereClauseFromRecord } from "../rows";
-import { COLUMN_TYPE_PATTERN, quoteIdentifier } from "../sql";
+import { COLUMN_TYPE_PATTERN, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "../sql";
 import type {
   AddColumnOperation,
   AlterColumnTypeOperation,
@@ -342,13 +342,6 @@ function skipLeadingTrivia(sql: string, start: number): number {
   return i;
 }
 
-function isWordBoundary(ch: string | undefined): boolean {
-  if (!ch) {
-    return true;
-  }
-  return !/[A-Za-z0-9_]/.test(ch);
-}
-
 function equalsSqliteIdentifier(left: string, right: string): boolean {
   if (left === right) {
     return true;
@@ -641,135 +634,6 @@ function findCreateTablePayloadRange(ddlSql: string): { start: number; end: numb
   }
 
   throw new TossError("INVALID_OPERATION", "Malformed CREATE TABLE statement: column list not found");
-}
-
-function splitTopLevelCommaList(sql: string): string[] {
-  const segments: string[] = [];
-  let start = 0;
-  let i = 0;
-  let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-
-    if (ch === "(") {
-      depth += 1;
-      i += 1;
-      continue;
-    }
-    if (ch === ")") {
-      if (depth > 0) {
-        depth -= 1;
-      }
-      i += 1;
-      continue;
-    }
-    if (ch === "," && depth === 0) {
-      segments.push(sql.slice(start, i));
-      start = i + 1;
-      i += 1;
-      continue;
-    }
-
-    i += 1;
-  }
-
-  const tail = sql.slice(start);
-  if (tail.trim().length > 0) {
-    segments.push(tail);
-  }
-  return segments;
 }
 
 function findConstraintStart(segment: string, from: number): number {

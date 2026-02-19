@@ -1,10 +1,10 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
-import { listUserTables } from "./db";
+import { listUserTables, tableExists } from "./db";
 import { TossError } from "./errors";
 import { executeOperation } from "./executors/apply";
 import { primaryKeyColumns, tableDDL, tableInfo } from "./rows";
-import { quoteIdentifier } from "./sql";
+import { quoteIdentifier, quoteName } from "./sql";
 import type {
   EncodedCell,
   EncodedRow,
@@ -157,16 +157,9 @@ export function isSystemSideEffectTable(table: string): boolean {
   return isSystemSequenceTable(table);
 }
 
-function hasPhysicalTable(db: Database, table: string): boolean {
-  const row = db
-    .query("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
-    .get(table) as { ok?: number } | null;
-  return row?.ok === 1;
-}
-
 function observedTableNames(db: Database): string[] {
   const names = new Set(listUserTables(db));
-  if (hasPhysicalTable(db, "sqlite_sequence")) {
+  if (tableExists(db, "sqlite_sequence")) {
     names.add("sqlite_sequence");
   }
   return [...names].sort((a, b) => a.localeCompare(b));
@@ -499,13 +492,6 @@ function deleteByPk(db: Database, table: string, pk: Record<string, string>): vo
   db.run(`DELETE FROM ${quoteIdentifier(table)} WHERE ${toPkWhereClause(pk)}`);
 }
 
-function tableExists(db: Database, table: string): boolean {
-  const row = db
-    .query("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
-    .get(table) as { ok?: number } | null;
-  return row?.ok === 1;
-}
-
 function referencedTables(db: Database, table: string): string[] {
   if (!tableExists(db, table)) {
     return [];
@@ -516,10 +502,6 @@ function referencedTables(db: Database, table: string): string[] {
 
 function missingReferencedTables(db: Database, table: string): string[] {
   return referencedTables(db, table).filter((refTable) => !tableExists(db, refTable));
-}
-
-function quoteSqliteObjectName(name: string): string {
-  return `"${name.replaceAll('"', '""')}"`;
 }
 
 function effectRowMode(
@@ -648,7 +630,7 @@ function dropTriggersForTables(
       .query("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC")
       .all(table) as Array<{ name: string; sql: string }>;
     for (const row of rows) {
-      db.run(`DROP TRIGGER IF EXISTS ${quoteSqliteObjectName(row.name)}`);
+      db.run(`DROP TRIGGER IF EXISTS ${quoteName(row.name)}`);
       dropped.push({ name: row.name, sql: row.sql });
     }
   }
