@@ -1,4 +1,4 @@
-import { dirnameOf, joinPath, resolveFromCwd } from "./pathing";
+import { dirname, resolve } from "node:path";
 
 const AGENTS_BLOCK_START = "<!-- toss:init:skills:start -->";
 const AGENTS_BLOCK_END = "<!-- toss:init:skills:end -->";
@@ -199,7 +199,7 @@ function agentsBlock(skills: GeneratedSkills): string {
 - For reads: generate read-only SQL only.
 - For destructive changes: run \`toss history --verbose\` and \`toss verify --quick\` before apply.
 - If \`toss revert\` returns conflicts, present conflict details and propose a staged migration plan.
-- Execution: Skills should call toss through \`bun run --cwd "${dirnameOf(skills.agentsPath)}" toss ...\`.
+- Execution: Skills should call toss through \`bun run --cwd "${dirname(skills.agentsPath)}" toss ...\`.
 ${AGENTS_BLOCK_END}
 `;
 }
@@ -227,14 +227,14 @@ async function upsertAgentsFile(path: string, block: string): Promise<void> {
 }
 
 export async function generateSkills(workspacePathInput?: string): Promise<GeneratedSkills> {
-  const workspacePath = resolveFromCwd(workspacePathInput ?? ".");
-  const skillsRoot = joinPath(workspacePath, ".toss", "skills");
-  const skillDir = joinPath(skillsRoot, "toss");
-  const referencesDir = joinPath(skillDir, "references");
-  const skillPath = joinPath(skillDir, "SKILL.md");
-  const contextPath = joinPath(referencesDir, "context.md");
-  const contractsPath = joinPath(referencesDir, "contracts.md");
-  const agentsPath = joinPath(workspacePath, "AGENTS.md");
+  const workspacePath = resolve(process.cwd(), workspacePathInput ?? ".");
+  const skillsRoot = resolve(workspacePath, ".toss", "skills");
+  const skillDir = resolve(skillsRoot, "toss");
+  const referencesDir = resolve(skillDir, "references");
+  const skillPath = resolve(skillDir, "SKILL.md");
+  const contextPath = resolve(referencesDir, "context.md");
+  const contractsPath = resolve(referencesDir, "contracts.md");
+  const agentsPath = resolve(workspacePath, "AGENTS.md");
 
   await Promise.all([
     Bun.write(skillPath, tossSkillContent(workspacePath)),

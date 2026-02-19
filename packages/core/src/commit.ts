@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
-import { assertInitialized, closeDatabase, openDatabase, runInTransaction } from "./db";
+import { runInTransaction, withInitializedDatabaseAsync } from "./db";
 import { executeOperation } from "./executors/apply";
 import { appendCommit, getHeadCommit, getNextCommitSeq } from "./log";
 import { captureObservedState, diffObservedState, type CapturedObservedState } from "./observed";
@@ -58,11 +58,8 @@ export async function applyPlan(planRef: string, options: DatabaseOptions = {}):
   const payload = await readPlanInput(planRef);
   const plan = parseAndValidateOperationPlan(payload);
 
-  const { db, dbPath } = openDatabase(options.dbPath);
-  let commit: CommitEntry;
-  try {
-    assertInitialized(db, dbPath);
-    commit = runInTransaction(db, () => {
+  const { commit, dbPath } = await withInitializedDatabaseAsync(options, async ({ db, dbPath }) => {
+    const commit = runInTransaction(db, () => {
       const beforeSchemaHash = schemaHash(db);
       const beforeObservedState = captureObservedState(db);
       for (const operation of plan.operations) {
@@ -77,9 +74,8 @@ export async function applyPlan(planRef: string, options: DatabaseOptions = {}):
         beforeObservedState,
       });
     });
-  } finally {
-    closeDatabase(db);
-  }
+    return { commit, dbPath };
+  });
 
   const { maybeCreateSnapshot } = await import("./snapshot");
   await maybeCreateSnapshot(dbPath, commit);

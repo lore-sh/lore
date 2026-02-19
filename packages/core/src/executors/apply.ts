@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { getRow, getRows, runInSavepoint } from "../db";
 import { TossError } from "../errors";
 import { type TableInfoRow, whereClauseFromRecord } from "../rows";
 import { COLUMN_TYPE_PATTERN, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "../sql";
@@ -846,15 +847,15 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new TossError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
     }
-    const cell = value as { storageClass?: unknown; sqlLiteral?: unknown };
-    if (isSqlStorageClass(cell.storageClass) && typeof cell.sqlLiteral === "string") {
-      return cell.sqlLiteral;
+    const storageClass = "storageClass" in value ? value.storageClass : undefined;
+    const sqlLiteral = "sqlLiteral" in value ? value.sqlLiteral : undefined;
+    if (isSqlStorageClass(storageClass) && typeof sqlLiteral === "string") {
+      return sqlLiteral;
     }
     throw new TossError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
   };
 
-  db.run("SAVEPOINT toss_restore_table");
-  try {
+  runInSavepoint(db, "toss_restore_table", () => {
     db.run(rewriteCreateTableName(operation.ddlSql, tmpTable));
     const first = operation.rows?.[0];
     if (first) {
@@ -881,23 +882,13 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
     for (const object of operation.secondaryObjects ?? []) {
       db.run(object.sql);
     }
-    db.run("RELEASE toss_restore_table");
-  } catch (error) {
-    try {
-      db.run(`DROP TABLE IF EXISTS ${quotedTmp}`);
-    } catch {
-      // no-op
-    }
-    db.run("ROLLBACK TO toss_restore_table");
-    db.run("RELEASE toss_restore_table");
-    throw error;
-  }
+  });
 }
 
 function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperation): void {
   const newType = normalizeColumnType(operation.newType);
   const requestedTableName = quoteIdentifier(operation.table);
-  const tableInfo = db.query(`PRAGMA table_info(${requestedTableName})`).all() as TableInfoRow[];
+  const tableInfo = getRows<TableInfoRow>(db, `PRAGMA table_info(${requestedTableName})`);
   if (tableInfo.length === 0) {
     throw new TossError("INVALID_OPERATION", `Table does not exist: ${operation.table}`);
   }
@@ -907,9 +898,11 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
     throw new TossError("INVALID_OPERATION", `Column does not exist: ${operation.table}.${operation.column}`);
   }
 
-  const tableDdlRow = db
-    .query("SELECT name, sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1")
-    .get(operation.table) as { name: string; sql: string | null } | null;
+  const tableDdlRow = getRow<{ name: string; sql: string | null }>(
+    db,
+    "SELECT name, sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
+    operation.table,
+  );
   if (!tableDdlRow?.sql) {
     throw new TossError("INVALID_OPERATION", `Table DDL is not available: ${operation.table}`);
   }
@@ -917,15 +910,15 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
   const tableName = quoteIdentifier(resolvedTableName);
   const rewrittenDdl = rewriteColumnTypeInCreateTable(tableDdlRow.sql, operation.column, newType);
 
-  const secondaryObjects = db
-    .query(
-      `
+  const secondaryObjects = getRows<{ type: "index" | "trigger"; name: string; sql: string }>(
+    db,
+    `
       SELECT type, name, sql
       FROM sqlite_master
       WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
       `,
-    )
-    .all(resolvedTableName) as Array<{ type: "index" | "trigger"; name: string; sql: string }>;
+    resolvedTableName,
+  );
 
   const tempTable = `__toss_tmp_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTempTable = quoteIdentifier(tempTable);
@@ -941,8 +934,7 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
     })
     .join(", ");
 
-  db.run("SAVEPOINT toss_alter_column_type");
-  try {
+  runInSavepoint(db, "toss_alter_column_type", () => {
     db.run(rewriteCreateTableName(rewrittenDdl, tempTable));
     db.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${tableName}`);
     db.run(`DROP TABLE ${tableName}`);
@@ -951,17 +943,7 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
     for (const object of secondaryObjects) {
       db.run(object.sql);
     }
-    db.run("RELEASE toss_alter_column_type");
-  } catch (error) {
-    try {
-      db.run(`DROP TABLE IF EXISTS ${quotedTempTable}`);
-    } catch {
-      // no-op
-    }
-    db.run("ROLLBACK TO toss_alter_column_type");
-    db.run("RELEASE toss_alter_column_type");
-    throw error;
-  }
+  });
 }
 
 export function executeOperation(db: Database, operation: Operation): void {

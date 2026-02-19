@@ -2,12 +2,13 @@ import type { Database } from "bun:sqlite";
 import { canonicalJson } from "./checksum";
 import { appendCommitFromObservedChange } from "./commit";
 import {
-  assertInitialized,
-  closeDatabase,
   COMMIT_TABLE,
-  openDatabase,
+  getRow,
+  getRows,
+  runInSavepoint,
   runInTransactionWithDeferredForeignKeys,
   tableExists,
+  withInitializedDatabase,
 } from "./db";
 import { TossError, isTossError } from "./errors";
 import {
@@ -127,9 +128,7 @@ export function detectRowConflict(
 }
 
 export function fetchLaterEffects(db: Database, seq: number): { rows: StoredRowEffect[]; schemas: StoredSchemaEffect[] } {
-  const laterCommits = db
-    .query(`SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`)
-    .all(seq) as Array<{ commit_id: string }>;
+  const laterCommits = getRows<{ commit_id: string }>(db, `SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`, seq);
   const rows: StoredRowEffect[] = [];
   const schemas: StoredSchemaEffect[] = [];
   for (const commit of laterCommits) {
@@ -175,28 +174,26 @@ function preflightInverseApply(
   targetRows: StoredRowEffect[],
   targetSchemas: StoredSchemaEffect[],
 ): RevertConflict[] {
-  db.run("SAVEPOINT toss_revert_preflight");
   try {
-    applyUserRowAndSchemaEffects(db, targetRows, targetSchemas, "inverse", {
-      disableTableTriggers: true,
-    });
-    applyRowEffectsWithOptions(db, targetRows, "inverse", {
-      disableTableTriggers: true,
-      includeUserEffects: false,
-      includeSystemEffects: true,
-      systemPolicy: "reconcile",
-    });
-    assertNoForeignKeyViolations(db, "REVERT_FAILED", "revert preflight");
-    db.run("ROLLBACK TO toss_revert_preflight");
-    db.run("RELEASE toss_revert_preflight");
+    runInSavepoint(
+      db,
+      "toss_revert_preflight",
+      () => {
+        applyUserRowAndSchemaEffects(db, targetRows, targetSchemas, "inverse", {
+          disableTableTriggers: true,
+        });
+        applyRowEffectsWithOptions(db, targetRows, "inverse", {
+          disableTableTriggers: true,
+          includeUserEffects: false,
+          includeSystemEffects: true,
+          systemPolicy: "reconcile",
+        });
+        assertNoForeignKeyViolations(db, "REVERT_FAILED", "revert preflight");
+      },
+      { rollbackOnSuccess: true },
+    );
     return [];
   } catch (error) {
-    try {
-      db.run("ROLLBACK TO toss_revert_preflight");
-      db.run("RELEASE toss_revert_preflight");
-    } catch {
-      // no-op
-    }
     if (isTossError(error) && error.code === "REVERT_FAILED") {
       return [{ kind: "schema", table: "(unknown)", reason: error.message }];
     }
@@ -209,9 +206,7 @@ function preflightInverseApply(
 }
 
 export function revertCommit(commitId: string, options: DatabaseOptions = {}): RevertResult {
-  const { db, dbPath } = openDatabase(options.dbPath);
-  try {
-    assertInitialized(db, dbPath);
+  return withInitializedDatabase(options, ({ db }) => {
     return runInTransactionWithDeferredForeignKeys(db, () => {
       const targetCommit = getCommitById(db, commitId);
       if (!targetCommit) {
@@ -221,9 +216,11 @@ export function revertCommit(commitId: string, options: DatabaseOptions = {}): R
         throw new TossError("REVERT_UNSUPPORTED", `Commit ${commitId} has no inverse metadata`);
       }
 
-      const already = db
-        .query(`SELECT 1 AS ok FROM ${COMMIT_TABLE} WHERE kind='revert' AND reverted_target_id=? LIMIT 1`)
-        .get(commitId) as { ok?: number } | null;
+      const already = getRow<{ ok?: number }>(
+        db,
+        `SELECT 1 AS ok FROM ${COMMIT_TABLE} WHERE kind='revert' AND reverted_target_id=? LIMIT 1`,
+        commitId,
+      );
       if (already?.ok === 1) {
         throw new TossError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
       }
@@ -264,7 +261,5 @@ export function revertCommit(commitId: string, options: DatabaseOptions = {}): R
       });
       return { ok: true, revertCommit: revertCommitEntry };
     });
-  } finally {
-    closeDatabase(db);
-  }
+  });
 }

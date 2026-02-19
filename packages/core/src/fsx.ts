@@ -1,14 +1,15 @@
 function isEnoent(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
+  return Boolean(error && typeof error === "object" && Reflect.get(error, "code") === "ENOENT");
 }
 
 export async function deleteIfExists(path: string): Promise<void> {
   try {
     await Bun.file(path).delete();
   } catch (error) {
-    if (!isEnoent(error)) {
-      throw error;
+    if (isEnoent(error)) {
+      return;
     }
+    throw error;
   }
 }
 

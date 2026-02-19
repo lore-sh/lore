@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { assertInitialized, closeDatabase, ENGINE_META_TABLE, openDatabase } from "./db";
+import { ENGINE_META_TABLE, getRow, withInitializedDatabase } from "./db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./log";
 import type { DatabaseOptions, VerifyResult } from "./types";
 
@@ -13,9 +13,7 @@ export function putMeta(db: Database, key: string, value: string): void {
 }
 
 export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {}): VerifyResult {
-  const { db, dbPath } = openDatabase(options.dbPath);
-  try {
-    assertInitialized(db, dbPath);
+  return withInitializedDatabase(options, ({ db }) => {
     const mode = options.full ? "full" : "quick";
     const issues: string[] = [];
 
@@ -45,7 +43,7 @@ export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {
       }
     }
 
-    const quickCheckRow = db.query("PRAGMA quick_check").get() as { quick_check: string } | null;
+    const quickCheckRow = getRow<{ quick_check: string }>(db, "PRAGMA quick_check");
     const quickCheck = quickCheckRow?.quick_check ?? "unknown";
     if (quickCheck.toLowerCase() !== "ok") {
       issues.push(`quick_check failed: ${quickCheck}`);
@@ -53,7 +51,7 @@ export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {
 
     let integrityCheck: string | undefined;
     if (options.full) {
-      const integrityRow = db.query("PRAGMA integrity_check").get() as { integrity_check: string } | null;
+      const integrityRow = getRow<{ integrity_check: string }>(db, "PRAGMA integrity_check");
       integrityCheck = integrityRow?.integrity_check ?? "unknown";
       if (integrityCheck.toLowerCase() !== "ok") {
         issues.push(`integrity_check failed: ${integrityCheck}`);
@@ -77,7 +75,5 @@ export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {
       issues,
       checkedAt,
     };
-  } finally {
-    closeDatabase(db);
-  }
+  });
 }

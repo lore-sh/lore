@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
-import { listUserTables } from "./db";
+import { getRow, getRows, listUserTables } from "./db";
 import { TossError } from "./errors";
 import { isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "./sql";
 import type { JsonObject, JsonPrimitive } from "./types";
@@ -41,7 +41,7 @@ export function normalizeRowObject(row: Record<string, unknown>): JsonObject {
 }
 
 export function tableInfo(db: Database, table: string): TableInfoRow[] {
-  return db.query(`PRAGMA table_info(${quoteIdentifier(table)})`).all() as TableInfoRow[];
+  return getRows<TableInfoRow>(db, `PRAGMA table_info(${quoteIdentifier(table)})`);
 }
 
 export function primaryKeyColumns(db: Database, table: string): string[] {
@@ -60,9 +60,11 @@ export function assertTableHasPrimaryKey(db: Database, table: string): string[] 
 }
 
 export function tableDDL(db: Database, table: string): string | null {
-  const row = db
-    .query("SELECT sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1")
-    .get(table) as { sql: string | null } | null;
+  const row = getRow<{ sql: string | null }>(
+    db,
+    "SELECT sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
+    table,
+  );
   return row?.sql ?? null;
 }
 
@@ -99,13 +101,11 @@ export function fetchRowsByWhere(
 ): Array<Record<string, unknown>> {
   const { clause, bindings } = whereClauseFromRecord(where);
   const sql = `SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause}`;
-  return db.query(sql).all(...bindings) as Array<Record<string, unknown>>;
+  return getRows<Record<string, unknown>>(db, sql, ...bindings);
 }
 
 export function fetchAllRows(db: Database, table: string): JsonObject[] {
-  const rows = db.query(`SELECT * FROM ${quoteIdentifier(table)} ORDER BY rowid ASC`).all() as Array<
-    Record<string, unknown>
-  >;
+  const rows = getRows<Record<string, unknown>>(db, `SELECT * FROM ${quoteIdentifier(table)} ORDER BY rowid ASC`);
   return rows.map((row) => normalizeRowObject(row));
 }
 
@@ -133,9 +133,7 @@ export function fetchRowByPk(
   pk: Record<string, JsonPrimitive>,
 ): Record<string, unknown> | null {
   const { clause, bindings } = whereClauseFromRecord(pk);
-  return db
-    .query(`SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause} LIMIT 1`)
-    .get(...bindings) as Record<string, unknown> | null;
+  return getRow<Record<string, unknown>>(db, `SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause} LIMIT 1`, ...bindings);
 }
 
 interface TableListRow {
@@ -608,7 +606,7 @@ function extractCheckConstraints(tableSql: string | null): string[] {
 
 export function schemaHash(db: Database): string {
   const tables = listUserTables(db);
-  const tableList = db.query("PRAGMA table_list").all() as TableListRow[];
+  const tableList = getRows<TableListRow>(db, "PRAGMA table_list");
   const tableOpts = new Map(
     tableList
       .filter((row) => row.schema === "main" && row.type === "table")
@@ -623,7 +621,7 @@ export function schemaHash(db: Database): string {
       tableSql: normalizeSql(tableDdl),
       table,
       options: tableOpts.get(table) ?? { withoutRowid: false, strict: false },
-      columns: (db.query(`PRAGMA table_xinfo(${pragmaLiteral(table)})`).all() as TableXInfoRow[])
+      columns: getRows<TableXInfoRow>(db, `PRAGMA table_xinfo(${pragmaLiteral(table)})`)
         .map((column) => ({
           definitionSql: columnDefs.get(column.name.toLowerCase()) ?? null,
           cid: column.cid,
@@ -636,7 +634,7 @@ export function schemaHash(db: Database): string {
         }))
         .sort((a, b) => a.cid - b.cid),
       foreignKeys: (() => {
-        const rows = db.query(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`).all() as ForeignKeyRow[];
+        const rows = getRows<ForeignKeyRow>(db, `PRAGMA foreign_key_list(${pragmaLiteral(table)})`);
         const byId = new Map<
           number,
           {
@@ -670,12 +668,14 @@ export function schemaHash(db: Database): string {
           }))
           .sort((a, b) => a.id - b.id);
       })(),
-      indexes: (db.query(`PRAGMA index_list(${pragmaLiteral(table)})`).all() as IndexListRow[])
+      indexes: getRows<IndexListRow>(db, `PRAGMA index_list(${pragmaLiteral(table)})`)
         .map((index) => {
-          const indexSqlRow = db
-            .query("SELECT sql FROM sqlite_master WHERE type='index' AND name=? LIMIT 1")
-            .get(index.name) as { sql: string | null } | null;
-          const indexColumns = (db.query(`PRAGMA index_xinfo(${pragmaLiteral(index.name)})`).all() as IndexXInfoRow[])
+          const indexSqlRow = getRow<{ sql: string | null }>(
+            db,
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name=? LIMIT 1",
+            index.name,
+          );
+          const indexColumns = getRows<IndexXInfoRow>(db, `PRAGMA index_xinfo(${pragmaLiteral(index.name)})`)
             .map((entry) => ({
               seqno: entry.seqno,
               cid: entry.cid,
@@ -697,9 +697,11 @@ export function schemaHash(db: Database): string {
         .sort((a, b) => a.name.localeCompare(b.name)),
       checks,
       triggers: (
-        db
-          .query("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? ORDER BY name ASC")
-          .all(table) as Array<{ name: string; sql: string | null }>
+        getRows<{ name: string; sql: string | null }>(
+          db,
+          "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? ORDER BY name ASC",
+          table,
+        )
       ).map((trigger) => ({
         name: trigger.name,
         sql: normalizeSql(trigger.sql),

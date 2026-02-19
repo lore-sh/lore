@@ -1,21 +1,24 @@
 import { Database } from "bun:sqlite";
 import { mkdir, rename } from "fs/promises";
+import { dirname, resolve } from "node:path";
 import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
-import { dirnameOf, joinPath } from "./pathing";
 import { sha256Hex } from "./checksum";
 import {
   assertInitialized,
-  closeDatabase,
   COMMIT_TABLE,
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
+  getRow,
+  getRows,
   getMetaValue,
   listUserTables,
   MAIN_REF_NAME,
-  openDatabase,
   resolveDbPath,
   runInTransactionWithDeferredForeignKeys,
   SNAPSHOT_TABLE,
+  withDatabase,
+  withDatabaseAsync,
+  withInitializedDatabase,
 } from "./db";
 import { TossError } from "./errors";
 import {
@@ -64,8 +67,8 @@ function openStagingWritableDatabase(stagingPath: string): Database {
 
 function countRows(db: Database): number {
   return listUserTables(db).reduce((acc, table) => {
-    const row = db.query(`SELECT COUNT(*) AS c FROM ${quoteIdentifier(table)}`).get() as { c: number };
-    return acc + row.c;
+    const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table)}`);
+    return acc + (row?.c ?? 0);
   }, 0);
 }
 
@@ -73,14 +76,12 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
   const db = new Database(snapshotDbPath, { readonly: true });
   try {
     assertInitialized(db, snapshotDbPath);
-    const head = db
-      .query(`SELECT commit_id FROM _toss_ref WHERE name=? LIMIT 1`)
-      .get(MAIN_REF_NAME) as { commit_id: string | null } | null;
+    const head = getRow<{ commit_id: string | null }>(db, `SELECT commit_id FROM _toss_ref WHERE name=? LIMIT 1`, MAIN_REF_NAME);
     const commitId = head?.commit_id;
     if (!commitId) {
       throw new TossError("SNAPSHOT_FAILED", "Snapshot DB has no HEAD commit");
     }
-    const seqRow = db.query(`SELECT seq FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`).get(commitId) as { seq: number } | null;
+    const seqRow = getRow<{ seq: number }>(db, `SELECT seq FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`, commitId);
     if (!seqRow) {
       throw new TossError("SNAPSHOT_FAILED", `Snapshot commit not found in ${COMMIT_TABLE}: ${commitId}`);
     }
@@ -91,35 +92,29 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
 }
 
 export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): Promise<void> {
-  const { db } = openDatabase(dbPath);
-  try {
+  const shouldCreate = withDatabase({ dbPath }, ({ db }) => {
     const interval = getSnapshotInterval(db);
-    if (interval <= 0 || commit.seq % interval !== 0) {
-      return;
-    }
-  } finally {
-    closeDatabase(db);
+    return interval > 0 && commit.seq % interval === 0;
+  });
+  if (!shouldCreate) {
+    return;
   }
 
-  const snapshotsDir = joinPath(dirnameOf(dbPath), ".toss", "snapshots");
+  const snapshotsDir = resolve(dirname(dbPath), ".toss", "snapshots");
   await mkdir(snapshotsDir, { recursive: true });
-  const tmpSnapshotPath = joinPath(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
+  const tmpSnapshotPath = resolve(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 
-  const { db: snapshotDb } = openDatabase(dbPath);
-  try {
+  withDatabase({ dbPath }, ({ db: snapshotDb }) => {
     snapshotDb.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
-  } finally {
-    closeDatabase(snapshotDb);
-  }
+  });
 
   const snapshotHead = readSnapshotHead(tmpSnapshotPath);
-  const snapshotPath = joinPath(snapshotsDir, `${snapshotHead.seq}-${snapshotHead.commitId}.db`);
+  const snapshotPath = resolve(snapshotsDir, `${snapshotHead.seq}-${snapshotHead.commitId}.db`);
   await deleteWithSidecars(snapshotPath);
   await rename(tmpSnapshotPath, snapshotPath);
   const [digest] = await Promise.all([hashFile(snapshotPath), deleteWithSidecars(tmpSnapshotPath)]);
 
-  const { db: writeDb } = openDatabase(dbPath);
-  try {
+  await withDatabaseAsync({ dbPath }, async ({ db: writeDb }) => {
     writeDb
       .query(
         `INSERT OR REPLACE INTO ${SNAPSHOT_TABLE}(commit_id, file_path, file_sha256, created_at, row_count_hint) VALUES(?, ?, ?, ?, ?)`,
@@ -127,37 +122,31 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
       .run(snapshotHead.commitId, snapshotPath, digest, new Date().toISOString(), snapshotHead.rowCountHint);
 
     const retain = getSnapshotRetain(writeDb);
-    const stale = writeDb
-      .query(
-        `
+    const stale = getRows<{ commit_id: string; file_path: string }>(
+      writeDb,
+      `
         SELECT commit_id, file_path FROM ${SNAPSHOT_TABLE}
         ORDER BY created_at DESC
         LIMIT -1 OFFSET ?
         `,
-      )
-      .all(retain) as Array<{ commit_id: string; file_path: string }>;
+      retain,
+    );
     for (const row of stale) {
       await deleteWithSidecars(row.file_path);
       writeDb.query(`DELETE FROM ${SNAPSHOT_TABLE} WHERE commit_id=?`).run(row.commit_id);
     }
-  } finally {
-    closeDatabase(writeDb);
-  }
+  });
 }
 
 export function listSnapshots(options: DatabaseOptions = {}): SnapshotEntry[] {
-  const { db, dbPath } = openDatabase(options.dbPath);
-  try {
-    assertInitialized(db, dbPath);
-    const rows = db
-      .query(`SELECT commit_id, file_path, file_sha256, created_at, row_count_hint FROM ${SNAPSHOT_TABLE} ORDER BY created_at DESC`)
-      .all() as Array<{
+  return withInitializedDatabase(options, ({ db }) => {
+    const rows = getRows<{
       commit_id: string;
       file_path: string;
       file_sha256: string;
       created_at: string;
       row_count_hint: number;
-    }>;
+    }>(db, `SELECT commit_id, file_path, file_sha256, created_at, row_count_hint FROM ${SNAPSHOT_TABLE} ORDER BY created_at DESC`);
     return rows.map((row) => ({
       commitId: row.commit_id,
       filePath: row.file_path,
@@ -165,15 +154,11 @@ export function listSnapshots(options: DatabaseOptions = {}): SnapshotEntry[] {
       createdAt: row.created_at,
       rowCountHint: row.row_count_hint,
     }));
-  } finally {
-    closeDatabase(db);
-  }
+  });
 }
 
 function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitReplayInput[] {
-  const commitRows = db
-    .query(`SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`)
-    .all(fromSeqExclusive) as Array<{ commit_id: string }>;
+  const commitRows = getRows<{ commit_id: string }>(db, `SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`, fromSeqExclusive);
   const replayCommits: CommitReplayInput[] = [];
   for (const row of commitRows) {
     const commit = getCommitById(db, row.commit_id);
@@ -252,20 +237,18 @@ function resolveSnapshotForRecovery(
   dbPath: string,
   commitId: string,
 ): { snapshotPath: string; replayCommits: CommitReplayInput[] } {
-  const { db } = openDatabase(dbPath);
-  try {
-    assertInitialized(db, dbPath);
-    const snapshot = db
-      .query(
-        `
+  return withInitializedDatabase({ dbPath }, ({ db }) => {
+    const snapshot = getRow<{ file_path: string; seq: number }>(
+      db,
+      `
         SELECT s.file_path, c.seq
         FROM ${SNAPSHOT_TABLE} s
         JOIN ${COMMIT_TABLE} c ON c.commit_id = s.commit_id
         WHERE s.commit_id=?
         LIMIT 1
         `,
-      )
-      .get(commitId) as { file_path: string; seq: number } | null;
+      commitId,
+    );
     if (!snapshot) {
       throw new TossError("NOT_FOUND", `Snapshot not found for commit: ${commitId}`);
     }
@@ -273,9 +256,7 @@ function resolveSnapshotForRecovery(
       snapshotPath: snapshot.file_path,
       replayCommits: loadCommitReplayInputs(db, snapshot.seq),
     };
-  } finally {
-    closeDatabase(db);
-  }
+  });
 }
 
 export async function recoverFromSnapshot(
@@ -289,6 +270,7 @@ export async function recoverFromSnapshot(
   await deleteWithSidecars(stagingPath);
   await Bun.write(stagingPath, Bun.file(snapshotPath));
   const replayDb = openStagingWritableDatabase(stagingPath);
+  let closed = false;
   let promoted = false;
   try {
     assertInitialized(replayDb, stagingPath);
@@ -297,16 +279,16 @@ export async function recoverFromSnapshot(
         replayCommitExactly(replayDb, replay);
       });
     }
-    closeDatabase(replayDb);
+    replayDb.close(false);
+    closed = true;
     await promotePreparedDatabase(stagingPath, dbPath);
     promoted = true;
   } finally {
+    if (!closed) {
+      replayDb.close(false);
+      closed = true;
+    }
     if (!promoted) {
-      try {
-        closeDatabase(replayDb);
-      } catch {
-        // no-op
-      }
       await deleteWithSidecars(stagingPath);
     }
   }

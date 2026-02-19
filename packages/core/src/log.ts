@@ -7,6 +7,8 @@ import {
   COMMIT_TABLE,
   EFFECT_ROW_TABLE,
   EFFECT_SCHEMA_TABLE,
+  getRow,
+  getRows,
   MAIN_REF_NAME,
   OP_TABLE,
   REFLOG_TABLE,
@@ -51,12 +53,16 @@ interface RawCommitRow {
 }
 
 function decodeCommit(db: Database, row: RawCommitRow): CommitEntry {
-  const parents = db
-    .query(`SELECT parent_commit_id FROM ${COMMIT_PARENT_TABLE} WHERE commit_id=? ORDER BY ord ASC`)
-    .all(row.commit_id) as Array<{ parent_commit_id: string }>;
-  const operations = db
-    .query(`SELECT op_json FROM ${OP_TABLE} WHERE commit_id=? ORDER BY op_index ASC`)
-    .all(row.commit_id) as Array<{ op_json: string }>;
+  const parents = getRows<{ parent_commit_id: string }>(
+    db,
+    `SELECT parent_commit_id FROM ${COMMIT_PARENT_TABLE} WHERE commit_id=? ORDER BY ord ASC`,
+    row.commit_id,
+  );
+  const operations = getRows<{ op_json: string }>(
+    db,
+    `SELECT op_json FROM ${OP_TABLE} WHERE commit_id=? ORDER BY op_index ASC`,
+    row.commit_id,
+  );
 
   return {
     commitId: row.commit_id,
@@ -77,9 +83,7 @@ function decodeCommit(db: Database, row: RawCommitRow): CommitEntry {
 }
 
 export function getHeadCommitId(db: Database): string | null {
-  const row = db.query(`SELECT commit_id FROM ${REF_TABLE} WHERE name=? LIMIT 1`).get(MAIN_REF_NAME) as
-    | { commit_id: string | null }
-    | null;
+  const row = getRow<{ commit_id: string | null }>(db, `SELECT commit_id FROM ${REF_TABLE} WHERE name=? LIMIT 1`, MAIN_REF_NAME);
   return row?.commit_id ?? null;
 }
 
@@ -92,7 +96,10 @@ export function getHeadCommit(db: Database): CommitEntry | null {
 }
 
 export function getNextCommitSeq(db: Database): number {
-  const row = db.query(`SELECT COALESCE(MAX(seq), 0) AS max_seq FROM ${COMMIT_TABLE}`).get() as { max_seq: number };
+  const row = getRow<{ max_seq: number }>(db, `SELECT COALESCE(MAX(seq), 0) AS max_seq FROM ${COMMIT_TABLE}`);
+  if (!row) {
+    return 1;
+  }
   return row.max_seq + 1;
 }
 
@@ -234,12 +241,15 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
     `,
   ).run(MAIN_REF_NAME, oldHead, commitId, input.kind === "revert" ? "revert" : "apply", input.createdAt);
 
-  const row = db.query(`SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`).get(commitId) as RawCommitRow;
+  const row = getRow<RawCommitRow>(db, `SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`, commitId);
+  if (!row) {
+    throw new TossError("INTERNAL", `Inserted commit not found: ${commitId}`);
+  }
   return decodeCommit(db, row);
 }
 
 export function getCommitById(db: Database, commitId: string): CommitEntry | null {
-  const row = db.query(`SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`).get(commitId) as RawCommitRow | null;
+  const row = getRow<RawCommitRow>(db, `SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`, commitId);
   if (!row) {
     return null;
   }
@@ -247,9 +257,7 @@ export function getCommitById(db: Database, commitId: string): CommitEntry | nul
 }
 
 export function listCommits(db: Database, descending: boolean): CommitEntry[] {
-  const rows = db
-    .query(`SELECT * FROM ${COMMIT_TABLE} ORDER BY seq ${descending ? "DESC" : "ASC"}`)
-    .all() as RawCommitRow[];
+  const rows = getRows<RawCommitRow>(db, `SELECT * FROM ${COMMIT_TABLE} ORDER BY seq ${descending ? "DESC" : "ASC"}`);
   return rows.map((row) => decodeCommit(db, row));
 }
 
@@ -261,16 +269,7 @@ export interface StoredRowEffect extends RowEffect {
 export type StoredSchemaEffect = SchemaEffect;
 
 export function getRowEffectsByCommitId(db: Database, commitId: string): StoredRowEffect[] {
-  const rows = db
-    .query(
-      `
-      SELECT table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
-      FROM ${EFFECT_ROW_TABLE}
-      WHERE commit_id=?
-      ORDER BY effect_index ASC
-      `,
-    )
-    .all(commitId) as Array<{
+  const rows = getRows<{
     table_name: string;
     pk_json: string;
     op_kind: "insert" | "update" | "delete";
@@ -278,7 +277,16 @@ export function getRowEffectsByCommitId(db: Database, commitId: string): StoredR
     after_row_json: string | null;
     before_hash: string | null;
     after_hash: string | null;
-  }>;
+  }>(
+    db,
+    `
+      SELECT table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
+      FROM ${EFFECT_ROW_TABLE}
+      WHERE commit_id=?
+      ORDER BY effect_index ASC
+      `,
+    commitId,
+  );
 
   return rows.map((row) => ({
     tableName: row.table_name,
@@ -292,20 +300,20 @@ export function getRowEffectsByCommitId(db: Database, commitId: string): StoredR
 }
 
 export function getSchemaEffectsByCommitId(db: Database, commitId: string): StoredSchemaEffect[] {
-  const rows = db
-    .query(
-      `
+  const rows = getRows<{
+    table_name: string;
+    before_table_json: string | null;
+    after_table_json: string | null;
+  }>(
+    db,
+    `
       SELECT table_name, before_table_json, after_table_json
       FROM ${EFFECT_SCHEMA_TABLE}
       WHERE commit_id=?
       ORDER BY effect_index ASC
       `,
-    )
-    .all(commitId) as Array<{
-    table_name: string;
-    before_table_json: string | null;
-    after_table_json: string | null;
-  }>;
+    commitId,
+  );
 
   return rows.map((row) => ({
     tableName: row.table_name,

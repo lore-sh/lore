@@ -1,6 +1,7 @@
-import { Database } from "bun:sqlite";
+import { type SQLQueryBindings, Database } from "bun:sqlite";
+import { resolve } from "node:path";
 import { TossError } from "./errors";
-import { resolveFromCwd } from "./pathing";
+import type { DatabaseOptions } from "./types";
 
 export const DEFAULT_DB_NAME = "toss.db";
 export const SCHEMA_FINGERPRINT = "toss-canonical-observed-2026-02-19";
@@ -24,7 +25,7 @@ export interface DatabaseContext {
 
 export function resolveDbPath(pathFromArg?: string): string {
   const candidate = pathFromArg ?? Bun.env.TOSS_DB_PATH ?? DEFAULT_DB_NAME;
-  return resolveFromCwd(candidate);
+  return resolve(process.cwd(), candidate);
 }
 
 function applyPragmas(db: Database): void {
@@ -43,6 +44,52 @@ export function openDatabase(pathFromArg?: string): DatabaseContext {
 
 export function closeDatabase(db: Database): void {
   db.close(false);
+}
+
+export function getRow<T>(db: Database, sql: string, ...bindings: SQLQueryBindings[]): T | null {
+  return db.query<T, SQLQueryBindings[]>(sql).get(...bindings);
+}
+
+export function getRows<T>(db: Database, sql: string, ...bindings: SQLQueryBindings[]): T[] {
+  return db.query<T, SQLQueryBindings[]>(sql).all(...bindings);
+}
+
+export function withDatabase<T>(options: DatabaseOptions | undefined, run: (ctx: DatabaseContext) => T): T {
+  const ctx = openDatabase(options?.dbPath);
+  try {
+    return run(ctx);
+  } finally {
+    closeDatabase(ctx.db);
+  }
+}
+
+export async function withDatabaseAsync<T>(
+  options: DatabaseOptions | undefined,
+  run: (ctx: DatabaseContext) => Promise<T>,
+): Promise<T> {
+  const ctx = openDatabase(options?.dbPath);
+  try {
+    return await run(ctx);
+  } finally {
+    closeDatabase(ctx.db);
+  }
+}
+
+export function withInitializedDatabase<T>(options: DatabaseOptions | undefined, run: (ctx: DatabaseContext) => T): T {
+  return withDatabase(options, (ctx) => {
+    assertInitialized(ctx.db, ctx.dbPath);
+    return run(ctx);
+  });
+}
+
+export async function withInitializedDatabaseAsync<T>(
+  options: DatabaseOptions | undefined,
+  run: (ctx: DatabaseContext) => Promise<T>,
+): Promise<T> {
+  return withDatabaseAsync(options, async (ctx) => {
+    assertInitialized(ctx.db, ctx.dbPath);
+    return await run(ctx);
+  });
 }
 
 export function initializeStorage(db: Database): void {
@@ -172,9 +219,7 @@ export function initializeStorage(db: Database): void {
 }
 
 export function tableExists(db: Database, name: string): boolean {
-  const row = db
-    .query("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
-    .get(name) as { ok?: number } | null;
+  const row = getRow<{ ok?: number }>(db, "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", name);
   return row?.ok === 1;
 }
 
@@ -196,9 +241,7 @@ export function isInitialized(db: Database): boolean {
     }
   }
 
-  const fingerprint = db
-    .query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key='schema_fingerprint'`)
-    .get() as { value?: string } | null;
+  const fingerprint = getRow<{ value?: string }>(db, `SELECT value FROM ${ENGINE_META_TABLE} WHERE key='schema_fingerprint'`);
   return fingerprint?.value === SCHEMA_FINGERPRINT;
 }
 
@@ -234,16 +277,36 @@ export function runInTransactionWithDeferredForeignKeys<T>(db: Database, fn: () 
   }
 }
 
+export function runInSavepoint<T>(
+  db: Database,
+  name: string,
+  run: () => T,
+  options: { rollbackOnSuccess?: boolean } = {},
+): T {
+  db.run(`SAVEPOINT ${name}`);
+  try {
+    const result = run();
+    if (options.rollbackOnSuccess) {
+      db.run(`ROLLBACK TO ${name}`);
+    }
+    db.run(`RELEASE ${name}`);
+    return result;
+  } catch (error) {
+    db.run(`ROLLBACK TO ${name}`);
+    db.run(`RELEASE ${name}`);
+    throw error;
+  }
+}
+
 export function listUserTables(db: Database): string[] {
-  const rows = db
-    .query(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_toss_%' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-    )
-    .all() as Array<{ name: string }>;
+  const rows = getRows<{ name: string }>(
+    db,
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_toss_%' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  );
   return rows.map((row) => row.name);
 }
 
 export function getMetaValue(db: Database, key: string): string | null {
-  const row = db.query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key=?`).get(key) as { value?: string } | null;
+  const row = getRow<{ value?: string }>(db, `SELECT value FROM ${ENGINE_META_TABLE} WHERE key=?`, key);
   return row?.value ?? null;
 }

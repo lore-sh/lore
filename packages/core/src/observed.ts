@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
-import { listUserTables, tableExists } from "./db";
+import { getRow, getRows, listUserTables, tableExists } from "./db";
 import { TossError } from "./errors";
 import { executeOperation } from "./executors/apply";
 import { primaryKeyColumns, tableDDL, tableInfo } from "./rows";
@@ -184,21 +184,19 @@ function captureTableState(db: Database, table: string): CapturedTableState {
     throw new TossError("APPLY_FAILED", `Unable to read CREATE TABLE SQL for ${table}`);
   }
 
-  const secondaryObjects = db
-    .query(
-      `
+  const secondaryObjects = getRows<{ type: "index" | "trigger"; name: string; sql: string }>(
+    db,
+    `
       SELECT type, name, sql
       FROM sqlite_master
       WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
       ORDER BY type ASC, name ASC
       `,
-    )
-    .all(table) as Array<{ type: "index" | "trigger"; name: string; sql: string }>;
+    table,
+  );
   const references = Array.from(
     new Set(
-      (db.query(`PRAGMA foreign_key_list(${quoteIdentifier(table)})`).all() as Array<{ table: string }>).map((row) =>
-        row.table,
-      ),
+      getRows<{ table: string }>(db, `PRAGMA foreign_key_list(${quoteIdentifier(table)})`).map((row) => row.table),
     ),
   ).sort((a, b) => a.localeCompare(b));
 
@@ -206,7 +204,7 @@ function captureTableState(db: Database, table: string): CapturedTableState {
   const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
   const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
   const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
-  const rowsRaw = db.query(buildRowSelectSql(table, columns, keyColumns, null)).all() as Array<Record<string, unknown>>;
+  const rowsRaw = getRows<Record<string, unknown>>(db, buildRowSelectSql(table, columns, keyColumns, null));
 
   const rows: EncodedRow[] = [];
   const rowsByPk = new Map<string, CapturedRowEntry>();
@@ -308,10 +306,14 @@ export function diffObservedState(
     const beforeRows = beforeTable?.rowsByPk ?? new Map<string, CapturedRowEntry>();
     const afterRows = afterTable?.rowsByPk ?? new Map<string, CapturedRowEntry>();
     const pkKeys = Array.from(new Set([...beforeRows.keys(), ...afterRows.keys()])).sort((a, b) => a.localeCompare(b));
-    const bucket = {
-      inserts: [] as RowEffect[],
-      updates: [] as RowEffect[],
-      deletes: [] as RowEffect[],
+    const bucket: {
+      inserts: RowEffect[];
+      updates: RowEffect[];
+      deletes: RowEffect[];
+    } = {
+      inserts: [],
+      updates: [],
+      deletes: [],
     };
 
     for (const key of pkKeys) {
@@ -440,7 +442,7 @@ export function fetchObservedRowByPk(db: Database, table: string, pk: Record<str
   const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
   const whereClause = toPkWhereClause(pk);
   const sql = `${buildRowSelectSql(table, columns, keyColumns, whereClause)} LIMIT 1`;
-  const row = db.query(sql).get() as Record<string, unknown> | null;
+  const row = getRow<Record<string, unknown>>(db, sql);
   if (!row) {
     return null;
   }
@@ -490,7 +492,7 @@ function referencedTables(db: Database, table: string): string[] {
   if (!tableExists(db, table)) {
     return [];
   }
-  const rows = db.query(`PRAGMA foreign_key_list(${quoteIdentifier(table)})`).all() as Array<{ table: string }>;
+  const rows = getRows<{ table: string }>(db, `PRAGMA foreign_key_list(${quoteIdentifier(table)})`);
   return Array.from(new Set(rows.map((row) => row.table))).sort((a, b) => a.localeCompare(b));
 }
 
@@ -606,9 +608,11 @@ function dropTriggersForTables(
   const touched = Array.from(new Set(effects.map((effect) => effect.tableName))).sort((a, b) => a.localeCompare(b));
   const dropped: Array<{ name: string; sql: string }> = [];
   for (const table of touched) {
-    const rows = db
-      .query("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC")
-      .all(table) as Array<{ name: string; sql: string }>;
+    const rows = getRows<{ name: string; sql: string }>(
+      db,
+      "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC",
+      table,
+    );
     for (const row of rows) {
       db.run(`DROP TRIGGER IF EXISTS ${quoteName(row.name)}`);
       dropped.push({ name: row.name, sql: row.sql });
@@ -758,12 +762,12 @@ export function applySchemaEffects(db: Database, effects: SchemaEffect[], direct
 }
 
 export function assertNoForeignKeyViolations(db: Database, errorCode: string, context: string): void {
-  const rows = db.query("PRAGMA foreign_key_check").all() as Array<{
+  const rows = getRows<{
     table: string;
     rowid: number;
     parent: string;
     fkid: number;
-  }>;
+  }>(db, "PRAGMA foreign_key_check");
   if (rows.length === 0) {
     return;
   }
