@@ -5,6 +5,5 @@ bun.lock
 *.db-wal
 .DS_Store
 .toss/
-AGENTS.md
 private/
 .claude/
