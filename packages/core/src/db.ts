@@ -10,6 +10,17 @@ export const SQLITE_MIN_VERSION = "3.51.2";
 export const DEFAULT_SNAPSHOT_INTERVAL = 100;
 export const DEFAULT_SNAPSHOT_RETAIN = 20;
 export const MAIN_REF_NAME = "main";
+export const ENGINE_META_TABLE = "_toss_engine_meta";
+export const COMMIT_TABLE = "_toss_commit";
+export const COMMIT_PARENT_TABLE = "_toss_commit_parent";
+export const REF_TABLE = "_toss_ref";
+export const REFLOG_TABLE = "_toss_reflog";
+export const OP_TABLE = "_toss_op";
+export const EFFECT_ROW_TABLE = "_toss_effect_row";
+export const EFFECT_SCHEMA_TABLE = "_toss_effect_schema";
+export const SNAPSHOT_TABLE = "_toss_snapshot";
+export const LEGACY_LOG_TABLE = "_toss_log";
+export const LEGACY_META_TABLE = "_toss_meta";
 
 export interface DatabaseContext {
   db: Database;
@@ -41,14 +52,14 @@ export function closeDatabase(db: Database): void {
 
 export function initializeStorage(db: Database): void {
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_repo_meta (
+    CREATE TABLE IF NOT EXISTS ${ENGINE_META_TABLE} (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_commit (
+    CREATE TABLE IF NOT EXISTS ${COMMIT_TABLE} (
       commit_id TEXT PRIMARY KEY,
       seq INTEGER NOT NULL UNIQUE,
       kind TEXT NOT NULL,
@@ -65,7 +76,7 @@ export function initializeStorage(db: Database): void {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_commit_parent (
+    CREATE TABLE IF NOT EXISTS ${COMMIT_PARENT_TABLE} (
       commit_id TEXT NOT NULL,
       parent_commit_id TEXT NOT NULL,
       ord INTEGER NOT NULL,
@@ -74,7 +85,7 @@ export function initializeStorage(db: Database): void {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_ref (
+    CREATE TABLE IF NOT EXISTS ${REF_TABLE} (
       name TEXT PRIMARY KEY,
       commit_id TEXT,
       updated_at TEXT NOT NULL
@@ -82,7 +93,7 @@ export function initializeStorage(db: Database): void {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_reflog (
+    CREATE TABLE IF NOT EXISTS ${REFLOG_TABLE} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ref_name TEXT NOT NULL,
       old_commit_id TEXT,
@@ -93,7 +104,7 @@ export function initializeStorage(db: Database): void {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_op (
+    CREATE TABLE IF NOT EXISTS ${OP_TABLE} (
       commit_id TEXT NOT NULL,
       op_index INTEGER NOT NULL,
       op_type TEXT NOT NULL,
@@ -103,7 +114,7 @@ export function initializeStorage(db: Database): void {
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_effect_row (
+    CREATE TABLE IF NOT EXISTS ${EFFECT_ROW_TABLE} (
       commit_id TEXT NOT NULL,
       effect_index INTEGER NOT NULL,
       table_name TEXT NOT NULL,
@@ -119,11 +130,11 @@ export function initializeStorage(db: Database): void {
 
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_toss_effect_row_table_pk
-      ON _toss_effect_row(table_name, pk_json);
+      ON ${EFFECT_ROW_TABLE}(table_name, pk_json);
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_effect_schema (
+    CREATE TABLE IF NOT EXISTS ${EFFECT_SCHEMA_TABLE} (
       commit_id TEXT NOT NULL,
       effect_index INTEGER NOT NULL,
       table_name TEXT NOT NULL,
@@ -138,11 +149,11 @@ export function initializeStorage(db: Database): void {
 
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_toss_effect_schema_table_column
-      ON _toss_effect_schema(table_name, column_name);
+      ON ${EFFECT_SCHEMA_TABLE}(table_name, column_name);
   `);
 
   db.run(`
-    CREATE TABLE IF NOT EXISTS _toss_snapshot (
+    CREATE TABLE IF NOT EXISTS ${SNAPSHOT_TABLE} (
       commit_id TEXT PRIMARY KEY,
       file_path TEXT NOT NULL,
       file_sha256 TEXT NOT NULL,
@@ -152,7 +163,7 @@ export function initializeStorage(db: Database): void {
   `);
 
   const upsertMeta = db.query(`
-    INSERT INTO _toss_repo_meta(key, value)
+    INSERT INTO ${ENGINE_META_TABLE}(key, value)
     VALUES(?, ?)
     ON CONFLICT(key) DO UPDATE SET value=excluded.value;
   `);
@@ -164,7 +175,7 @@ export function initializeStorage(db: Database): void {
 
   const now = new Date().toISOString();
   db.query(`
-    INSERT INTO _toss_ref(name, commit_id, updated_at)
+    INSERT INTO ${REF_TABLE}(name, commit_id, updated_at)
     VALUES(?, NULL, ?)
     ON CONFLICT(name) DO NOTHING;
   `).run(MAIN_REF_NAME, now);
@@ -179,15 +190,15 @@ function hasTable(db: Database, name: string): boolean {
 
 export function isInitialized(db: Database): boolean {
   const requiredTables = [
-    "_toss_repo_meta",
-    "_toss_commit",
-    "_toss_commit_parent",
-    "_toss_ref",
-    "_toss_reflog",
-    "_toss_op",
-    "_toss_effect_row",
-    "_toss_effect_schema",
-    "_toss_snapshot",
+    ENGINE_META_TABLE,
+    COMMIT_TABLE,
+    COMMIT_PARENT_TABLE,
+    REF_TABLE,
+    REFLOG_TABLE,
+    OP_TABLE,
+    EFFECT_ROW_TABLE,
+    EFFECT_SCHEMA_TABLE,
+    SNAPSHOT_TABLE,
   ];
   for (const table of requiredTables) {
     if (!hasTable(db, table)) {
@@ -196,16 +207,16 @@ export function isInitialized(db: Database): boolean {
   }
 
   const generation = db
-    .query("SELECT value FROM _toss_repo_meta WHERE key='format_generation'")
+    .query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key='format_generation'`)
     .get() as { value?: string } | null;
   const engine = db
-    .query("SELECT value FROM _toss_repo_meta WHERE key='history_engine'")
+    .query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key='history_engine'`)
     .get() as { value?: string } | null;
   return generation?.value === String(FORMAT_GENERATION) && engine?.value === HISTORY_ENGINE;
 }
 
 export function detectLegacySchema(db: Database): boolean {
-  return hasTable(db, "_toss_log") || hasTable(db, "_toss_meta");
+  return hasTable(db, LEGACY_LOG_TABLE) || hasTable(db, LEGACY_META_TABLE);
 }
 
 export function assertInitialized(db: Database, dbPath: string): void {
@@ -242,7 +253,6 @@ export function listUserTables(db: Database): string[] {
 }
 
 export function getMetaValue(db: Database, key: string): string | null {
-  const row = db.query("SELECT value FROM _toss_repo_meta WHERE key=?").get(key) as { value?: string } | null;
+  const row = db.query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key=?`).get(key) as { value?: string } | null;
   return row?.value ?? null;
 }
-

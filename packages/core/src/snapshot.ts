@@ -3,13 +3,16 @@ import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   assertInitialized,
+  COMMIT_TABLE,
   closeDatabase,
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
   getMetaValue,
   listUserTables,
+  OP_TABLE,
   openDatabase,
   runInTransaction,
+  SNAPSHOT_TABLE,
 } from "./db";
 import { TossError } from "./errors";
 import { buildCommitOperationsResult } from "./commit";
@@ -61,14 +64,14 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
       return acc + row.c;
     }, 0);
     writeDb
-      .query("INSERT OR REPLACE INTO _toss_snapshot(commit_id, file_path, file_sha256, created_at, row_count_hint) VALUES(?, ?, ?, ?, ?)")
+      .query(`INSERT OR REPLACE INTO ${SNAPSHOT_TABLE}(commit_id, file_path, file_sha256, created_at, row_count_hint) VALUES(?, ?, ?, ?, ?)`)
       .run(commit.commitId, snapshotPath, digest, new Date().toISOString(), rowCountHint);
 
     const retain = getSnapshotRetain(writeDb);
     const stale = writeDb
       .query(
         `
-        SELECT commit_id, file_path FROM _toss_snapshot
+        SELECT commit_id, file_path FROM ${SNAPSHOT_TABLE}
         ORDER BY created_at DESC
         LIMIT -1 OFFSET ?
         `,
@@ -76,7 +79,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
       .all(retain) as Array<{ commit_id: string; file_path: string }>;
     for (const row of stale) {
       await rm(row.file_path, { force: true });
-      writeDb.query("DELETE FROM _toss_snapshot WHERE commit_id=?").run(row.commit_id);
+      writeDb.query(`DELETE FROM ${SNAPSHOT_TABLE} WHERE commit_id=?`).run(row.commit_id);
     }
   } finally {
     closeDatabase(writeDb);
@@ -88,7 +91,7 @@ export function listSnapshots(options: ServiceOptions = {}): SnapshotEntry[] {
   try {
     assertInitialized(db, dbPath);
     const rows = db
-      .query("SELECT commit_id, file_path, file_sha256, created_at, row_count_hint FROM _toss_snapshot ORDER BY created_at DESC")
+      .query(`SELECT commit_id, file_path, file_sha256, created_at, row_count_hint FROM ${SNAPSHOT_TABLE} ORDER BY created_at DESC`)
       .all() as Array<{
       commit_id: string;
       file_path: string;
@@ -122,8 +125,8 @@ export async function recoverFromSnapshot(
       .query(
         `
         SELECT s.file_path, c.seq
-        FROM _toss_snapshot s
-        JOIN _toss_commit c ON c.commit_id = s.commit_id
+        FROM ${SNAPSHOT_TABLE} s
+        JOIN ${COMMIT_TABLE} c ON c.commit_id = s.commit_id
         WHERE s.commit_id=?
         LIMIT 1
         `,
@@ -136,12 +139,12 @@ export async function recoverFromSnapshot(
     targetSeq = snapshot.seq;
 
     const laterRows = db
-      .query("SELECT commit_id, message FROM _toss_commit WHERE seq > ? ORDER BY seq ASC")
+      .query(`SELECT commit_id, message FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`)
       .all(targetSeq) as Array<{ commit_id: string; message: string }>;
     replayCommits = laterRows.map((row) => ({
       message: row.message,
       operations: db
-        .query("SELECT op_json FROM _toss_op WHERE commit_id=? ORDER BY op_index ASC")
+        .query(`SELECT op_json FROM ${OP_TABLE} WHERE commit_id=? ORDER BY op_index ASC`)
         .all(row.commit_id)
         .map((op) => JSON.parse((op as { op_json: string }).op_json) as Operation),
     }));

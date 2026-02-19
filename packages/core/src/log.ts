@@ -1,6 +1,15 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
-import { MAIN_REF_NAME } from "./db";
+import {
+  COMMIT_PARENT_TABLE,
+  COMMIT_TABLE,
+  EFFECT_ROW_TABLE,
+  EFFECT_SCHEMA_TABLE,
+  MAIN_REF_NAME,
+  OP_TABLE,
+  REFLOG_TABLE,
+  REF_TABLE,
+} from "./db";
 import type { CommitEntry, CommitKind, JsonObject, Operation } from "./types";
 
 export interface RowEffect {
@@ -61,10 +70,10 @@ function normalizeObject(value: unknown): JsonObject | null {
 
 function decodeCommit(db: Database, row: RawCommitRow): CommitEntry {
   const parents = db
-    .query("SELECT parent_commit_id FROM _toss_commit_parent WHERE commit_id=? ORDER BY ord ASC")
+    .query(`SELECT parent_commit_id FROM ${COMMIT_PARENT_TABLE} WHERE commit_id=? ORDER BY ord ASC`)
     .all(row.commit_id) as Array<{ parent_commit_id: string }>;
   const operations = db
-    .query("SELECT op_json FROM _toss_op WHERE commit_id=? ORDER BY op_index ASC")
+    .query(`SELECT op_json FROM ${OP_TABLE} WHERE commit_id=? ORDER BY op_index ASC`)
     .all(row.commit_id) as Array<{ op_json: string }>;
 
   return {
@@ -86,7 +95,7 @@ function decodeCommit(db: Database, row: RawCommitRow): CommitEntry {
 }
 
 export function getHeadCommitId(db: Database): string | null {
-  const row = db.query("SELECT commit_id FROM _toss_ref WHERE name=? LIMIT 1").get(MAIN_REF_NAME) as
+  const row = db.query(`SELECT commit_id FROM ${REF_TABLE} WHERE name=? LIMIT 1`).get(MAIN_REF_NAME) as
     | { commit_id: string | null }
     | null;
   return row?.commit_id ?? null;
@@ -101,7 +110,7 @@ export function getHeadCommit(db: Database): CommitEntry | null {
 }
 
 export function getNextCommitSeq(db: Database): number {
-  const row = db.query("SELECT COALESCE(MAX(seq), 0) AS max_seq FROM _toss_commit").get() as { max_seq: number };
+  const row = db.query(`SELECT COALESCE(MAX(seq), 0) AS max_seq FROM ${COMMIT_TABLE}`).get() as { max_seq: number };
   return row.max_seq + 1;
 }
 
@@ -132,7 +141,7 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
 
   db.query(
     `
-    INSERT INTO _toss_commit(
+    INSERT INTO ${COMMIT_TABLE}(
       commit_id, seq, kind, message, created_at, parent_count,
       schema_hash_before, schema_hash_after, state_hash_after, plan_hash, inverse_ready, reverted_target_id
     )
@@ -154,13 +163,13 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
   );
 
   const insertParent = db.query(
-    "INSERT INTO _toss_commit_parent(commit_id, parent_commit_id, ord) VALUES(?, ?, ?)",
+    `INSERT INTO ${COMMIT_PARENT_TABLE}(commit_id, parent_commit_id, ord) VALUES(?, ?, ?)`,
   );
   for (let i = 0; i < input.parentIds.length; i++) {
     insertParent.run(commitId, input.parentIds[i]!, i);
   }
 
-  const insertOp = db.query("INSERT INTO _toss_op(commit_id, op_index, op_type, op_json) VALUES(?, ?, ?, ?)");
+  const insertOp = db.query(`INSERT INTO ${OP_TABLE}(commit_id, op_index, op_type, op_json) VALUES(?, ?, ?, ?)`);
   for (let i = 0; i < input.operations.length; i++) {
     const operation = input.operations[i]!;
     insertOp.run(commitId, i, operation.type, canonicalJson(operation));
@@ -168,7 +177,7 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
 
   const insertRowEffect = db.query(
     `
-    INSERT INTO _toss_effect_row(
+    INSERT INTO ${EFFECT_ROW_TABLE}(
       commit_id, effect_index, table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
     )
     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -185,7 +194,7 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
 
   const insertSchemaEffect = db.query(
     `
-    INSERT INTO _toss_effect_schema(
+    INSERT INTO ${EFFECT_SCHEMA_TABLE}(
       commit_id, effect_index, table_name, column_name, op_kind, ddl_before_sql, ddl_after_sql, table_rows_before_json
     )
     VALUES(?, ?, ?, ?, ?, ?, ?, ?)
@@ -205,20 +214,20 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
     );
   }
 
-  db.query("UPDATE _toss_ref SET commit_id=?, updated_at=? WHERE name=?").run(commitId, input.createdAt, MAIN_REF_NAME);
+  db.query(`UPDATE ${REF_TABLE} SET commit_id=?, updated_at=? WHERE name=?`).run(commitId, input.createdAt, MAIN_REF_NAME);
   db.query(
     `
-    INSERT INTO _toss_reflog(ref_name, old_commit_id, new_commit_id, reason, created_at)
+    INSERT INTO ${REFLOG_TABLE}(ref_name, old_commit_id, new_commit_id, reason, created_at)
     VALUES(?, ?, ?, ?, ?)
     `,
   ).run(MAIN_REF_NAME, oldHead, commitId, input.kind === "revert" ? "revert" : "apply", input.createdAt);
 
-  const row = db.query("SELECT * FROM _toss_commit WHERE commit_id=? LIMIT 1").get(commitId) as RawCommitRow;
+  const row = db.query(`SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`).get(commitId) as RawCommitRow;
   return decodeCommit(db, row);
 }
 
 export function getCommitById(db: Database, commitId: string): CommitEntry | null {
-  const row = db.query("SELECT * FROM _toss_commit WHERE commit_id=? LIMIT 1").get(commitId) as RawCommitRow | null;
+  const row = db.query(`SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`).get(commitId) as RawCommitRow | null;
   if (!row) {
     return null;
   }
@@ -227,7 +236,7 @@ export function getCommitById(db: Database, commitId: string): CommitEntry | nul
 
 export function listCommits(db: Database, descending: boolean): CommitEntry[] {
   const rows = db
-    .query(`SELECT * FROM _toss_commit ORDER BY seq ${descending ? "DESC" : "ASC"}`)
+    .query(`SELECT * FROM ${COMMIT_TABLE} ORDER BY seq ${descending ? "DESC" : "ASC"}`)
     .all() as RawCommitRow[];
   return rows.map((row) => decodeCommit(db, row));
 }
@@ -256,7 +265,7 @@ export function getRowEffectsByCommitId(db: Database, commitId: string): StoredR
     .query(
       `
       SELECT table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
-      FROM _toss_effect_row
+      FROM ${EFFECT_ROW_TABLE}
       WHERE commit_id=?
       ORDER BY effect_index ASC
       `,
@@ -287,7 +296,7 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Stor
     .query(
       `
       SELECT table_name, column_name, op_kind, ddl_before_sql, ddl_after_sql, table_rows_before_json
-      FROM _toss_effect_schema
+      FROM ${EFFECT_SCHEMA_TABLE}
       WHERE commit_id=?
       ORDER BY effect_index ASC
       `,
@@ -312,4 +321,3 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Stor
       : null,
   }));
 }
-

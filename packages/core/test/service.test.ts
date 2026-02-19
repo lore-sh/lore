@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ENGINE_META_TABLE, LEGACY_LOG_TABLE } from "../src/db";
 import {
   applyPlan,
   getHistory,
@@ -83,7 +84,7 @@ describe("toss strong history engine", () => {
   test("hard reset format rejects legacy schema unless force-new", async () => {
     const { dbPath } = createTestContext();
     const legacy = new Database(dbPath);
-    legacy.run("CREATE TABLE _toss_log(id TEXT PRIMARY KEY)");
+    legacy.run(`CREATE TABLE ${LEGACY_LOG_TABLE}(id TEXT PRIMARY KEY)`);
     legacy.close(false);
 
     try {
@@ -288,10 +289,10 @@ describe("toss strong history engine", () => {
 
     const tweak = new Database(dbPath);
     tweak
-      .query("UPDATE _toss_repo_meta SET value='1' WHERE key='snapshot_interval'")
+      .query(`UPDATE ${ENGINE_META_TABLE} SET value='1' WHERE key='snapshot_interval'`)
       .run();
     tweak
-      .query("UPDATE _toss_repo_meta SET value='10' WHERE key='snapshot_retain'")
+      .query(`UPDATE ${ENGINE_META_TABLE} SET value='10' WHERE key='snapshot_retain'`)
       .run();
     tweak.close(false);
 

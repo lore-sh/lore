@@ -3,6 +3,7 @@ import { canonicalJson, sha256Hex } from "./checksum";
 import {
   assertInitialized,
   closeDatabase,
+  COMMIT_TABLE,
   openDatabase,
   runInTransaction,
 } from "./db";
@@ -120,7 +121,7 @@ export function detectRowConflict(
 
 export function fetchLaterEffects(db: Database, seq: number): { rows: StoredRowEffect[]; schemas: StoredSchemaEffect[] } {
   const laterCommits = db
-    .query("SELECT commit_id FROM _toss_commit WHERE seq > ? ORDER BY seq ASC")
+    .query(`SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`)
     .all(seq) as Array<{ commit_id: string }>;
   const rows: StoredRowEffect[] = [];
   const schemas: StoredSchemaEffect[] = [];
@@ -339,7 +340,7 @@ export function revertCommit(commitId: string, options: ServiceOptions = {}): Re
     }
 
     const already = db
-      .query("SELECT 1 AS ok FROM _toss_commit WHERE kind='revert' AND reverted_target_id=? LIMIT 1")
+      .query(`SELECT 1 AS ok FROM ${COMMIT_TABLE} WHERE kind='revert' AND reverted_target_id=? LIMIT 1`)
       .get(commitId) as { ok?: number } | null;
     if (already?.ok === 1) {
       throw new TossError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);

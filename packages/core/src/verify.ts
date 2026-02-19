@@ -1,13 +1,13 @@
 import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
-import { assertInitialized, closeDatabase, openDatabase } from "./db";
+import { assertInitialized, closeDatabase, ENGINE_META_TABLE, openDatabase } from "./db";
 import { listCommits } from "./log";
 import type { ServiceOptions, VerifyResult } from "./types";
 
 export function putMeta(db: Database, key: string, value: string): void {
   db.query(
     `
-    INSERT INTO _toss_repo_meta(key, value) VALUES(?, ?)
+    INSERT INTO ${ENGINE_META_TABLE}(key, value) VALUES(?, ?)
     ON CONFLICT(key) DO UPDATE SET value=excluded.value
     `,
   ).run(key, value);

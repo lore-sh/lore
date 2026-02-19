@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import {
   closeDatabase,
   detectLegacySchema,
+  ENGINE_META_TABLE,
   getMetaValue,
   initializeStorage,
   openDatabase,
@@ -33,12 +34,12 @@ export async function initDatabase(
         closeDatabase(reopened.db);
       }
     } else {
-      const hasRepoMetaTable =
+      const hasEngineMetaTable =
         (db
-          .query("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='_toss_repo_meta' LIMIT 1")
+          .query(`SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='${ENGINE_META_TABLE}' LIMIT 1`)
           .get() as { ok?: number } | null)?.ok === 1;
-      const hasFormatGenerationMeta = hasRepoMetaTable && getMetaValue(db, "format_generation") !== null;
-      const hasHistoryEngineMeta = hasRepoMetaTable && getMetaValue(db, "history_engine") !== null;
+      const hasFormatGenerationMeta = hasEngineMetaTable && getMetaValue(db, "format_generation") !== null;
+      const hasHistoryEngineMeta = hasEngineMetaTable && getMetaValue(db, "history_engine") !== null;
 
       if (detectLegacySchema(db) || (hasFormatGenerationMeta && !hasHistoryEngineMeta)) {
         throw new TossError(

@@ -6,6 +6,7 @@ import {
   HISTORY_ENGINE,
   listUserTables,
   openDatabase,
+  SNAPSHOT_TABLE,
   SQLITE_MIN_VERSION,
 } from "./db";
 import { getHeadCommit, listCommits } from "./log";
@@ -23,7 +24,7 @@ export function getStatus(options: ServiceOptions = {}): TossStatus {
     });
 
     const head = getHeadCommit(db);
-    const snapshotCountRow = db.query("SELECT COUNT(*) AS c FROM _toss_snapshot").get() as { c: number };
+    const snapshotCountRow = db.query(`SELECT COUNT(*) AS c FROM ${SNAPSHOT_TABLE}`).get() as { c: number };
 
     return {
       dbPath,
