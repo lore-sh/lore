@@ -88,80 +88,77 @@ export function applySchemaOperationWithEffects(
 }
 
 export function applyOperationWithEffects(db: Database, operation: Operation): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
-  if (operation.type === "insert") {
-    assertTableHasPrimaryKey(db, operation.table);
-    executeOperation(db, operation);
-    const pkCols = primaryKeyColumns(db, operation.table);
-    let insertedRow: Record<string, unknown> | null;
-    if (pkCols.length > 0 && pkCols.every((column) => Object.hasOwn(operation.values, column))) {
-      const pkWhere = Object.fromEntries(pkCols.map((column) => [column, operation.values[column] ?? null])) as Record<
-        string,
-        JsonPrimitive
-      >;
-      insertedRow = fetchRowByPk(db, operation.table, pkWhere);
-    } else {
-      insertedRow = db
-        .query(`SELECT * FROM ${quoteIdentifier(operation.table)} WHERE rowid = last_insert_rowid()`)
-        .get() as Record<string, unknown> | null;
+  switch (operation.type) {
+    case "insert": {
+      assertTableHasPrimaryKey(db, operation.table);
+      executeOperation(db, operation);
+      const pkCols = primaryKeyColumns(db, operation.table);
+      let insertedRow: Record<string, unknown> | null;
+      if (pkCols.length > 0 && pkCols.every((column) => Object.hasOwn(operation.values, column))) {
+        const pkWhere = Object.fromEntries(pkCols.map((column) => [column, operation.values[column] ?? null])) as Record<
+          string,
+          JsonPrimitive
+        >;
+        insertedRow = fetchRowByPk(db, operation.table, pkWhere);
+      } else {
+        insertedRow = db
+          .query(`SELECT * FROM ${quoteIdentifier(operation.table)} WHERE rowid = last_insert_rowid()`)
+          .get() as Record<string, unknown> | null;
+      }
+
+      if (!insertedRow) {
+        throw new TossError("APPLY_FAILED", `Unable to capture inserted row for table ${operation.table}`);
+      }
+
+      return {
+        rowEffects: [
+          {
+            tableName: operation.table,
+            pk: pkFromRow(db, operation.table, insertedRow),
+            opKind: "insert",
+            beforeRow: null,
+            afterRow: normalizeRowObject(insertedRow),
+          },
+        ],
+        schemaEffects: [],
+      };
     }
 
-    if (!insertedRow) {
-      throw new TossError("APPLY_FAILED", `Unable to capture inserted row for table ${operation.table}`);
+    case "update": {
+      assertTableHasPrimaryKey(db, operation.table);
+      const beforeRows = fetchRowsByWhere(db, operation.table, operation.where);
+      executeOperation(db, operation);
+      return { rowEffects: buildRowEffectsForUpdateDelete(db, operation.table, "update", beforeRows), schemaEffects: [] };
     }
 
-    return {
-      rowEffects: [
-        {
-          tableName: operation.table,
-          pk: pkFromRow(db, operation.table, insertedRow),
-          opKind: "insert",
-          beforeRow: null,
-          afterRow: normalizeRowObject(insertedRow),
-        },
-      ],
-      schemaEffects: [],
-    };
-  }
+    case "delete": {
+      assertTableHasPrimaryKey(db, operation.table);
+      const beforeRows = fetchRowsByWhere(db, operation.table, operation.where);
+      executeOperation(db, operation);
+      return { rowEffects: buildRowEffectsForUpdateDelete(db, operation.table, "delete", beforeRows), schemaEffects: [] };
+    }
 
-  if (operation.type === "update") {
-    assertTableHasPrimaryKey(db, operation.table);
-    const beforeRows = fetchRowsByWhere(db, operation.table, operation.where);
-    executeOperation(db, operation);
-    return { rowEffects: buildRowEffectsForUpdateDelete(db, operation.table, "update", beforeRows), schemaEffects: [] };
-  }
+    case "create_table":
+      return applySchemaOperationWithEffects(db, operation, "create_table", null);
 
-  if (operation.type === "delete") {
-    assertTableHasPrimaryKey(db, operation.table);
-    const beforeRows = fetchRowsByWhere(db, operation.table, operation.where);
-    executeOperation(db, operation);
-    return { rowEffects: buildRowEffectsForUpdateDelete(db, operation.table, "delete", beforeRows), schemaEffects: [] };
-  }
+    case "add_column":
+      return applySchemaOperationWithEffects(db, operation, "add_column", operation.column.name);
 
-  if (operation.type === "create_table") {
-    return applySchemaOperationWithEffects(db, operation, "create_table", null);
-  }
+    case "drop_table":
+      return applySchemaOperationWithEffects(db, operation, "drop_table", null);
 
-  if (operation.type === "add_column") {
-    return applySchemaOperationWithEffects(db, operation, "add_column", operation.column.name);
-  }
+    case "drop_column":
+      return applySchemaOperationWithEffects(db, operation, "drop_column", operation.column);
 
-  if (operation.type === "drop_table") {
-    return applySchemaOperationWithEffects(db, operation, "drop_table", null);
-  }
+    case "alter_column_type":
+      return applySchemaOperationWithEffects(db, operation, "alter_column_type", operation.column);
 
-  if (operation.type === "drop_column") {
-    return applySchemaOperationWithEffects(db, operation, "drop_column", operation.column);
-  }
+    case "restore_table":
+      return applySchemaOperationWithEffects(db, operation, "restore_table", null);
 
-  if (operation.type === "alter_column_type") {
-    return applySchemaOperationWithEffects(db, operation, "alter_column_type", operation.column);
+    default:
+      throw new TossError("UNSUPPORTED_OPERATION", `Unsupported operation type: ${(operation as Operation).type}`);
   }
-
-  if (operation.type === "restore_table") {
-    return applySchemaOperationWithEffects(db, operation, "restore_table", null);
-  }
-
-  throw new TossError("UNSUPPORTED_OPERATION", `Unsupported operation type: ${(operation as Operation).type}`);
 }
 
 export function applyOperationsWithEffects(

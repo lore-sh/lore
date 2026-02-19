@@ -22,6 +22,7 @@ export function getStatus(options: ServiceOptions = {}): TossStatus {
 
     const head = getHeadCommit(db);
     const snapshotCountRow = db.query(`SELECT COUNT(*) AS c FROM ${SNAPSHOT_TABLE}`).get() as { c: number };
+    const verifiedOkRaw = getMetaValue(db, "last_verified_ok");
 
     return {
       dbPath,
@@ -38,10 +39,7 @@ export function getStatus(options: ServiceOptions = {}): TossStatus {
         : null,
       snapshotCount: snapshotCountRow.c,
       lastVerifiedAt: getMetaValue(db, "last_verified_at"),
-      lastVerifiedOk:
-        getMetaValue(db, "last_verified_ok") === null
-          ? null
-          : getMetaValue(db, "last_verified_ok") === "1",
+      lastVerifiedOk: verifiedOkRaw === null ? null : verifiedOkRaw === "1",
       lastVerifiedOkAt: getMetaValue(db, "last_verified_ok_at"),
     };
   } finally {

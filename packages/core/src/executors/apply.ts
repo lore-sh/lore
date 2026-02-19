@@ -1,17 +1,18 @@
 import type { Database } from "bun:sqlite";
 import { TossError } from "../errors";
+import { type TableInfoRow, whereClauseFromRecord } from "../rows";
 import { COLUMN_TYPE_PATTERN, quoteIdentifier } from "../sql";
 import type {
   AddColumnOperation,
   AlterColumnTypeOperation,
   ColumnDefinition,
-  RestoreTableOperation,
+  CreateTableOperation,
   DeleteOperation,
   DropColumnOperation,
   DropTableOperation,
-  CreateTableOperation,
   InsertOperation,
   Operation,
+  RestoreTableOperation,
   UpdateOperation,
 } from "../types";
 
@@ -90,33 +91,6 @@ function executeInsert(db: Database, operation: InsertOperation): void {
   db.query(`INSERT INTO ${quoteIdentifier(operation.table)} (${columns}) VALUES (${placeholders})`).run(...values);
 }
 
-function buildWhereClause(
-  where: Record<string, string | number | boolean | null>,
-  label: string,
-): { clause: string; bindings: Array<string | number | boolean | null> } {
-  const keys = Object.keys(where);
-  if (keys.length === 0) {
-    throw new TossError("INVALID_OPERATION", `${label} must not be empty`);
-  }
-
-  const clauses: string[] = [];
-  const bindings: Array<string | number | boolean | null> = [];
-  for (const key of keys) {
-    const value = where[key];
-    if (value === undefined) {
-      throw new TossError("INVALID_OPERATION", `${label} value is missing for key: ${key}`);
-    }
-    const column = quoteIdentifier(key);
-    if (value === null) {
-      clauses.push(`${column} IS NULL`);
-      continue;
-    }
-    clauses.push(`${column} = ?`);
-    bindings.push(value);
-  }
-  return { clause: clauses.join(" AND "), bindings };
-}
-
 function executeUpdate(db: Database, operation: UpdateOperation): void {
   const valueKeys = Object.keys(operation.values);
   if (valueKeys.length === 0) {
@@ -134,7 +108,7 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
     setBindings.push(value);
   }
 
-  const where = buildWhereClause(operation.where, "update.where");
+  const where = whereClauseFromRecord(operation.where);
   db.query(`UPDATE ${quoteIdentifier(operation.table)} SET ${setParts.join(", ")} WHERE ${where.clause}`).run(
     ...setBindings,
     ...where.bindings,
@@ -142,7 +116,7 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
 }
 
 function executeDelete(db: Database, operation: DeleteOperation): void {
-  const where = buildWhereClause(operation.where, "delete.where");
+  const where = whereClauseFromRecord(operation.where);
   db.query(`DELETE FROM ${quoteIdentifier(operation.table)} WHERE ${where.clause}`).run(...where.bindings);
 }
 
@@ -333,15 +307,6 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
     db.run("RELEASE toss_restore_table");
     throw error;
   }
-}
-
-interface TableInfoRow {
-  cid: number;
-  name: string;
-  type: string;
-  notnull: number;
-  dflt_value: string | null;
-  pk: number;
 }
 
 function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperation): void {

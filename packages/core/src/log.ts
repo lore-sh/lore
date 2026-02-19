@@ -66,13 +66,6 @@ interface RawCommitRow {
   reverted_target_id: string | null;
 }
 
-function normalizeObject(value: unknown): JsonObject | null {
-  if (value === null) {
-    return null;
-  }
-  return value as JsonObject;
-}
-
 function decodeCommit(db: Database, row: RawCommitRow): CommitEntry {
   const parents = db
     .query(`SELECT parent_commit_id FROM ${COMMIT_PARENT_TABLE} WHERE commit_id=? ORDER BY ord ASC`)
@@ -300,8 +293,8 @@ export function getRowEffectsByCommitId(db: Database, commitId: string): StoredR
     tableName: row.table_name,
     pk: JSON.parse(row.pk_json) as Record<string, string | number | boolean | null>,
     opKind: row.op_kind,
-    beforeRow: normalizeObject(row.before_row_json ? JSON.parse(row.before_row_json) : null),
-    afterRow: normalizeObject(row.after_row_json ? JSON.parse(row.after_row_json) : null),
+    beforeRow: row.before_row_json ? (JSON.parse(row.before_row_json) as JsonObject) : null,
+    afterRow: row.after_row_json ? (JSON.parse(row.after_row_json) as JsonObject) : null,
     beforeHash: row.before_hash,
     afterHash: row.after_hash,
   }));

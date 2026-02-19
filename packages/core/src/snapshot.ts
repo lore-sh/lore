@@ -13,6 +13,7 @@ import {
   listUserTables,
   MAIN_REF_NAME,
   openDatabase,
+  resolveDbPath,
   runInTransaction,
   SNAPSHOT_TABLE,
 } from "./db";
@@ -52,12 +53,12 @@ export function hashFile(path: string): Promise<string> {
   return readFile(path).then((buffer) => createHash("sha256").update(buffer).digest("hex"));
 }
 
-export function getSnapshotInterval(db: import("bun:sqlite").Database): number {
+export function getSnapshotInterval(db: Database): number {
   const value = getMetaValue(db, "snapshot_interval");
   return value ? Number(value) : DEFAULT_SNAPSHOT_INTERVAL;
 }
 
-export function getSnapshotRetain(db: import("bun:sqlite").Database): number {
+export function getSnapshotRetain(db: Database): number {
   const value = getMetaValue(db, "snapshot_retain");
   return value ? Number(value) : DEFAULT_SNAPSHOT_RETAIN;
 }
@@ -77,7 +78,7 @@ function openStagingWritableDatabase(stagingPath: string): Database {
   return db;
 }
 
-function countRows(db: import("bun:sqlite").Database): number {
+function countRows(db: Database): number {
   return listUserTables(db).reduce((acc, table) => {
     const row = db.query(`SELECT COUNT(*) AS c FROM ${quoteIdentifier(table)}`).get() as { c: number };
     return acc + row.c;
@@ -186,7 +187,7 @@ export function listSnapshots(options: ServiceOptions = {}): SnapshotEntry[] {
   }
 }
 
-function loadReplayCommits(db: import("bun:sqlite").Database, fromSeqExclusive: number): ReplayCommit[] {
+function loadReplayCommits(db: Database, fromSeqExclusive: number): ReplayCommit[] {
   const commitRows = db
     .query(`SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`)
     .all(fromSeqExclusive) as Array<{ commit_id: string }>;
@@ -230,7 +231,7 @@ async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): 
   }
 }
 
-function replayCommitExactly(db: import("bun:sqlite").Database, replay: ReplayCommit): void {
+function replayCommitExactly(db: Database, replay: ReplayCommit): void {
   const beforeSchemaHash = schemaHash(db);
   if (beforeSchemaHash !== replay.schemaHashBefore) {
     throw new TossError(
@@ -269,14 +270,11 @@ function replayCommitExactly(db: import("bun:sqlite").Database, replay: ReplayCo
   appendCommitExact(db, replay);
 }
 
-export async function recoverFromSnapshot(
+function resolveSnapshotForRecovery(
+  dbPath: string,
   commitId: string,
-  options: ServiceOptions = {},
-): Promise<{ dbPath: string; restoredCommitId: string; replayedCommits: number }> {
-  const { db, dbPath } = openDatabase(options.dbPath);
-  let snapshotPath: string | null = null;
-  let targetSeq = 0;
-  let replayCommits: ReplayCommit[] = [];
+): { snapshotPath: string; replayCommits: ReplayCommit[] } {
+  const { db } = openDatabase(dbPath);
   try {
     assertInitialized(db, dbPath);
     const snapshot = db
@@ -293,16 +291,21 @@ export async function recoverFromSnapshot(
     if (!snapshot) {
       throw new TossError("NOT_FOUND", `Snapshot not found for commit: ${commitId}`);
     }
-    snapshotPath = snapshot.file_path;
-    targetSeq = snapshot.seq;
-    replayCommits = loadReplayCommits(db, targetSeq);
+    return {
+      snapshotPath: snapshot.file_path,
+      replayCommits: loadReplayCommits(db, snapshot.seq),
+    };
   } finally {
     closeDatabase(db);
   }
+}
 
-  if (!snapshotPath) {
-    throw new TossError("RECOVER_FAILED", `Snapshot path missing for commit: ${commitId}`);
-  }
+export async function recoverFromSnapshot(
+  commitId: string,
+  options: ServiceOptions = {},
+): Promise<{ dbPath: string; restoredCommitId: string; replayedCommits: number }> {
+  const dbPath = resolveDbPath(options.dbPath);
+  const { snapshotPath, replayCommits } = resolveSnapshotForRecovery(dbPath, commitId);
 
   const stagingPath = `${dbPath}.recover-${crypto.randomUUID().replaceAll("-", "")}.staging.db`;
   await removeFileWithSidecars(stagingPath);
