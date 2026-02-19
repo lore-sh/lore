@@ -1,4 +1,10 @@
 export * from "./types";
 export * from "./errors";
-export * from "./service";
+export * from "./init";
+export * from "./commit";
+export * from "./query";
+export * from "./status";
+export * from "./revert";
+export * from "./verify";
+export * from "./snapshot";
 export { operationPlanSchema } from "./validators/operation";
