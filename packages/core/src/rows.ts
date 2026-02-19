@@ -192,6 +192,92 @@ interface IndexXInfoRow {
   key: number;
 }
 
+function findMatchingParen(sql: string, openIndex: number): number {
+  let i = openIndex;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBacktick) {
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return i;
+      }
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
 function pragmaLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -542,90 +628,7 @@ function parseColumnDefinitionsFromCreateTable(tableSql: string | null): Map<str
   if (open < 0) {
     return defs;
   }
-  let i = open;
-  let depth = 0;
-  let end = -1;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-
-  while (i < tableSql.length) {
-    const ch = tableSql[i]!;
-    const next = tableSql[i + 1];
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "(") {
-      depth += 1;
-      i += 1;
-      continue;
-    }
-    if (ch === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        end = i;
-        break;
-      }
-      i += 1;
-      continue;
-    }
-    i += 1;
-  }
+  const end = findMatchingParen(tableSql, open);
   if (end < 0) {
     return defs;
   }
@@ -652,16 +655,15 @@ function extractCheckConstraints(tableSql: string | null): string[] {
     return [];
   }
   const checks: string[] = [];
-  const sql = tableSql;
   let i = 0;
   let inSingle = false;
   let inDouble = false;
   let inBacktick = false;
   let inBracket = false;
 
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
+  while (i < tableSql.length) {
+    const ch = tableSql[i]!;
+    const next = tableSql[i + 1];
 
     if (inSingle) {
       if (ch === "'" && next === "'") {
@@ -722,102 +724,29 @@ function extractCheckConstraints(tableSql: string | null): string[] {
     }
 
     if (
-      i + 5 <= sql.length &&
-      sql.slice(i, i + 5).toUpperCase() === "CHECK" &&
-      isWordBoundary(sql[i - 1]) &&
-      isWordBoundary(sql[i + 5])
+      i + 5 <= tableSql.length &&
+      tableSql.slice(i, i + 5).toUpperCase() === "CHECK" &&
+      isWordBoundary(tableSql[i - 1]) &&
+      isWordBoundary(tableSql[i + 5])
     ) {
       let j = i + 5;
-      while (j < sql.length && /\s/.test(sql[j]!)) {
+      while (j < tableSql.length && /\s/.test(tableSql[j]!)) {
         j += 1;
       }
-      if (sql[j] !== "(") {
+      if (tableSql[j] !== "(") {
         i += 1;
         continue;
       }
-      let depth = 0;
-      let k = j;
-      let litSingle = false;
-      let litDouble = false;
-      let litBacktick = false;
-      let litBracket = false;
-      while (k < sql.length) {
-        const c = sql[k]!;
-        const n = sql[k + 1];
-        if (litSingle) {
-          if (c === "'" && n === "'") {
-            k += 2;
-            continue;
-          }
-          if (c === "'") {
-            litSingle = false;
-          }
-          k += 1;
-          continue;
-        }
-        if (litDouble) {
-          if (c === '"' && n === '"') {
-            k += 2;
-            continue;
-          }
-          if (c === '"') {
-            litDouble = false;
-          }
-          k += 1;
-          continue;
-        }
-        if (litBacktick) {
-          if (c === "`") {
-            litBacktick = false;
-          }
-          k += 1;
-          continue;
-        }
-        if (litBracket) {
-          if (c === "]") {
-            litBracket = false;
-          }
-          k += 1;
-          continue;
-        }
-        if (c === "'") {
-          litSingle = true;
-          k += 1;
-          continue;
-        }
-        if (c === '"') {
-          litDouble = true;
-          k += 1;
-          continue;
-        }
-        if (c === "`") {
-          litBacktick = true;
-          k += 1;
-          continue;
-        }
-        if (c === "[") {
-          litBracket = true;
-          k += 1;
-          continue;
-        }
-        if (c === "(") {
-          depth += 1;
-        } else if (c === ")") {
-          depth -= 1;
-          if (depth === 0) {
-            const expr = normalizeSql(sql.slice(j + 1, k));
-            if (expr) {
-              checks.push(expr);
-            }
-            i = k + 1;
-            break;
-          }
-        }
-        k += 1;
-      }
-      if (k >= sql.length) {
+      const closeIndex = findMatchingParen(tableSql, j);
+      if (closeIndex < 0) {
         i += 1;
+        continue;
       }
+      const expr = normalizeSql(tableSql.slice(j + 1, closeIndex));
+      if (expr) {
+        checks.push(expr);
+      }
+      i = closeIndex + 1;
       continue;
     }
     i += 1;
