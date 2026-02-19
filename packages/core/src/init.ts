@@ -1,13 +1,9 @@
 import { rm } from "node:fs/promises";
 import {
   closeDatabase,
-  detectLegacySchema,
-  ENGINE_META_TABLE,
-  getMetaValue,
   initializeStorage,
   openDatabase,
 } from "./db";
-import { TossError } from "./errors";
 import { generateSkills, type GeneratedSkills } from "./skills";
 import type { InitDatabaseOptions } from "./types";
 
@@ -34,19 +30,6 @@ export async function initDatabase(
         closeDatabase(reopened.db);
       }
     } else {
-      const hasEngineMetaTable =
-        (db
-          .query(`SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='${ENGINE_META_TABLE}' LIMIT 1`)
-          .get() as { ok?: number } | null)?.ok === 1;
-      const hasFormatGenerationMeta = hasEngineMetaTable && getMetaValue(db, "format_generation") !== null;
-      const hasHistoryEngineMeta = hasEngineMetaTable && getMetaValue(db, "history_engine") !== null;
-
-      if (detectLegacySchema(db) || (hasFormatGenerationMeta && !hasHistoryEngineMeta)) {
-        throw new TossError(
-          "FORMAT_MISMATCH",
-          `Legacy toss format detected at ${dbPath}. Run \`toss init --force-new\` to reinitialize.`,
-        );
-      }
       initializeStorage(db);
     }
   } finally {

@@ -54,6 +54,13 @@ export interface AlterColumnTypeOperation {
   newType: string;
 }
 
+export interface RestoreTableOperation {
+  type: "restore_table";
+  table: string;
+  ddlSql: string;
+  rows: JsonObject[] | null;
+}
+
 export interface UpdateOperation {
   type: "update";
   table: string;
@@ -74,6 +81,7 @@ export type Operation =
   | DropTableOperation
   | DropColumnOperation
   | AlterColumnTypeOperation
+  | RestoreTableOperation
   | UpdateOperation
   | DeleteOperation;
 
@@ -109,9 +117,6 @@ export interface StatusTable {
 
 export interface TossStatus {
   dbPath: string;
-  historyEngine: string;
-  formatGeneration: number;
-  sqliteMinVersion: string;
   tableCount: number;
   tables: StatusTable[];
   headCommit: {
@@ -123,6 +128,8 @@ export interface TossStatus {
   } | null;
   snapshotCount: number;
   lastVerifiedAt: string | null;
+  lastVerifiedOk: boolean | null;
+  lastVerifiedOkAt: string | null;
 }
 
 export interface RevertConflict {
@@ -172,4 +179,3 @@ export interface InitDatabaseOptions extends ServiceOptions {
   workspacePath?: string;
   forceNew?: boolean;
 }
-

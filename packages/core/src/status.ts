@@ -1,13 +1,10 @@
 import {
   assertInitialized,
   closeDatabase,
-  FORMAT_GENERATION,
   getMetaValue,
-  HISTORY_ENGINE,
   listUserTables,
   openDatabase,
   SNAPSHOT_TABLE,
-  SQLITE_MIN_VERSION,
 } from "./db";
 import { getHeadCommit, listCommits } from "./log";
 import { quoteIdentifier } from "./sql";
@@ -28,9 +25,6 @@ export function getStatus(options: ServiceOptions = {}): TossStatus {
 
     return {
       dbPath,
-      historyEngine: getMetaValue(db, "history_engine") ?? HISTORY_ENGINE,
-      formatGeneration: Number(getMetaValue(db, "format_generation") ?? FORMAT_GENERATION),
-      sqliteMinVersion: getMetaValue(db, "sqlite_min_version") ?? SQLITE_MIN_VERSION,
       tableCount: tables.length,
       tables,
       headCommit: head
@@ -44,6 +38,11 @@ export function getStatus(options: ServiceOptions = {}): TossStatus {
         : null,
       snapshotCount: snapshotCountRow.c,
       lastVerifiedAt: getMetaValue(db, "last_verified_at"),
+      lastVerifiedOk:
+        getMetaValue(db, "last_verified_ok") === null
+          ? null
+          : getMetaValue(db, "last_verified_ok") === "1",
+      lastVerifiedOkAt: getMetaValue(db, "last_verified_ok_at"),
     };
   } finally {
     closeDatabase(db);

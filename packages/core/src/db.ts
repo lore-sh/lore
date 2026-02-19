@@ -4,9 +4,7 @@ import { Database } from "bun:sqlite";
 import { TossError } from "./errors";
 
 export const DEFAULT_DB_NAME = "toss.db";
-export const HISTORY_ENGINE = "gitlike";
-export const FORMAT_GENERATION = 1;
-export const SQLITE_MIN_VERSION = "3.51.2";
+export const SCHEMA_FINGERPRINT = "toss-canonical-2026-02-19";
 export const DEFAULT_SNAPSHOT_INTERVAL = 100;
 export const DEFAULT_SNAPSHOT_RETAIN = 20;
 export const MAIN_REF_NAME = "main";
@@ -19,8 +17,6 @@ export const OP_TABLE = "_toss_op";
 export const EFFECT_ROW_TABLE = "_toss_effect_row";
 export const EFFECT_SCHEMA_TABLE = "_toss_effect_schema";
 export const SNAPSHOT_TABLE = "_toss_snapshot";
-export const LEGACY_LOG_TABLE = "_toss_log";
-export const LEGACY_META_TABLE = "_toss_meta";
 
 export interface DatabaseContext {
   db: Database;
@@ -167,9 +163,7 @@ export function initializeStorage(db: Database): void {
     VALUES(?, ?)
     ON CONFLICT(key) DO UPDATE SET value=excluded.value;
   `);
-  upsertMeta.run("history_engine", HISTORY_ENGINE);
-  upsertMeta.run("format_generation", String(FORMAT_GENERATION));
-  upsertMeta.run("sqlite_min_version", SQLITE_MIN_VERSION);
+  upsertMeta.run("schema_fingerprint", SCHEMA_FINGERPRINT);
   upsertMeta.run("snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL));
   upsertMeta.run("snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN));
 
@@ -206,28 +200,15 @@ export function isInitialized(db: Database): boolean {
     }
   }
 
-  const generation = db
-    .query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key='format_generation'`)
+  const fingerprint = db
+    .query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key='schema_fingerprint'`)
     .get() as { value?: string } | null;
-  const engine = db
-    .query(`SELECT value FROM ${ENGINE_META_TABLE} WHERE key='history_engine'`)
-    .get() as { value?: string } | null;
-  return generation?.value === String(FORMAT_GENERATION) && engine?.value === HISTORY_ENGINE;
-}
-
-export function detectLegacySchema(db: Database): boolean {
-  return hasTable(db, LEGACY_LOG_TABLE) || hasTable(db, LEGACY_META_TABLE);
+  return fingerprint?.value === SCHEMA_FINGERPRINT;
 }
 
 export function assertInitialized(db: Database, dbPath: string): void {
   if (!existsSync(dbPath) || !isInitialized(db)) {
-    if (detectLegacySchema(db)) {
-      throw new TossError(
-        "FORMAT_MISMATCH",
-        `Legacy toss format detected at ${dbPath}. Use \`toss init --force-new\` to reinitialize.`,
-      );
-    }
-    throw new TossError("NOT_INITIALIZED", `Database is not initialized: ${dbPath}. Run \`toss init\`.`);
+    throw new TossError("NOT_INITIALIZED", `Database is not initialized: ${dbPath}. Run \`toss init --force-new\`.`);
   }
 }
 

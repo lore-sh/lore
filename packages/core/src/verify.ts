@@ -61,9 +61,14 @@ export function verifyDatabase(options: ServiceOptions & { full?: boolean } = {}
 
     const checkedAt = new Date().toISOString();
     putMeta(db, "last_verified_at", checkedAt);
+    const ok = issues.length === 0;
+    putMeta(db, "last_verified_ok", ok ? "1" : "0");
+    if (ok) {
+      putMeta(db, "last_verified_ok_at", checkedAt);
+    }
 
     return {
-      ok: issues.length === 0,
+      ok,
       mode,
       chainValid: !issues.some((issue) => issue.startsWith("Commit hash mismatch") || issue.startsWith("Parent count mismatch")),
       quickCheck,

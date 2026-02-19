@@ -182,6 +182,9 @@ function semanticValidation(plan: OperationPlan): void {
       if (primaryKeyCount > 1) {
         throw new TossError("INVALID_OPERATION", "create_table cannot contain multiple primary keys");
       }
+      if (primaryKeyCount === 0) {
+        throw new TossError("INVALID_OPERATION", "create_table must define a PRIMARY KEY");
+      }
       continue;
     }
 
@@ -223,6 +226,11 @@ function semanticValidation(plan: OperationPlan): void {
 
     if (operation.type === "delete") {
       assertPredicate(operation.where, "delete.where");
+      continue;
+    }
+
+    if (operation.type === "restore_table") {
+      throw new TossError("INVALID_OPERATION", "restore_table is an internal operation and cannot be used in plans");
     }
   }
 }

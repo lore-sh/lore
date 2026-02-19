@@ -109,12 +109,11 @@ function runStatus(args: string[]): void {
   const status = getStatus();
   const rows = status.tables.map((table) => ({ table: table.name, rows: table.count }));
   console.log(`DB: ${status.dbPath}`);
-  console.log(`History Engine: ${status.historyEngine}`);
-  console.log(`Format Generation: ${status.formatGeneration}`);
-  console.log(`SQLite Min Version: ${status.sqliteMinVersion}`);
   console.log(`User Tables: ${status.tableCount}`);
   console.log(`Snapshots: ${status.snapshotCount}`);
   console.log(`Last Verified At: ${status.lastVerifiedAt ?? "never"}`);
+  console.log(`Last Verified OK: ${status.lastVerifiedOk === null ? "unknown" : status.lastVerifiedOk ? "yes" : "no"}`);
+  console.log(`Last Verified OK At: ${status.lastVerifiedOkAt ?? "never"}`);
   console.log(
     status.headCommit
       ? `HEAD: ${status.headCommit.commitId} (seq=${status.headCommit.seq}, kind=${status.headCommit.kind})`
@@ -239,4 +238,3 @@ main().catch((error: unknown) => {
   console.error(`Error: ${message}`);
   process.exit(1);
 });
-

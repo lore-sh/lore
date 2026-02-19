@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
+import { TossError } from "./errors";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
@@ -23,7 +24,7 @@ export interface RowEffect {
 export interface SchemaEffect {
   tableName: string;
   columnName: string | null;
-  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type";
+  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type" | "restore_table";
   ddlBeforeSql: string | null;
   ddlAfterSql: string | null;
   tableRowsBefore: JsonObject[] | null;
@@ -44,6 +45,10 @@ export interface CommitWriteInput {
   operations: Operation[];
   rowEffects: RowEffect[];
   schemaEffects: SchemaEffect[];
+}
+
+export interface CommitReplayInput extends CommitWriteInput {
+  commitId: string;
 }
 
 interface RawCommitRow {
@@ -136,7 +141,18 @@ export function computeCommitId(input: CommitWriteInput): string {
 }
 
 export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry {
-  const commitId = computeCommitId(input);
+  return appendCommitExact(db, {
+    ...input,
+    commitId: computeCommitId(input),
+  });
+}
+
+export function appendCommitExact(db: Database, input: CommitReplayInput): CommitEntry {
+  const commitId = input.commitId;
+  const expected = computeCommitId(input);
+  if (expected !== commitId) {
+    throw new TossError("RECOVER_FAILED", `Commit payload mismatch for replayed commit ${commitId}`);
+  }
   const oldHead = getHeadCommitId(db);
 
   db.query(
@@ -254,7 +270,7 @@ export interface StoredRowEffect {
 export interface StoredSchemaEffect {
   tableName: string;
   columnName: string | null;
-  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type";
+  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type" | "restore_table";
   ddlBeforeSql: string | null;
   ddlAfterSql: string | null;
   tableRowsBefore: JsonObject[] | null;
@@ -304,7 +320,7 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Stor
     .all(commitId) as Array<{
     table_name: string;
     column_name: string | null;
-    op_kind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type";
+    op_kind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type" | "restore_table";
     ddl_before_sql: string | null;
     ddl_after_sql: string | null;
     table_rows_before_json: string | null;

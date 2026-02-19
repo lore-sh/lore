@@ -17,6 +17,7 @@ import {
   type SchemaEffect,
 } from "./log";
 import {
+  assertTableHasPrimaryKey,
   fetchAllRows,
   fetchRowByPk,
   fetchRowsByWhere,
@@ -66,8 +67,14 @@ export function applySchemaOperationWithEffects(
   columnName: string | null,
 ): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
   const capturesBefore = opKind !== "create_table";
+  if (capturesBefore && opKind !== "restore_table") {
+    assertTableHasPrimaryKey(db, operation.table);
+  }
   const ddlBeforeSql = capturesBefore ? tableDDL(db, operation.table) : null;
-  const tableRowsBefore = capturesBefore ? fetchAllRows(db, operation.table) : null;
+  if (capturesBefore && opKind !== "restore_table" && !ddlBeforeSql) {
+    throw new TossError("APPLY_FAILED", `Unable to read current table DDL for ${operation.table} before ${opKind}`);
+  }
+  const tableRowsBefore = capturesBefore && ddlBeforeSql ? fetchAllRows(db, operation.table) : null;
 
   executeOperation(db, operation);
 
@@ -82,6 +89,7 @@ export function applySchemaOperationWithEffects(
 
 export function applyOperationWithEffects(db: Database, operation: Operation): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
   if (operation.type === "insert") {
+    assertTableHasPrimaryKey(db, operation.table);
     executeOperation(db, operation);
     const pkCols = primaryKeyColumns(db, operation.table);
     let insertedRow: Record<string, unknown> | null;
@@ -93,7 +101,7 @@ export function applyOperationWithEffects(db: Database, operation: Operation): {
       insertedRow = fetchRowByPk(db, operation.table, pkWhere);
     } else {
       insertedRow = db
-        .query(`SELECT rowid AS __toss_rowid, * FROM ${quoteIdentifier(operation.table)} WHERE rowid = last_insert_rowid()`)
+        .query(`SELECT * FROM ${quoteIdentifier(operation.table)} WHERE rowid = last_insert_rowid()`)
         .get() as Record<string, unknown> | null;
     }
 
@@ -116,12 +124,14 @@ export function applyOperationWithEffects(db: Database, operation: Operation): {
   }
 
   if (operation.type === "update") {
+    assertTableHasPrimaryKey(db, operation.table);
     const beforeRows = fetchRowsByWhere(db, operation.table, operation.where);
     executeOperation(db, operation);
     return { rowEffects: buildRowEffectsForUpdateDelete(db, operation.table, "update", beforeRows), schemaEffects: [] };
   }
 
   if (operation.type === "delete") {
+    assertTableHasPrimaryKey(db, operation.table);
     const beforeRows = fetchRowsByWhere(db, operation.table, operation.where);
     executeOperation(db, operation);
     return { rowEffects: buildRowEffectsForUpdateDelete(db, operation.table, "delete", beforeRows), schemaEffects: [] };
@@ -147,10 +157,17 @@ export function applyOperationWithEffects(db: Database, operation: Operation): {
     return applySchemaOperationWithEffects(db, operation, "alter_column_type", operation.column);
   }
 
+  if (operation.type === "restore_table") {
+    return applySchemaOperationWithEffects(db, operation, "restore_table", null);
+  }
+
   throw new TossError("UNSUPPORTED_OPERATION", `Unsupported operation type: ${(operation as Operation).type}`);
 }
 
-export function applyOperationsWithEffects(db: Database, operations: Operation[]): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
+export function applyOperationsWithEffects(
+  db: Database,
+  operations: Operation[],
+): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
   const rowEffects: RowEffect[] = [];
   const schemaEffects: SchemaEffect[] = [];
   for (const operation of operations) {
