@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "devDependencies": {
+    "@tsconfig/bun": "^1.0.10",
     "@types/bun": "^1.3.3"
   },
   "scripts": {

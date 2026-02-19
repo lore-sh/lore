@@ -1,57 +1,46 @@
-## Scope
+## Purpose
 - This file defines coding behavior for this TypeScript x Bun project.
 - The goal is simple, readable, and fundamentally correct code.
 
-## Core Rules
+## Core Principles
 - Prefer less code that achieves more.
-- Avoid `try/catch` as much as possible.
-- Avoid `any` as much as possible.
-- Avoid over-splitting functions or using overly complex techniques.
-- Keep logic straightforward and co-located when it improves clarity.
-- Prefer short, clear names (one word when practical).
-- Avoid unnecessary comments and documentation.
-- Prefer Bun-native APIs first.
-- Prefer existing type inference and avoid new custom types unless necessary.
+- Keep logic straightforward and close to where it is used.
+- Avoid over-splitting functions and avoid unnecessary abstraction.
+- Prefer Bun-native APIs first (`Bun.file`, `Bun.write`, `Bun.spawn`, `Bun.Glob`, `Bun.CryptoHasher`, `bun:sqlite`).
+- Add third-party dependencies only when built-in options are insufficient.
 - Fix root causes across dependencies, not only local symptoms.
 
-## Runtime and API Policy
-- Use Bun-native APIs first: `Bun.file`, `Bun.write`, `Bun.spawn`, `Bun.Glob`, `Bun.CryptoHasher`, `bun:sqlite`.
-- Add third-party dependencies only when built-in options are not sufficient.
+## Naming and Structure
+- Prefer short and clear names (one word when practical).
+- If one-word names reduce clarity, use a longer explicit name.
+- Avoid clever abbreviations.
+- Split functions only when reuse is clear or readability clearly improves.
 
-## Error Handling Policy
+## Type Rules
+- Prefer type inference from values and return types.
+- Avoid `any` as much as possible.
+- Use `unknown` for untrusted input, then narrow immediately.
+- Introduce custom types only when they prevent real bugs, clarify boundaries, or are reused.
+- Do not use `as` by default.
+- Prefer control-flow narrowing, type guards, `in` checks, `instanceof`, `satisfies`, and `as const`.
+- Allow `as` only at validated boundaries or when narrowing is not expressible.
+- Avoid `as any`.
+- Avoid chained assertions like `as unknown as T` unless there is no practical alternative.
+
+## Error Handling
 - Do not use exceptions for normal control flow.
 - Prefer guard clauses and early returns for expected failures.
 - Use `try/catch` only at boundaries (CLI entrypoint, worker loop, HTTP handler boundary).
 - Never swallow errors; attach context and fail clearly once.
 
-## Naming Policy
-- Use short, clear names.
-- Prefer one-word names in local scope.
-- If a one-word name hurts readability, use a longer explicit name.
-- Avoid clever abbreviations.
+## Comments and Docs
+- Avoid unnecessary comments and documentation.
+- Do not write comments or docs that restate obvious code.
+- Add comments only for non-obvious intent, constraints, or tradeoffs.
+- Keep documentation minimal and operationally useful.
 
-## Type Policy
-- Prefer inference from values and return types.
-- Use `unknown` for untrusted external input, then narrow immediately.
-- Introduce explicit custom types only when they prevent real bugs, clarify module boundaries, or are reused.
-
-## Structure Policy
-- Start with one direct implementation path.
-- Split functions only when reuse is clear or readability clearly improves.
-- Avoid abstractions created only for hypothetical future needs.
-
-## Comment and Docs Policy
-- Do not write comments or docs that only restate obvious code.
-- Add comments only when they explain non-obvious intent, constraints, or tradeoffs.
-- Keep documentation minimal and focused on operationally useful information.
-
-## Root-Cause Policy
-- Trace cause chains through callers, callees, data contracts, schema, and side effects.
-- Validate related paths after the fix.
-- Add or update regression tests for the real failure path.
+## Quality Bar
+- Validate related paths after a fix, not only the changed line.
+- Add or update regression tests for the actual failure path.
 - Prefer durable fixes over local hotfixes.
-
-## Tradeoff Rules
-- Shorter code is good only when readability and correctness stay high.
-- Local simplicity is not enough if system behavior stays inconsistent.
-- Use one-word naming as a default, not as a hard constraint.
+- Brevity is good only when correctness and readability stay high.

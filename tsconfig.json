@@ -1,7 +1,12 @@
 {
-  "extends": "./tsconfig.base.json",
+  "extends": "@tsconfig/bun/tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true
   },
   "include": ["packages/**/*.ts"]
 }
