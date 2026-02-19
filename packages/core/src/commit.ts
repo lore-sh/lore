@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
 import { assertInitialized, closeDatabase, openDatabase, runInTransaction } from "./db";
@@ -13,7 +12,7 @@ export function readPlanInput(planRef: string): Promise<string> {
   if (planRef === "-") {
     return Bun.stdin.text();
   }
-  return readFile(planRef, "utf8");
+  return Bun.file(planRef).text();
 }
 
 export function appendCommitFromObservedChange(
@@ -86,4 +85,3 @@ export async function applyPlan(planRef: string, options: DatabaseOptions = {}):
   await maybeCreateSnapshot(dbPath, commit);
   return commit;
 }
-

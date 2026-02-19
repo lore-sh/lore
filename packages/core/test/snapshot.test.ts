@@ -1,7 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
 import {
   applyPlan,
   getHistory,
@@ -25,7 +23,7 @@ describe("snapshot / recover", () => {
 
     enableSnapshotEveryCommit(dbPath);
 
-    const create = writePlanFile(dir, "create.json", {
+    const create = await writePlanFile(dir, "create.json", {
       message: "create logs",
       operations: [
         {
@@ -38,7 +36,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const insert = writePlanFile(dir, "insert.json", {
+    const insert = await writePlanFile(dir, "insert.json", {
       message: "insert log",
       operations: [{ type: "insert", table: "logs", values: { id: 1, msg: "hello" } }],
     });
@@ -68,7 +66,7 @@ describe("snapshot / recover", () => {
 
     enableSnapshotEveryCommit(dbPath);
 
-    const create = writePlanFile(dir, "create-safe-recover.json", {
+    const create = await writePlanFile(dir, "create-safe-recover.json", {
       message: "create table",
       operations: [
         {
@@ -81,11 +79,11 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const insertA = writePlanFile(dir, "insert-a-safe-recover.json", {
+    const insertA = await writePlanFile(dir, "insert-a-safe-recover.json", {
       message: "insert a",
       operations: [{ type: "insert", table: "recover_guard", values: { id: 1, value: "a" } }],
     });
-    const insertB = writePlanFile(dir, "insert-b-safe-recover.json", {
+    const insertB = await writePlanFile(dir, "insert-b-safe-recover.json", {
       message: "insert b",
       operations: [{ type: "insert", table: "recover_guard", values: { id: 2, value: "b" } }],
     });
@@ -123,7 +121,7 @@ describe("snapshot / recover", () => {
 
     enableSnapshotEveryCommit(dbPath);
 
-    const create = writePlanFile(dir, "create-snap-clean.json", {
+    const create = await writePlanFile(dir, "create-snap-clean.json", {
       message: "create snapshots table",
       operations: [
         {
@@ -135,8 +133,12 @@ describe("snapshot / recover", () => {
     });
     await applyPlan(create, { dbPath });
 
-    const snapshotDir = join(dir, ".toss", "snapshots");
-    const names = readdirSync(snapshotDir).sort();
+    const snapshotDir = `${dir}/.toss/snapshots`;
+    const names: string[] = [];
+    for await (const name of new Bun.Glob("*").scan({ cwd: snapshotDir })) {
+      names.push(name);
+    }
+    names.sort();
     expect(names.length).toBeGreaterThan(0);
     expect(names.some((name) => name.startsWith("tmp-"))).toBe(false);
     expect(names.some((name) => name.endsWith(".db-wal"))).toBe(false);
@@ -154,7 +156,7 @@ describe("snapshot / recover", () => {
 
     enableSnapshotEveryCommit(dbPath);
 
-    const create = writePlanFile(dir, "create-orders.json", {
+    const create = await writePlanFile(dir, "create-orders.json", {
       message: "create orders",
       operations: [
         {
@@ -167,7 +169,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const insert = writePlanFile(dir, "insert-orders.json", {
+    const insert = await writePlanFile(dir, "insert-orders.json", {
       message: "insert order",
       operations: [{ type: "insert", table: "orders", values: { id: 1, item: "book" } }],
     });
@@ -192,7 +194,7 @@ describe("snapshot / recover", () => {
     await initDatabase({ dbPath });
     enableSnapshotEveryCommit(dbPath);
 
-    const create = writePlanFile(dir, "create-ledger-tables.json", {
+    const create = await writePlanFile(dir, "create-ledger-tables.json", {
       message: "create ledger tables",
       operations: [
         {
@@ -227,7 +229,7 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO account(id, balance) VALUES (1, 0)");
     direct.close(false);
 
-    const marker = writePlanFile(dir, "marker-ledger.json", {
+    const marker = await writePlanFile(dir, "marker-ledger.json", {
       message: "marker",
       operations: [
         {
@@ -239,7 +241,7 @@ describe("snapshot / recover", () => {
     });
     const markerCommit = await applyPlan(marker, { dbPath });
 
-    const insertLedger = writePlanFile(dir, "insert-ledger-with-trigger.json", {
+    const insertLedger = await writePlanFile(dir, "insert-ledger-with-trigger.json", {
       message: "insert ledger with trigger",
       operations: [{ type: "insert", table: "ledger", values: { id: 1, account_id: 1, amount: 7 } }],
     });
@@ -271,7 +273,7 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO child_requires_parent(id, parent_id, body) VALUES (1, 1, 'c1')");
     direct.close(false);
 
-    const destructive = writePlanFile(dir, "recover-delete-child-drop-parent.json", {
+    const destructive = await writePlanFile(dir, "recover-delete-child-drop-parent.json", {
       message: "delete child then drop parent",
       operations: [
         { type: "delete", table: "child_requires_parent", where: { id: 1 } },
@@ -316,7 +318,7 @@ describe("snapshot / recover", () => {
     direct.run("CREATE TABLE auto_replay (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.close(false);
 
-    const basePlan = writePlanFile(dir, "autoinc-base-marker.json", {
+    const basePlan = await writePlanFile(dir, "autoinc-base-marker.json", {
       message: "base marker",
       operations: [
         {
@@ -328,7 +330,7 @@ describe("snapshot / recover", () => {
     });
     const baseCommit = await applyPlan(basePlan, { dbPath });
 
-    const firstInsertPlan = writePlanFile(dir, "autoinc-first-insert.json", {
+    const firstInsertPlan = await writePlanFile(dir, "autoinc-first-insert.json", {
       message: "first autoincrement insert",
       operations: [{ type: "insert", table: "auto_replay", values: { body: "x" } }],
     });
@@ -354,7 +356,7 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO auto_schema(body) VALUES ('a')");
     direct.close(false);
 
-    const markerPlan = writePlanFile(dir, "autoinc-schema-marker.json", {
+    const markerPlan = await writePlanFile(dir, "autoinc-schema-marker.json", {
       message: "marker",
       operations: [
         {
@@ -366,7 +368,7 @@ describe("snapshot / recover", () => {
     });
     const markerCommit = await applyPlan(markerPlan, { dbPath });
 
-    const dropPlan = writePlanFile(dir, "drop-autoinc-schema-replay.json", {
+    const dropPlan = await writePlanFile(dir, "drop-autoinc-schema-replay.json", {
       message: "drop autoincrement table",
       operations: [{ type: "drop_table", table: "auto_schema" }],
     });
@@ -401,7 +403,7 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO a_child(id, parent_id, body) VALUES (1, 1, 'c1')");
     direct.close(false);
 
-    const dropBoth = writePlanFile(dir, "recover-drop-fk-both.json", {
+    const dropBoth = await writePlanFile(dir, "recover-drop-fk-both.json", {
       message: "drop child then parent",
       operations: [
         { type: "drop_table", table: "a_child" },
@@ -453,7 +455,7 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO self_fk_replay(id, parent_id, note) VALUES (2, 1, 'child')");
     direct.close(false);
 
-    const dropPlan = writePlanFile(dir, "self-fk-replay-drop-note.json", {
+    const dropPlan = await writePlanFile(dir, "self-fk-replay-drop-note.json", {
       message: "drop self fk note",
       operations: [{ type: "drop_column", table: "self_fk_replay", column: "note" }],
     });
@@ -494,7 +496,7 @@ describe("snapshot / recover", () => {
     await initDatabase({ dbPath });
     enableSnapshotEveryCommit(dbPath);
 
-    const create = writePlanFile(dir, "create-text-nul-recover.json", {
+    const create = await writePlanFile(dir, "create-text-nul-recover.json", {
       message: "create text nul replay table",
       operations: [
         {
@@ -514,7 +516,7 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO text_nul_recover(id, payload, tag) VALUES (1, CAST(X'410042' AS TEXT), 'a')");
     direct.close(false);
 
-    const marker = writePlanFile(dir, "text-nul-recover-marker.json", {
+    const marker = await writePlanFile(dir, "text-nul-recover-marker.json", {
       message: "marker",
       operations: [
         {
@@ -526,7 +528,7 @@ describe("snapshot / recover", () => {
     });
     const markerCommit = await applyPlan(marker, { dbPath });
 
-    const update = writePlanFile(dir, "text-nul-recover-update.json", {
+    const update = await writePlanFile(dir, "text-nul-recover-update.json", {
       message: "update tag",
       operations: [{ type: "update", table: "text_nul_recover", values: { tag: "b" }, where: { id: 1 } }],
     });

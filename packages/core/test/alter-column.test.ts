@@ -26,7 +26,7 @@ describe("alter_column_type", () => {
     direct.run("INSERT INTO children(id, parent_id, amount) VALUES (1, 1, '42')");
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-child-amount.json", {
+    const alter = await writePlanFile(dir, "alter-child-amount.json", {
       message: "convert child amount",
       operations: [{ type: "alter_column_type", table: "children", column: "amount", newType: "INTEGER" }],
     });
@@ -61,7 +61,7 @@ describe("alter_column_type", () => {
     direct.run("INSERT INTO tree_nodes(id, parent_id, weight) VALUES (2, 1, '20')");
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-self-fk-tree-nodes.json", {
+    const alter = await writePlanFile(dir, "alter-self-fk-tree-nodes.json", {
       message: "alter self fk table",
       operations: [{ type: "alter_column_type", table: "tree_nodes", column: "weight", newType: "INTEGER" }],
     });
@@ -87,7 +87,7 @@ describe("alter_column_type", () => {
     direct.run("INSERT INTO 'sq_users'('id', 'amount') VALUES (1, '44')");
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-single-quoted-identifiers.json", {
+    const alter = await writePlanFile(dir, "alter-single-quoted-identifiers.json", {
       message: "alter legacy single-quoted identifiers",
       operations: [{ type: "alter_column_type", table: "sq_users", column: "amount", newType: "INTEGER" }],
     });
@@ -111,7 +111,7 @@ describe("alter_column_type", () => {
     direct.run(`INSERT INTO kw_cols("primary", note) VALUES ('7', 'x')`);
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-quoted-keyword-column.json", {
+    const alter = await writePlanFile(dir, "alter-quoted-keyword-column.json", {
       message: "convert quoted keyword column type",
       operations: [{ type: "alter_column_type", table: "kw_cols", column: "primary", newType: "INTEGER" }],
     });
@@ -138,7 +138,7 @@ describe("alter_column_type", () => {
     direct.run(`INSERT INTO commented_cols(id, a, b, c) VALUES (1, 'x', '11', 'y')`);
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-commented-column.json", {
+    const alter = await writePlanFile(dir, "alter-commented-column.json", {
       message: "convert commented column type",
       operations: [{ type: "alter_column_type", table: "commented_cols", column: "b", newType: "INTEGER" }],
     });
@@ -163,7 +163,7 @@ describe("alter_column_type", () => {
     direct.run(`INSERT INTO line_comment_cols(id, a, b) VALUES (1, 'x', '12')`);
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-line-comment-column.json", {
+    const alter = await writePlanFile(dir, "alter-line-comment-column.json", {
       message: "convert line-commented column type",
       operations: [{ type: "alter_column_type", table: "line_comment_cols", column: "b", newType: "INTEGER" }],
     });
@@ -187,7 +187,7 @@ describe("alter_column_type", () => {
     direct.run(`INSERT INTO trailing_comment_last(id, b) VALUES (1, '34')`);
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-trailing-comment-last.json", {
+    const alter = await writePlanFile(dir, "alter-trailing-comment-last.json", {
       message: "convert last commented column type",
       operations: [{ type: "alter_column_type", table: "trailing_comment_last", column: "b", newType: "INTEGER" }],
     });
@@ -214,7 +214,7 @@ describe("alter_column_type", () => {
     direct.run("INSERT INTO Users(id, amount, note) VALUES (1, '12', 'a')");
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-users-case-insensitive.json", {
+    const alter = await writePlanFile(dir, "alter-users-case-insensitive.json", {
       message: "alter users amount",
       operations: [{ type: "alter_column_type", table: "users", column: "amount", newType: "INTEGER" }],
     });
@@ -238,7 +238,7 @@ describe("alter_column_type", () => {
     direct.run("INSERT INTO 사용자(id, 이름) VALUES (1, '42')");
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-unicode-bare-identifiers.json", {
+    const alter = await writePlanFile(dir, "alter-unicode-bare-identifiers.json", {
       message: "alter unicode bare column",
       operations: [{ type: "alter_column_type", table: "사용자", column: "이름", newType: "INTEGER" }],
     });
@@ -257,7 +257,7 @@ describe("alter_column_type", () => {
     direct.run("INSERT INTO astral_cols(id, 𐐷) VALUES (1, '56')");
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-astral-bare-identifiers.json", {
+    const alter = await writePlanFile(dir, "alter-astral-bare-identifiers.json", {
       message: "alter astral bare column",
       operations: [{ type: "alter_column_type", table: "astral_cols", column: "𐐷", newType: "INTEGER" }],
     });
@@ -276,7 +276,7 @@ describe("alter_column_type", () => {
     direct.run('INSERT INTO unicode_case_cols(id, "Ä", "ä") VALUES (1, \'10\', \'11\')');
     direct.close(false);
 
-    const alter = writePlanFile(dir, "alter-unicode-case-sensitive-column.json", {
+    const alter = await writePlanFile(dir, "alter-unicode-case-sensitive-column.json", {
       message: "alter only capital-a-umlaut",
       operations: [{ type: "alter_column_type", table: "unicode_case_cols", column: "Ä", newType: "INTEGER" }],
     });

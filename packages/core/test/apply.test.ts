@@ -17,7 +17,7 @@ describe("applyPlan", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const createPlanPath = writePlanFile(dir, "create.json", {
+    const createPlanPath = await writePlanFile(dir, "create.json", {
       message: "create expenses table",
       operations: [
         {
@@ -31,7 +31,7 @@ describe("applyPlan", () => {
         },
       ],
     });
-    const insertPlanPath = writePlanFile(dir, "insert.json", {
+    const insertPlanPath = await writePlanFile(dir, "insert.json", {
       message: "insert dinner",
       operations: [{ type: "insert", table: "expenses", values: { id: 1, item: "dinner", amount: 1200 } }],
     });
@@ -62,7 +62,7 @@ describe("applyPlan", () => {
     direct.run("CREATE TABLE no_pk (name TEXT)");
     direct.close(false);
 
-    const insertPlan = writePlanFile(dir, "insert-no-pk.json", {
+    const insertPlan = await writePlanFile(dir, "insert-no-pk.json", {
       message: "insert no pk",
       operations: [{ type: "insert", table: "no_pk", values: { name: "a" } }],
     });
@@ -88,7 +88,7 @@ describe("applyPlan", () => {
     direct.run("INSERT INTO weak_pk(k, v) VALUES (NULL, 'b')");
     direct.close(false);
 
-    const plan = writePlanFile(dir, "plan-with-nullable-pk-values.json", {
+    const plan = await writePlanFile(dir, "plan-with-nullable-pk-values.json", {
       message: "noop create",
       operations: [
         {

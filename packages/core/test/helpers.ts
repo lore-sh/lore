@@ -1,8 +1,8 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+import { AsyncLocalStorage } from "async_hooks";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { Database } from "bun:sqlite";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { initDatabase } from "../src";
 import { ENGINE_META_TABLE } from "../src/db";
 import { schemaHash } from "../src/rows";
@@ -44,9 +44,9 @@ export function createTestContext(): { dir: string; dbPath: string } {
   return { dir, dbPath };
 }
 
-export function writePlanFile(dir: string, name: string, payload: unknown): string {
-  const path = join(dir, name);
-  writeFileSync(path, JSON.stringify(payload), "utf8");
+export async function writePlanFile(dir: string, name: string, payload: unknown): Promise<string> {
+  const path = `${dir}/${name}`;
+  await Bun.write(path, JSON.stringify(payload));
   return path;
 }
 

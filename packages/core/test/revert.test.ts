@@ -10,7 +10,7 @@ describe("revertCommit", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const setup = writePlanFile(dir, "setup.json", {
+    const setup = await writePlanFile(dir, "setup.json", {
       message: "setup",
       operations: [
         {
@@ -24,7 +24,7 @@ describe("revertCommit", () => {
         { type: "insert", table: "expenses", values: { id: 1, item: "dinner" } },
       ],
     });
-    const drop = writePlanFile(dir, "drop.json", {
+    const drop = await writePlanFile(dir, "drop.json", {
       message: "drop table",
       operations: [{ type: "drop_table", table: "expenses" }],
     });
@@ -48,7 +48,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO auto_drop(body) VALUES ('a')");
     direct.close(false);
 
-    const drop = writePlanFile(dir, "drop-autoincrement-table.json", {
+    const drop = await writePlanFile(dir, "drop-autoincrement-table.json", {
       message: "drop autoincrement table",
       operations: [{ type: "drop_table", table: "auto_drop" }],
     });
@@ -83,7 +83,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO z_child(id, parent_id, body) VALUES (1, 1, 'c1')");
     direct.close(false);
 
-    const dropBoth = writePlanFile(dir, "drop-fk-related-tables.json", {
+    const dropBoth = await writePlanFile(dir, "drop-fk-related-tables.json", {
       message: "drop child then parent",
       operations: [
         { type: "drop_table", table: "z_child" },
@@ -131,7 +131,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO z_child(id, parent_id, body) VALUES (2, 1, 'c2')");
     direct.close(false);
 
-    const deleteParent = writePlanFile(dir, "delete-parent.json", {
+    const deleteParent = await writePlanFile(dir, "delete-parent.json", {
       message: "delete parent 1",
       operations: [{ type: "delete", table: "a_parent", where: { id: 1 } }],
     });
@@ -166,7 +166,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO account(id, balance) VALUES (1, 0)");
     direct.close(false);
 
-    const insertLedger = writePlanFile(dir, "insert-ledger.json", {
+    const insertLedger = await writePlanFile(dir, "insert-ledger.json", {
       message: "insert ledger row",
       operations: [{ type: "insert", table: "ledger", values: { id: 1, account_id: 1, amount: 7 } }],
     });
@@ -199,7 +199,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO child_nodes(id, parent_id, body) VALUES (1, 1, 'c1')");
     direct.close(false);
 
-    const destructive = writePlanFile(dir, "delete-child-drop-parent.json", {
+    const destructive = await writePlanFile(dir, "delete-child-drop-parent.json", {
       message: "delete child then drop parent",
       operations: [
         { type: "delete", table: "child_nodes", where: { id: 1 } },
@@ -231,7 +231,7 @@ describe("revertCommit", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const setup = writePlanFile(dir, "setup-unique.json", {
+    const setup = await writePlanFile(dir, "setup-unique.json", {
       message: "setup users",
       operations: [
         {
@@ -245,11 +245,11 @@ describe("revertCommit", () => {
         { type: "insert", table: "users", values: { id: 1, email: "a@example.com" } },
       ],
     });
-    const deleteUser = writePlanFile(dir, "delete-user.json", {
+    const deleteUser = await writePlanFile(dir, "delete-user.json", {
       message: "delete user 1",
       operations: [{ type: "delete", table: "users", where: { id: 1 } }],
     });
-    const insertConflicting = writePlanFile(dir, "insert-conflicting-user.json", {
+    const insertConflicting = await writePlanFile(dir, "insert-conflicting-user.json", {
       message: "insert conflicting user",
       operations: [{ type: "insert", table: "users", values: { id: 2, email: "a@example.com" } }],
     });
@@ -296,7 +296,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO constrained_items(id, parent_id, code, amount, note) VALUES (1, 1, 'A', '10', 'seed')");
     direct.close(false);
 
-    const dropNote = writePlanFile(dir, "drop-note.json", {
+    const dropNote = await writePlanFile(dir, "drop-note.json", {
       message: "drop note",
       operations: [{ type: "drop_column", table: "constrained_items", column: "note" }],
     });
@@ -344,7 +344,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO self_fk_nodes(id, parent_id, note) VALUES (2, 1, 'child')");
     direct.close(false);
 
-    const dropNote = writePlanFile(dir, "drop-self-fk-note.json", {
+    const dropNote = await writePlanFile(dir, "drop-self-fk-note.json", {
       message: "drop note from self fk table",
       operations: [{ type: "drop_column", table: "self_fk_nodes", column: "note" }],
     });
@@ -375,7 +375,7 @@ describe("revertCommit", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const setup = writePlanFile(dir, "schema-row-conflict-setup.json", {
+    const setup = await writePlanFile(dir, "schema-row-conflict-setup.json", {
       message: "setup conflict table",
       operations: [
         {
@@ -389,11 +389,11 @@ describe("revertCommit", () => {
         { type: "insert", table: "conflict_items", values: { id: 1, note: "a" } },
       ],
     });
-    const dropColumn = writePlanFile(dir, "schema-row-conflict-drop.json", {
+    const dropColumn = await writePlanFile(dir, "schema-row-conflict-drop.json", {
       message: "drop note",
       operations: [{ type: "drop_column", table: "conflict_items", column: "note" }],
     });
-    const laterInsert = writePlanFile(dir, "schema-row-conflict-later-insert.json", {
+    const laterInsert = await writePlanFile(dir, "schema-row-conflict-later-insert.json", {
       message: "later insert",
       operations: [{ type: "insert", table: "conflict_items", values: { id: 2 } }],
     });
@@ -418,7 +418,7 @@ describe("revertCommit", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const setup = writePlanFile(dir, "missing-table-conflict-setup.json", {
+    const setup = await writePlanFile(dir, "missing-table-conflict-setup.json", {
       message: "setup",
       operations: [
         {
@@ -432,11 +432,11 @@ describe("revertCommit", () => {
         { type: "insert", table: "missing_table_conflict", values: { id: 1, body: "a" } },
       ],
     });
-    const updatePlan = writePlanFile(dir, "missing-table-conflict-update.json", {
+    const updatePlan = await writePlanFile(dir, "missing-table-conflict-update.json", {
       message: "update row",
       operations: [{ type: "update", table: "missing_table_conflict", values: { body: "b" }, where: { id: 1 } }],
     });
-    const dropPlan = writePlanFile(dir, "missing-table-conflict-drop.json", {
+    const dropPlan = await writePlanFile(dir, "missing-table-conflict-drop.json", {
       message: "drop table later",
       operations: [{ type: "drop_table", table: "missing_table_conflict" }],
     });
@@ -468,7 +468,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO blobs(id, data, n, tag) VALUES (1, X'001122334455', 1.5, 'a')");
     direct.close(false);
 
-    const updateTag = writePlanFile(dir, "update-tag.json", {
+    const updateTag = await writePlanFile(dir, "update-tag.json", {
       message: "update blob row tag",
       operations: [{ type: "update", table: "blobs", values: { tag: "b" }, where: { id: 1 } }],
     });
@@ -500,7 +500,7 @@ describe("revertCommit", () => {
     direct.run("INSERT INTO text_nul_items(id, payload, tag) VALUES (1, CAST(X'410042' AS TEXT), 'a')");
     direct.close(false);
 
-    const updateTag = writePlanFile(dir, "update-text-nul-tag.json", {
+    const updateTag = await writePlanFile(dir, "update-text-nul-tag.json", {
       message: "update tag for nul-text row",
       operations: [{ type: "update", table: "text_nul_items", values: { tag: "b" }, where: { id: 1 } }],
     });
@@ -523,11 +523,11 @@ describe("revertCommit", () => {
     direct.run("CREATE TABLE auto_items (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.close(false);
 
-    const insertA = writePlanFile(dir, "autoinc-insert-a.json", {
+    const insertA = await writePlanFile(dir, "autoinc-insert-a.json", {
       message: "insert autoincrement row a",
       operations: [{ type: "insert", table: "auto_items", values: { body: "a" } }],
     });
-    const insertB = writePlanFile(dir, "autoinc-insert-b.json", {
+    const insertB = await writePlanFile(dir, "autoinc-insert-b.json", {
       message: "insert autoincrement row b",
       operations: [{ type: "insert", table: "auto_items", values: { body: "b" } }],
     });
@@ -549,11 +549,11 @@ describe("revertCommit", () => {
     direct.run("CREATE TABLE auto_items_later (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.close(false);
 
-    const insertA = writePlanFile(dir, "autoinc-later-insert-a.json", {
+    const insertA = await writePlanFile(dir, "autoinc-later-insert-a.json", {
       message: "insert a",
       operations: [{ type: "insert", table: "auto_items_later", values: { body: "a" } }],
     });
-    const insertB = writePlanFile(dir, "autoinc-later-insert-b.json", {
+    const insertB = await writePlanFile(dir, "autoinc-later-insert-b.json", {
       message: "insert b",
       operations: [{ type: "insert", table: "auto_items_later", values: { body: "b" } }],
     });
@@ -578,15 +578,15 @@ describe("revertCommit", () => {
     direct.run("CREATE TABLE auto_items_hist (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.close(false);
 
-    const insertA = writePlanFile(dir, "autoinc-hist-insert-a.json", {
+    const insertA = await writePlanFile(dir, "autoinc-hist-insert-a.json", {
       message: "insert a",
       operations: [{ type: "insert", table: "auto_items_hist", values: { body: "a" } }],
     });
-    const insertB = writePlanFile(dir, "autoinc-hist-insert-b.json", {
+    const insertB = await writePlanFile(dir, "autoinc-hist-insert-b.json", {
       message: "insert b",
       operations: [{ type: "insert", table: "auto_items_hist", values: { body: "b" } }],
     });
-    const deleteB = writePlanFile(dir, "autoinc-hist-delete-b.json", {
+    const deleteB = await writePlanFile(dir, "autoinc-hist-delete-b.json", {
       message: "delete b",
       operations: [{ type: "delete", table: "auto_items_hist", where: { id: 2 } }],
     });
@@ -607,7 +607,7 @@ describe("revertCommit", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const setup = writePlanFile(dir, "setup.json", {
+    const setup = await writePlanFile(dir, "setup.json", {
       message: "setup",
       operations: [
         {
@@ -621,7 +621,7 @@ describe("revertCommit", () => {
         { type: "insert", table: "events", values: { id: 1, title: "dentist" } },
       ],
     });
-    const drop = writePlanFile(dir, "drop.json", {
+    const drop = await writePlanFile(dir, "drop.json", {
       message: "drop events",
       operations: [{ type: "drop_table", table: "events" }],
     });

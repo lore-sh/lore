@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, rename, rm } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, rename } from "fs/promises";
 import { Database } from "bun:sqlite";
+import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
+import { dirnameOf, joinPath } from "./pathing";
 import { sha256Hex } from "./checksum";
 import {
   assertInitialized,
@@ -53,8 +53,13 @@ interface ReplayCommit {
   schemaEffects: SchemaEffect[];
 }
 
-export function hashFile(path: string): Promise<string> {
-  return readFile(path).then((buffer) => createHash("sha256").update(buffer).digest("hex"));
+export async function hashFile(path: string): Promise<string> {
+  const hasher = new Bun.CryptoHasher("sha256");
+  const stream = Bun.file(path).stream();
+  for await (const chunk of stream) {
+    hasher.update(chunk);
+  }
+  return hasher.digest("hex");
 }
 
 export function getSnapshotInterval(db: Database): number {
@@ -67,10 +72,12 @@ export function getSnapshotRetain(db: Database): number {
   return value ? Number(value) : DEFAULT_SNAPSHOT_RETAIN;
 }
 
-async function removeFileWithSidecars(path: string): Promise<void> {
-  await rm(path, { force: true });
-  await rm(`${path}-wal`, { force: true });
-  await rm(`${path}-shm`, { force: true });
+async function ensureDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true });
+}
+
+async function moveFile(from: string, to: string): Promise<void> {
+  await rename(from, to);
 }
 
 function openStagingWritableDatabase(stagingPath: string): Database {
@@ -121,9 +128,9 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
     closeDatabase(db);
   }
 
-  const snapshotsDir = join(dirname(dbPath), ".toss", "snapshots");
-  await mkdir(snapshotsDir, { recursive: true });
-  const tmpSnapshotPath = join(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
+  const snapshotsDir = joinPath(dirnameOf(dbPath), ".toss", "snapshots");
+  await ensureDirectory(snapshotsDir);
+  const tmpSnapshotPath = joinPath(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 
   const { db: snapshotDb } = openDatabase(dbPath);
   try {
@@ -133,11 +140,10 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   }
 
   const snapshotHead = readSnapshotHead(tmpSnapshotPath);
-  const snapshotPath = join(snapshotsDir, `${snapshotHead.seq}-${snapshotHead.commitId}.db`);
-  await removeFileWithSidecars(snapshotPath);
-  await rename(tmpSnapshotPath, snapshotPath);
-  await removeFileWithSidecars(tmpSnapshotPath);
-  const digest = await hashFile(snapshotPath);
+  const snapshotPath = joinPath(snapshotsDir, `${snapshotHead.seq}-${snapshotHead.commitId}.db`);
+  await deleteWithSidecars(snapshotPath);
+  await moveFile(tmpSnapshotPath, snapshotPath);
+  const [digest] = await Promise.all([hashFile(snapshotPath), deleteWithSidecars(tmpSnapshotPath)]);
 
   const { db: writeDb } = openDatabase(dbPath);
   try {
@@ -158,7 +164,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
       )
       .all(retain) as Array<{ commit_id: string; file_path: string }>;
     for (const row of stale) {
-      await removeFileWithSidecars(row.file_path);
+      await deleteWithSidecars(row.file_path);
       writeDb.query(`DELETE FROM ${SNAPSHOT_TABLE} WHERE commit_id=?`).run(row.commit_id);
     }
   } finally {
@@ -224,13 +230,11 @@ function loadReplayCommits(db: Database, fromSeqExclusive: number): ReplayCommit
 
 async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
   try {
-    await rm(`${dbPath}-wal`, { force: true });
-    await rm(`${dbPath}-shm`, { force: true });
-    await rename(preparedDbPath, dbPath);
-    await rm(`${dbPath}-wal`, { force: true });
-    await rm(`${dbPath}-shm`, { force: true });
+    await deleteWalAndShm(dbPath);
+    await moveFile(preparedDbPath, dbPath);
+    await deleteWalAndShm(dbPath);
   } catch (error) {
-    await removeFileWithSidecars(preparedDbPath);
+    await deleteWithSidecars(preparedDbPath);
     throw error;
   }
 }
@@ -320,8 +324,8 @@ export async function recoverFromSnapshot(
   const { snapshotPath, replayCommits } = resolveSnapshotForRecovery(dbPath, commitId);
 
   const stagingPath = `${dbPath}.recover-${crypto.randomUUID().replaceAll("-", "")}.staging.db`;
-  await removeFileWithSidecars(stagingPath);
-  await cp(snapshotPath, stagingPath);
+  await deleteWithSidecars(stagingPath);
+  await Bun.write(stagingPath, Bun.file(snapshotPath));
   const replayDb = openStagingWritableDatabase(stagingPath);
   let promoted = false;
   try {
@@ -341,7 +345,7 @@ export async function recoverFromSnapshot(
       } catch {
         // no-op
       }
-      await removeFileWithSidecars(stagingPath);
+      await deleteWithSidecars(stagingPath);
     }
   }
 

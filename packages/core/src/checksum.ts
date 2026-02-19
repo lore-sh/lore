@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 function sortObject(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(sortObject);
@@ -17,5 +15,5 @@ export function canonicalJson(value: unknown): string {
 
 export function sha256Hex(value: unknown): string {
   const payload = typeof value === "string" ? value : canonicalJson(value);
-  return createHash("sha256").update(payload).digest("hex");
+  return new Bun.CryptoHasher("sha256").update(payload).digest("hex");
 }

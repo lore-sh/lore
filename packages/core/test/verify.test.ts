@@ -17,7 +17,7 @@ describe("verifyDatabase", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const setup = writePlanFile(dir, "setup.json", {
+    const setup = await writePlanFile(dir, "setup.json", {
       message: "setup",
       operations: [
         {

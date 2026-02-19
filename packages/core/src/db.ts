@@ -1,7 +1,6 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { TossError } from "./errors";
+import { resolveFromCwd } from "./pathing";
 
 export const DEFAULT_DB_NAME = "toss.db";
 export const SCHEMA_FINGERPRINT = "toss-canonical-observed-2026-02-19";
@@ -24,8 +23,8 @@ export interface DatabaseContext {
 }
 
 export function resolveDbPath(pathFromArg?: string): string {
-  const candidate = pathFromArg ?? process.env.TOSS_DB_PATH ?? DEFAULT_DB_NAME;
-  return resolve(process.cwd(), candidate);
+  const candidate = pathFromArg ?? Bun.env.TOSS_DB_PATH ?? DEFAULT_DB_NAME;
+  return resolveFromCwd(candidate);
 }
 
 function applyPragmas(db: Database): void {
@@ -204,7 +203,7 @@ export function isInitialized(db: Database): boolean {
 }
 
 export function assertInitialized(db: Database, dbPath: string): void {
-  if (!existsSync(dbPath) || !isInitialized(db)) {
+  if (!isInitialized(db)) {
     throw new TossError("NOT_INITIALIZED", `Database is not initialized: ${dbPath}. Run \`toss init --force-new\`.`);
   }
 }

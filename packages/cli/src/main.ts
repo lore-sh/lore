@@ -67,7 +67,7 @@ async function runInit(args: string[]): Promise<void> {
     throw new Error("init accepts only --no-skills and --force-new");
   }
 
-  const result = await initDatabase({ generateSkills: !noSkills, workspacePath: process.cwd(), forceNew });
+  const result = await initDatabase({ generateSkills: !noSkills, forceNew });
   console.log(`Initialized toss database at ${result.dbPath}`);
   if (forceNew) {
     console.log("Reinitialized database with clean-break history format.");

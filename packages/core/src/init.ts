@@ -1,16 +1,14 @@
-import { rm } from "node:fs/promises";
 import {
   closeDatabase,
   initializeStorage,
   openDatabase,
 } from "./db";
+import { deleteWithSidecars } from "./fsx";
 import { generateSkills, type GeneratedSkills } from "./skills";
 import type { InitDatabaseOptions } from "./types";
 
 export async function removeExistingDbFiles(dbPath: string): Promise<void> {
-  await rm(dbPath, { force: true });
-  await rm(`${dbPath}-shm`, { force: true });
-  await rm(`${dbPath}-wal`, { force: true });
+  await deleteWithSidecars(dbPath);
 }
 
 export async function initDatabase(

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, readFileSync } from "node:fs";
 import { initDatabase, getStatus } from "../src";
 import { createTestContext, withTmpDirCleanup } from "./helpers";
 
@@ -32,8 +31,8 @@ describe("initDatabase", () => {
       throw new Error("generatedSkills should exist");
     }
 
-    expect(existsSync(result.generatedSkills.skillPath)).toBe(true);
-    const skill = readFileSync(result.generatedSkills.skillPath, "utf8");
+    expect(await Bun.file(result.generatedSkills.skillPath).exists()).toBe(true);
+    const skill = await Bun.file(result.generatedSkills.skillPath).text();
     expect(skill.includes("toss history --verbose")).toBe(true);
     expect(skill.includes("toss verify --quick")).toBe(true);
     expect(skill.includes("staged migrations")).toBe(true);

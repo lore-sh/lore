@@ -1,5 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirnameOf, joinPath, resolveFromCwd } from "./pathing";
 
 const AGENTS_BLOCK_START = "<!-- toss:init:skills:start -->";
 const AGENTS_BLOCK_END = "<!-- toss:init:skills:end -->";
@@ -200,17 +199,16 @@ function agentsBlock(skills: GeneratedSkills): string {
 - For reads: generate read-only SQL only.
 - For destructive changes: run \`toss history --verbose\` and \`toss verify --quick\` before apply.
 - If \`toss revert\` returns conflicts, present conflict details and propose a staged migration plan.
-- Execution: Skills should call toss through \`bun run --cwd "${resolve(dirname(skills.agentsPath))}" toss ...\`.
+- Execution: Skills should call toss through \`bun run --cwd "${dirnameOf(skills.agentsPath)}" toss ...\`.
 ${AGENTS_BLOCK_END}
 `;
 }
 
 async function upsertAgentsFile(path: string, block: string): Promise<void> {
-  let current = "";
-  try {
-    current = await readFile(path, "utf8");
-  } catch {
-    current = "# AGENTS.md\n\n";
+  let current = "# AGENTS.md\n\n";
+  const file = Bun.file(path);
+  if (await file.exists()) {
+    current = await file.text();
   }
 
   const hasStart = current.includes(AGENTS_BLOCK_START);
@@ -225,24 +223,24 @@ async function upsertAgentsFile(path: string, block: string): Promise<void> {
     next = `${current}${suffix}\n${block}`;
   }
 
-  await writeFile(path, next, "utf8");
+  await Bun.write(path, next);
 }
 
 export async function generateSkills(workspacePathInput?: string): Promise<GeneratedSkills> {
-  const workspacePath = resolve(workspacePathInput ?? process.cwd());
-  const skillsRoot = join(workspacePath, ".toss", "skills");
-  const skillDir = join(skillsRoot, "toss");
-  const referencesDir = join(skillDir, "references");
-  const skillPath = join(skillDir, "SKILL.md");
-  const contextPath = join(referencesDir, "context.md");
-  const contractsPath = join(referencesDir, "contracts.md");
-  const agentsPath = join(workspacePath, "AGENTS.md");
+  const workspacePath = resolveFromCwd(workspacePathInput ?? ".");
+  const skillsRoot = joinPath(workspacePath, ".toss", "skills");
+  const skillDir = joinPath(skillsRoot, "toss");
+  const referencesDir = joinPath(skillDir, "references");
+  const skillPath = joinPath(skillDir, "SKILL.md");
+  const contextPath = joinPath(referencesDir, "context.md");
+  const contractsPath = joinPath(referencesDir, "contracts.md");
+  const agentsPath = joinPath(workspacePath, "AGENTS.md");
 
-  await mkdir(skillDir, { recursive: true });
-  await mkdir(referencesDir, { recursive: true });
-  await writeFile(skillPath, tossSkillContent(workspacePath), "utf8");
-  await writeFile(contextPath, contextReferenceContent(), "utf8");
-  await writeFile(contractsPath, contractsReferenceContent(workspacePath), "utf8");
+  await Promise.all([
+    Bun.write(skillPath, tossSkillContent(workspacePath)),
+    Bun.write(contextPath, contextReferenceContent()),
+    Bun.write(contractsPath, contractsReferenceContent(workspacePath)),
+  ]);
 
   const generated = { skillsRoot, skillDir, skillPath, referencesDir, agentsPath };
   await upsertAgentsFile(agentsPath, agentsBlock(generated));
