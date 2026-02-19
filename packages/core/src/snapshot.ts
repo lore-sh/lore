@@ -1,5 +1,5 @@
-import { mkdir, rename } from "fs/promises";
 import { Database } from "bun:sqlite";
+import { mkdir, rename } from "fs/promises";
 import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
 import { dirnameOf, joinPath } from "./pathing";
 import { sha256Hex } from "./checksum";
@@ -20,6 +20,7 @@ import {
 import { TossError } from "./errors";
 import {
   appendCommitExact,
+  type CommitReplayInput,
   getCommitById,
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
@@ -28,30 +29,10 @@ import {
   applyRowEffectsWithOptions,
   applyUserRowAndSchemaEffects,
   assertNoForeignKeyViolations,
-  type RowEffect,
-  type SchemaEffect,
 } from "./observed";
 import { schemaHash, stateHash } from "./rows";
 import { quoteIdentifier } from "./sql";
-import type { CommitEntry, CommitKind, DatabaseOptions, Operation, SnapshotEntry } from "./types";
-
-interface ReplayCommit {
-  commitId: string;
-  seq: number;
-  kind: CommitKind;
-  message: string;
-  createdAt: string;
-  parentIds: string[];
-  schemaHashBefore: string;
-  schemaHashAfter: string;
-  stateHashAfter: string;
-  planHash: string;
-  inverseReady: boolean;
-  revertedTargetId: string | null;
-  operations: Operation[];
-  rowEffects: RowEffect[];
-  schemaEffects: SchemaEffect[];
-}
+import type { CommitEntry, DatabaseOptions, SnapshotEntry } from "./types";
 
 export async function hashFile(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -70,14 +51,6 @@ export function getSnapshotInterval(db: Database): number {
 export function getSnapshotRetain(db: Database): number {
   const value = getMetaValue(db, "snapshot_retain");
   return value ? Number(value) : DEFAULT_SNAPSHOT_RETAIN;
-}
-
-async function ensureDirectory(path: string): Promise<void> {
-  await mkdir(path, { recursive: true });
-}
-
-async function moveFile(from: string, to: string): Promise<void> {
-  await rename(from, to);
 }
 
 function openStagingWritableDatabase(stagingPath: string): Database {
@@ -129,7 +102,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   }
 
   const snapshotsDir = joinPath(dirnameOf(dbPath), ".toss", "snapshots");
-  await ensureDirectory(snapshotsDir);
+  await mkdir(snapshotsDir, { recursive: true });
   const tmpSnapshotPath = joinPath(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 
   const { db: snapshotDb } = openDatabase(dbPath);
@@ -142,7 +115,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   const snapshotHead = readSnapshotHead(tmpSnapshotPath);
   const snapshotPath = joinPath(snapshotsDir, `${snapshotHead.seq}-${snapshotHead.commitId}.db`);
   await deleteWithSidecars(snapshotPath);
-  await moveFile(tmpSnapshotPath, snapshotPath);
+  await rename(tmpSnapshotPath, snapshotPath);
   const [digest] = await Promise.all([hashFile(snapshotPath), deleteWithSidecars(tmpSnapshotPath)]);
 
   const { db: writeDb } = openDatabase(dbPath);
@@ -197,30 +170,19 @@ export function listSnapshots(options: DatabaseOptions = {}): SnapshotEntry[] {
   }
 }
 
-function loadReplayCommits(db: Database, fromSeqExclusive: number): ReplayCommit[] {
+function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitReplayInput[] {
   const commitRows = db
     .query(`SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`)
     .all(fromSeqExclusive) as Array<{ commit_id: string }>;
-  const replayCommits: ReplayCommit[] = [];
+  const replayCommits: CommitReplayInput[] = [];
   for (const row of commitRows) {
     const commit = getCommitById(db, row.commit_id);
     if (!commit) {
       throw new TossError("RECOVER_FAILED", `Replay commit not found: ${row.commit_id}`);
     }
+    const { parentCount: _, ...base } = commit;
     replayCommits.push({
-      commitId: commit.commitId,
-      seq: commit.seq,
-      kind: commit.kind,
-      message: commit.message,
-      createdAt: commit.createdAt,
-      parentIds: commit.parentIds,
-      schemaHashBefore: commit.schemaHashBefore,
-      schemaHashAfter: commit.schemaHashAfter,
-      stateHashAfter: commit.stateHashAfter,
-      planHash: commit.planHash,
-      inverseReady: commit.inverseReady,
-      revertedTargetId: commit.revertedTargetId,
-      operations: commit.operations,
+      ...base,
       rowEffects: getRowEffectsByCommitId(db, commit.commitId),
       schemaEffects: getSchemaEffectsByCommitId(db, commit.commitId),
     });
@@ -231,7 +193,7 @@ function loadReplayCommits(db: Database, fromSeqExclusive: number): ReplayCommit
 async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
   try {
     await deleteWalAndShm(dbPath);
-    await moveFile(preparedDbPath, dbPath);
+    await rename(preparedDbPath, dbPath);
     await deleteWalAndShm(dbPath);
   } catch (error) {
     await deleteWithSidecars(preparedDbPath);
@@ -239,7 +201,7 @@ async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): 
   }
 }
 
-function replayCommitExactly(db: Database, replay: ReplayCommit): void {
+function replayCommitExactly(db: Database, replay: CommitReplayInput): void {
   const beforeSchemaHash = schemaHash(db);
   if (beforeSchemaHash !== replay.schemaHashBefore) {
     throw new TossError(
@@ -289,7 +251,7 @@ function replayCommitExactly(db: Database, replay: ReplayCommit): void {
 function resolveSnapshotForRecovery(
   dbPath: string,
   commitId: string,
-): { snapshotPath: string; replayCommits: ReplayCommit[] } {
+): { snapshotPath: string; replayCommits: CommitReplayInput[] } {
   const { db } = openDatabase(dbPath);
   try {
     assertInitialized(db, dbPath);
@@ -309,7 +271,7 @@ function resolveSnapshotForRecovery(
     }
     return {
       snapshotPath: snapshot.file_path,
-      replayCommits: loadReplayCommits(db, snapshot.seq),
+      replayCommits: loadCommitReplayInputs(db, snapshot.seq),
     };
   } finally {
     closeDatabase(db);

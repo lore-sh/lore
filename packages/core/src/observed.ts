@@ -242,7 +242,7 @@ function captureTableState(db: Database, table: string): CapturedTableState {
     tableName: table,
     ddlSql,
     rows,
-    secondaryObjects: secondaryObjects.map((obj) => ({ type: obj.type, name: obj.name, sql: obj.sql })),
+    secondaryObjects,
     references,
   };
   const schemaSignature = sha256Hex({
@@ -263,11 +263,8 @@ export function captureObservedState(db: Database): CapturedObservedState {
 }
 
 function schemaChanged(beforeTable: CapturedTableState | undefined, afterTable: CapturedTableState | undefined): boolean {
-  if (!beforeTable && !afterTable) {
-    return false;
-  }
   if (!beforeTable || !afterTable) {
-    return true;
+    return beforeTable !== afterTable;
   }
   return beforeTable.schemaSignature !== afterTable.schemaSignature;
 }
@@ -381,11 +378,8 @@ function dependencyOrder(
   const compareTableNames = (a: string, b: string): number => {
     const aSystem = isSystemSideEffectTable(a);
     const bSystem = isSystemSideEffectTable(b);
-    if (aSystem && !bSystem) {
-      return -1;
-    }
-    if (!aSystem && bSystem) {
-      return 1;
+    if (aSystem !== bSystem) {
+      return aSystem ? -1 : 1;
     }
     return a.localeCompare(b);
   };
@@ -527,10 +521,6 @@ function effectRowMode(
   return { expectedCurrent: null, target: effect.beforeRow, opLabel: "inverse-insert" };
 }
 
-export function applyRowEffects(db: Database, effects: RowEffect[], direction: "forward" | "inverse"): void {
-  applyRowEffectsWithOptions(db, effects, direction, { disableTableTriggers: false });
-}
-
 export function applyRowEffectsWithOptions(
   db: Database,
   effects: RowEffect[],
@@ -545,49 +535,39 @@ export function applyRowEffectsWithOptions(
   const includeSystemEffects = options.includeSystemEffects ?? true;
   const includeUserEffects = options.includeUserEffects ?? true;
   const systemPolicy = options.systemPolicy ?? "strict";
-  const filtered = effects.filter((effect) => {
-    if (isSystemSideEffectTable(effect.tableName)) {
-      return includeSystemEffects;
-    }
-    return includeUserEffects;
-  });
+  const filtered = effects.filter((effect) =>
+    isSystemSideEffectTable(effect.tableName) ? includeSystemEffects : includeUserEffects,
+  );
   const droppedTriggers = options.disableTableTriggers ? dropTriggersForTables(db, filtered) : null;
-  let failed: unknown = null;
   const ordered = direction === "forward" ? filtered : filtered.toReversed();
-  try {
-    for (const effect of ordered) {
-      const { expectedCurrent, target, opLabel } = effectRowMode(effect, direction);
-      const isSystem = isSystemSideEffectTable(effect.tableName);
-      if (isSystem && systemPolicy === "reconcile") {
-        applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);
-        continue;
-      }
-      const current = fetchObservedRowByPk(db, effect.tableName, effect.pk);
-      const currentHash = rowHash(current);
-      const expectedHash = rowHash(expectedCurrent);
-      if (currentHash !== expectedHash) {
-        throw new TossError(
-          "REVERT_FAILED",
-          `Observed row mismatch during ${opLabel} on ${effect.tableName} (pk=${canonicalJson(effect.pk)})`,
-        );
-      }
-      if (!target) {
-        deleteByPk(db, effect.tableName, effect.pk);
-        continue;
-      }
-      if (!current) {
-        insertEncodedRow(db, effect.tableName, target);
-        continue;
-      }
-      updateEncodedRow(db, effect.tableName, effect.pk, target);
+  for (const effect of ordered) {
+    const { expectedCurrent, target, opLabel } = effectRowMode(effect, direction);
+    const isSystem = isSystemSideEffectTable(effect.tableName);
+    if (isSystem && systemPolicy === "reconcile") {
+      applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);
+      continue;
     }
-  } catch (error) {
-    failed = error;
-    throw error;
-  } finally {
-    if (droppedTriggers && failed === null) {
-      restoreDroppedTriggers(db, droppedTriggers);
+    const current = fetchObservedRowByPk(db, effect.tableName, effect.pk);
+    const currentHash = rowHash(current);
+    const expectedHash = rowHash(expectedCurrent);
+    if (currentHash !== expectedHash) {
+      throw new TossError(
+        "REVERT_FAILED",
+        `Observed row mismatch during ${opLabel} on ${effect.tableName} (pk=${canonicalJson(effect.pk)})`,
+      );
     }
+    if (!target) {
+      deleteByPk(db, effect.tableName, effect.pk);
+      continue;
+    }
+    if (!current) {
+      insertEncodedRow(db, effect.tableName, target);
+      continue;
+    }
+    updateEncodedRow(db, effect.tableName, effect.pk, target);
+  }
+  if (droppedTriggers) {
+    restoreDroppedTriggers(db, droppedTriggers);
   }
 }
 
@@ -665,14 +645,6 @@ function applySingleSchemaEffect(db: Database, effect: SchemaEffect, direction: 
   executeOperation(db, restore);
 }
 
-function schemaTargetSnapshot(effect: SchemaEffect, direction: "forward" | "inverse"): TableSnapshot | null {
-  return direction === "forward" ? effect.afterTable : effect.beforeTable;
-}
-
-function schemaCurrentSnapshot(effect: SchemaEffect, direction: "forward" | "inverse"): TableSnapshot | null {
-  return direction === "forward" ? effect.beforeTable : effect.afterTable;
-}
-
 function orderSchemaEffectsForReplay(effects: SchemaEffect[], direction: "forward" | "inverse"): SchemaEffect[] {
   if (effects.length <= 1) {
     return effects;
@@ -689,13 +661,13 @@ function orderSchemaEffectsForReplay(effects: SchemaEffect[], direction: "forwar
   const dropTables: string[] = [];
 
   for (const effect of effects) {
-    const target = schemaTargetSnapshot(effect, direction);
+    const target = direction === "forward" ? effect.afterTable : effect.beforeTable;
     if (target) {
       restoreTables.push(effect.tableName);
       restoreRefs.set(effect.tableName, target.references);
       continue;
     }
-    const current = schemaCurrentSnapshot(effect, direction);
+    const current = direction === "forward" ? effect.beforeTable : effect.afterTable;
     dropTables.push(effect.tableName);
     dropRefs.set(effect.tableName, current?.references ?? []);
   }

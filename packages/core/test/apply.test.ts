@@ -7,10 +7,11 @@ import {
   initDatabase,
   isTossError,
 } from "../src";
+import { executeOperation } from "../src/executors/apply";
+import type { RestoreTableOperation } from "../src/types";
 import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
-
 
 describe("applyPlan", () => {
   testWithTmp("init -> apply -> status -> history works", async () => {
@@ -107,6 +108,44 @@ describe("applyPlan", () => {
       if (isTossError(error)) {
         expect(error.code).toBe("NULL_PRIMARY_KEY_VALUE");
       }
+    }
+  });
+
+  testWithTmp("restore_table malformed row value fails with INVALID_OPERATION instead of TypeError", () => {
+    const db = new Database(":memory:");
+    const operation: RestoreTableOperation = {
+      type: "restore_table",
+      table: "users",
+      ddlSql: "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+      rows: [
+        {
+          id: { storageClass: "integer", sqlLiteral: "1" },
+          name: { storageClass: "text", sqlLiteral: "'alice'" },
+        },
+        {
+          id: { storageClass: "integer", sqlLiteral: "2" },
+          name: undefined as unknown as { storageClass: "text"; sqlLiteral: string },
+        },
+      ],
+      secondaryObjects: [],
+    };
+
+    try {
+      executeOperation(db, operation);
+      throw new Error("executeOperation should fail for malformed restore row");
+    } catch (error) {
+      expect(error).not.toBeInstanceOf(TypeError);
+      expect(isTossError(error)).toBe(true);
+      if (isTossError(error)) {
+        expect(error.code).toBe("INVALID_OPERATION");
+        expect(error.message).toContain("restore_table row contains unsupported encoded value");
+      }
+      const restored = db
+        .query("SELECT name FROM sqlite_master WHERE type='table' AND name='users' LIMIT 1")
+        .get() as { name: string } | null;
+      expect(restored).toBeNull();
+    } finally {
+      db.close(false);
     }
   });
 });

@@ -830,19 +830,25 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
   const tmpTable = `__toss_restore_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTmp = quoteIdentifier(tmpTable);
   const quotedTable = quoteIdentifier(operation.table);
+  const isSqlStorageClass = (value: unknown): value is EncodedCell["storageClass"] =>
+    value === "null" || value === "integer" || value === "real" || value === "text" || value === "blob";
+  const rowForRestore = (value: unknown): Record<string, unknown> => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TossError("INVALID_OPERATION", "restore_table row must be an object");
+    }
+    return value as Record<string, unknown>;
+  };
 
   const literalForRestoreCell = (value: unknown): string => {
     if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       return serializeLiteral(value);
     }
-    const maybeCell = value as EncodedCell;
-    if (
-      maybeCell &&
-      typeof maybeCell === "object" &&
-      typeof maybeCell.storageClass === "string" &&
-      typeof maybeCell.sqlLiteral === "string"
-    ) {
-      return maybeCell.sqlLiteral;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TossError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
+    }
+    const cell = value as { storageClass?: unknown; sqlLiteral?: unknown };
+    if (isSqlStorageClass(cell.storageClass) && typeof cell.sqlLiteral === "string") {
+      return cell.sqlLiteral;
     }
     throw new TossError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
   };
@@ -850,31 +856,30 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
   db.run("SAVEPOINT toss_restore_table");
   try {
     db.run(rewriteCreateTableName(operation.ddlSql, tmpTable));
-    if (operation.rows && operation.rows.length > 0) {
-      const first = operation.rows[0];
-      if (first) {
-        const columns = Object.keys(first).sort((a, b) => a.localeCompare(b));
-        if (columns.length > 0) {
-          const columnSql = columns.map((column) => quoteIdentifier(column)).join(", ");
-          for (const row of operation.rows) {
-            const valuesSql = columns
-              .map((column) => {
-                const value = row[column];
-                return literalForRestoreCell(value);
-              })
-              .join(", ");
-            db.run(`INSERT INTO ${quotedTmp} (${columnSql}) VALUES (${valuesSql})`);
-          }
+    const first = operation.rows?.[0];
+    if (first) {
+      const firstRow = rowForRestore(first);
+      const columns = Object.keys(firstRow).sort((a, b) => a.localeCompare(b));
+      if (columns.length === 0) {
+        throw new TossError("INVALID_OPERATION", "restore_table row must include at least one column");
+      }
+      const expected = new Set(columns);
+      const columnSql = columns.map((column) => quoteIdentifier(column)).join(", ");
+      for (const rawRow of operation.rows!) {
+        const row = rowForRestore(rawRow);
+        const rowColumns = Object.keys(row);
+        if (rowColumns.length !== columns.length || rowColumns.some((column) => !expected.has(column))) {
+          throw new TossError("INVALID_OPERATION", "restore_table row column set does not match snapshot");
         }
+        const valuesSql = columns.map((column) => literalForRestoreCell(row[column])).join(", ");
+        db.run(`INSERT INTO ${quotedTmp} (${columnSql}) VALUES (${valuesSql})`);
       }
     }
 
     db.run(`DROP TABLE IF EXISTS ${quotedTable}`);
     db.run(`ALTER TABLE ${quotedTmp} RENAME TO ${quotedTable}`);
-    if (operation.secondaryObjects && operation.secondaryObjects.length > 0) {
-      for (const object of operation.secondaryObjects) {
-        db.run(object.sql);
-      }
+    for (const object of operation.secondaryObjects ?? []) {
+      db.run(object.sql);
     }
     db.run("RELEASE toss_restore_table");
   } catch (error) {
@@ -990,11 +995,5 @@ export function executeOperation(db: Database, operation: Operation): void {
       return;
     default:
       throw new TossError("UNSUPPORTED_OPERATION", `Unsupported operation type: ${(operation as Operation).type}`);
-  }
-}
-
-export function executeOperations(db: Database, operations: Operation[]): void {
-  for (const operation of operations) {
-    executeOperation(db, operation);
   }
 }

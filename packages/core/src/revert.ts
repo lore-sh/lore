@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { canonicalJson } from "./checksum";
 import { appendCommitFromObservedChange } from "./commit";
 import {
@@ -27,7 +28,6 @@ import {
 } from "./observed";
 import { schemaHash } from "./rows";
 import type { DatabaseOptions, RevertConflict, RevertResult } from "./types";
-import type { Database } from "bun:sqlite";
 
 export function detectSchemaConflicts(
   schemaEffects: StoredSchemaEffect[],
@@ -85,10 +85,6 @@ export function detectRowConflict(
       }
       continue;
     }
-    const pkJson = canonicalJson(effect.pk);
-    const touchedLater = laterRowEffects.some(
-      (later) => later.tableName === effect.tableName && canonicalJson(later.pk) === pkJson,
-    );
     const currentRow = fetchObservedRowByPk(db, effect.tableName, effect.pk);
     const currentHash = rowHash(currentRow);
 
@@ -113,6 +109,10 @@ export function detectRowConflict(
     }
 
     if (effect.opKind === "delete" && currentRow) {
+      const pkJson = canonicalJson(effect.pk);
+      const touchedLater = laterRowEffects.some(
+        (later) => later.tableName === effect.tableName && canonicalJson(later.pk) === pkJson,
+      );
       conflicts.push({
         kind: "row",
         table: effect.tableName,

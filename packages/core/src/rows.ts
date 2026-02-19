@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { canonicalJson, sha256Hex } from "./checksum";
+import { sha256Hex } from "./checksum";
 import { listUserTables } from "./db";
 import { TossError } from "./errors";
 import { isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "./sql";
@@ -136,13 +136,6 @@ export function fetchRowByPk(
   return db
     .query(`SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause} LIMIT 1`)
     .get(...bindings) as Record<string, unknown> | null;
-}
-
-export function rowHash(row: JsonObject | null): string | null {
-  if (!row) {
-    return null;
-  }
-  return sha256Hex(canonicalJson(row));
 }
 
 interface TableListRow {
