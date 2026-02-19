@@ -1,7 +1,5 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
-import { TossError } from "./errors";
-import type { RowEffect, SchemaEffect } from "./observed";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
@@ -11,9 +9,11 @@ import {
   getRows,
   MAIN_REF_NAME,
   OP_TABLE,
-  REFLOG_TABLE,
   REF_TABLE,
+  REFLOG_TABLE,
 } from "./db";
+import { TossError } from "./errors";
+import type { RowEffect, SchemaEffect } from "./observed";
 import type { CommitEntry, CommitKind, Operation } from "./types";
 
 export interface CommitWriteInput {

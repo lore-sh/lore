@@ -1,16 +1,15 @@
 import { Database } from "bun:sqlite";
 import { mkdir, rename } from "fs/promises";
 import { dirname, resolve } from "node:path";
-import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
 import { sha256Hex } from "./checksum";
 import {
   assertInitialized,
   COMMIT_TABLE,
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
+  getMetaValue,
   getRow,
   getRows,
-  getMetaValue,
   listUserTables,
   MAIN_REF_NAME,
   resolveDbPath,
@@ -21,6 +20,7 @@ import {
   withInitializedDatabase,
 } from "./db";
 import { TossError } from "./errors";
+import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
 import {
   appendCommitExact,
   type CommitReplayInput,
@@ -286,7 +286,6 @@ export async function recoverFromSnapshot(
   } finally {
     if (!closed) {
       replayDb.close(false);
-      closed = true;
     }
     if (!promoted) {
       await deleteWithSidecars(stagingPath);

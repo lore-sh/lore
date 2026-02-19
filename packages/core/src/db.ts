@@ -35,14 +35,14 @@ function applyPragmas(db: Database): void {
   db.run("PRAGMA busy_timeout=5000");
 }
 
-export function openDatabase(pathFromArg?: string): DatabaseContext {
+function openDatabase(pathFromArg?: string): DatabaseContext {
   const dbPath = resolveDbPath(pathFromArg);
   const db = new Database(dbPath);
   applyPragmas(db);
   return { db, dbPath };
 }
 
-export function closeDatabase(db: Database): void {
+function closeDatabase(db: Database): void {
   db.close(false);
 }
 
@@ -86,9 +86,9 @@ export async function withInitializedDatabaseAsync<T>(
   options: DatabaseOptions | undefined,
   run: (ctx: DatabaseContext) => Promise<T>,
 ): Promise<T> {
-  return withDatabaseAsync(options, async (ctx) => {
+  return withDatabaseAsync(options, (ctx) => {
     assertInitialized(ctx.db, ctx.dbPath);
-    return await run(ctx);
+    return run(ctx);
   });
 }
 

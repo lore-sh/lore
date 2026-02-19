@@ -1,5 +1,5 @@
 function isEnoent(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && Reflect.get(error, "code") === "ENOENT");
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 export async function deleteIfExists(path: string): Promise<void> {

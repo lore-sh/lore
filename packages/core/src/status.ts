@@ -1,6 +1,6 @@
 import {
-  getRow,
   getMetaValue,
+  getRow,
   listUserTables,
   SNAPSHOT_TABLE,
   withInitializedDatabase,

@@ -1,8 +1,4 @@
-import {
-  initializeStorage,
-  resolveDbPath,
-  withDatabase,
-} from "./db";
+import { initializeStorage, resolveDbPath, withDatabase } from "./db";
 import { deleteWithSidecars } from "./fsx";
 import { generateSkills, type GeneratedSkills } from "./skills";
 import type { InitDatabaseOptions } from "./types";
