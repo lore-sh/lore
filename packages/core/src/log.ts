@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { TossError } from "./errors";
+import type { RowEffect, SchemaEffect } from "./observed";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
@@ -11,24 +12,7 @@ import {
   REFLOG_TABLE,
   REF_TABLE,
 } from "./db";
-import type { CommitEntry, CommitKind, JsonObject, Operation } from "./types";
-
-export interface RowEffect {
-  tableName: string;
-  pk: Record<string, string | number | boolean | null>;
-  opKind: "insert" | "update" | "delete";
-  beforeRow: JsonObject | null;
-  afterRow: JsonObject | null;
-}
-
-export interface SchemaEffect {
-  tableName: string;
-  columnName: string | null;
-  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type" | "restore_table";
-  ddlBeforeSql: string | null;
-  ddlAfterSql: string | null;
-  tableRowsBefore: JsonObject[] | null;
-}
+import type { CommitEntry, CommitKind, Operation } from "./types";
 
 export interface CommitWriteInput {
   seq: number;
@@ -113,6 +97,18 @@ export function getNextCommitSeq(db: Database): number {
 }
 
 function commitHashPayload(input: CommitWriteInput): Record<string, unknown> {
+  const rowEffects = input.rowEffects.map((effect) => ({
+    tableName: effect.tableName,
+    pk: effect.pk,
+    opKind: effect.opKind,
+    beforeRow: effect.beforeRow,
+    afterRow: effect.afterRow,
+  }));
+  const schemaEffects = input.schemaEffects.map((effect) => ({
+    tableName: effect.tableName,
+    beforeTable: effect.beforeTable,
+    afterTable: effect.afterTable,
+  }));
   return {
     seq: input.seq,
     kind: input.kind,
@@ -126,6 +122,8 @@ function commitHashPayload(input: CommitWriteInput): Record<string, unknown> {
     inverseReady: input.inverseReady,
     revertedTargetId: input.revertedTargetId,
     operations: input.operations,
+    rowEffects,
+    schemaEffects,
   };
 }
 
@@ -171,9 +169,7 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
     input.revertedTargetId,
   );
 
-  const insertParent = db.query(
-    `INSERT INTO ${COMMIT_PARENT_TABLE}(commit_id, parent_commit_id, ord) VALUES(?, ?, ?)`,
-  );
+  const insertParent = db.query(`INSERT INTO ${COMMIT_PARENT_TABLE}(commit_id, parent_commit_id, ord) VALUES(?, ?, ?)`);
   for (let i = 0; i < input.parentIds.length; i++) {
     insertParent.run(commitId, input.parentIds[i]!, i);
   }
@@ -198,15 +194,25 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
     const afterRowJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
     const beforeHash = beforeRowJson ? sha256Hex(beforeRowJson) : null;
     const afterHash = afterRowJson ? sha256Hex(afterRowJson) : null;
-    insertRowEffect.run(commitId, i, effect.tableName, canonicalJson(effect.pk), effect.opKind, beforeRowJson, afterRowJson, beforeHash, afterHash);
+    insertRowEffect.run(
+      commitId,
+      i,
+      effect.tableName,
+      canonicalJson(effect.pk),
+      effect.opKind,
+      beforeRowJson,
+      afterRowJson,
+      beforeHash,
+      afterHash,
+    );
   }
 
   const insertSchemaEffect = db.query(
     `
     INSERT INTO ${EFFECT_SCHEMA_TABLE}(
-      commit_id, effect_index, table_name, column_name, op_kind, ddl_before_sql, ddl_after_sql, table_rows_before_json
+      commit_id, effect_index, table_name, before_table_json, after_table_json
     )
-    VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES(?, ?, ?, ?, ?)
     `,
   );
   for (let i = 0; i < input.schemaEffects.length; i++) {
@@ -215,11 +221,8 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
       commitId,
       i,
       effect.tableName,
-      effect.columnName,
-      effect.opKind,
-      effect.ddlBeforeSql,
-      effect.ddlAfterSql,
-      effect.tableRowsBefore ? canonicalJson(effect.tableRowsBefore) : null,
+      effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
+      effect.afterTable ? canonicalJson(effect.afterTable) : null,
     );
   }
 
@@ -250,24 +253,12 @@ export function listCommits(db: Database, descending: boolean): CommitEntry[] {
   return rows.map((row) => decodeCommit(db, row));
 }
 
-export interface StoredRowEffect {
-  tableName: string;
-  pk: Record<string, string | number | boolean | null>;
-  opKind: "insert" | "update" | "delete";
-  beforeRow: JsonObject | null;
-  afterRow: JsonObject | null;
+export interface StoredRowEffect extends RowEffect {
   beforeHash: string | null;
   afterHash: string | null;
 }
 
-export interface StoredSchemaEffect {
-  tableName: string;
-  columnName: string | null;
-  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type" | "restore_table";
-  ddlBeforeSql: string | null;
-  ddlAfterSql: string | null;
-  tableRowsBefore: JsonObject[] | null;
-}
+export type StoredSchemaEffect = SchemaEffect;
 
 export function getRowEffectsByCommitId(db: Database, commitId: string): StoredRowEffect[] {
   const rows = db
@@ -291,10 +282,10 @@ export function getRowEffectsByCommitId(db: Database, commitId: string): StoredR
 
   return rows.map((row) => ({
     tableName: row.table_name,
-    pk: JSON.parse(row.pk_json) as Record<string, string | number | boolean | null>,
+    pk: JSON.parse(row.pk_json) as Record<string, string>,
     opKind: row.op_kind,
-    beforeRow: row.before_row_json ? (JSON.parse(row.before_row_json) as JsonObject) : null,
-    afterRow: row.after_row_json ? (JSON.parse(row.after_row_json) as JsonObject) : null,
+    beforeRow: row.before_row_json ? (JSON.parse(row.before_row_json) as RowEffect["beforeRow"]) : null,
+    afterRow: row.after_row_json ? (JSON.parse(row.after_row_json) as RowEffect["afterRow"]) : null,
     beforeHash: row.before_hash,
     afterHash: row.after_hash,
   }));
@@ -304,7 +295,7 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Stor
   const rows = db
     .query(
       `
-      SELECT table_name, column_name, op_kind, ddl_before_sql, ddl_after_sql, table_rows_before_json
+      SELECT table_name, before_table_json, after_table_json
       FROM ${EFFECT_SCHEMA_TABLE}
       WHERE commit_id=?
       ORDER BY effect_index ASC
@@ -312,21 +303,13 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Stor
     )
     .all(commitId) as Array<{
     table_name: string;
-    column_name: string | null;
-    op_kind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type" | "restore_table";
-    ddl_before_sql: string | null;
-    ddl_after_sql: string | null;
-    table_rows_before_json: string | null;
+    before_table_json: string | null;
+    after_table_json: string | null;
   }>;
 
   return rows.map((row) => ({
     tableName: row.table_name,
-    columnName: row.column_name,
-    opKind: row.op_kind,
-    ddlBeforeSql: row.ddl_before_sql,
-    ddlAfterSql: row.ddl_after_sql,
-    tableRowsBefore: row.table_rows_before_json
-      ? (JSON.parse(row.table_rows_before_json) as JsonObject[])
-      : null,
+    beforeTable: row.before_table_json ? (JSON.parse(row.before_table_json) as SchemaEffect["beforeTable"]) : null,
+    afterTable: row.after_table_json ? (JSON.parse(row.after_table_json) as SchemaEffect["afterTable"]) : null,
   }));
 }

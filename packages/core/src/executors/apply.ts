@@ -5,6 +5,7 @@ import { COLUMN_TYPE_PATTERN, quoteIdentifier } from "../sql";
 import type {
   AddColumnOperation,
   AlterColumnTypeOperation,
+  EncodedCell,
   ColumnDefinition,
   CreateTableOperation,
   DeleteOperation,
@@ -965,31 +966,40 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
   const tmpTable = `__toss_restore_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTmp = quoteIdentifier(tmpTable);
   const quotedTable = quoteIdentifier(operation.table);
+
+  const literalForRestoreCell = (value: unknown): string => {
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      return serializeLiteral(value);
+    }
+    const maybeCell = value as EncodedCell;
+    if (
+      maybeCell &&
+      typeof maybeCell === "object" &&
+      typeof maybeCell.storageClass === "string" &&
+      typeof maybeCell.sqlLiteral === "string"
+    ) {
+      return maybeCell.sqlLiteral;
+    }
+    throw new TossError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
+  };
+
   db.run("SAVEPOINT toss_restore_table");
   try {
     db.run(rewriteCreateTableName(operation.ddlSql, tmpTable));
     if (operation.rows && operation.rows.length > 0) {
       const first = operation.rows[0];
       if (first) {
-        const columns = Object.keys(first);
+        const columns = Object.keys(first).sort((a, b) => a.localeCompare(b));
         if (columns.length > 0) {
           const columnSql = columns.map((column) => quoteIdentifier(column)).join(", ");
-          const placeholderSql = columns.map(() => "?").join(", ");
-          const stmt = db.query(`INSERT INTO ${quotedTmp} (${columnSql}) VALUES (${placeholderSql})`);
           for (const row of operation.rows) {
-            const values = columns.map((column) => {
-              const value = row[column];
-              if (
-                value === null ||
-                typeof value === "string" ||
-                typeof value === "number" ||
-                typeof value === "boolean"
-              ) {
-                return value;
-              }
-              return JSON.stringify(value);
-            });
-            stmt.run(...values);
+            const valuesSql = columns
+              .map((column) => {
+                const value = row[column];
+                return literalForRestoreCell(value);
+              })
+              .join(", ");
+            db.run(`INSERT INTO ${quotedTmp} (${columnSql}) VALUES (${valuesSql})`);
           }
         }
       }
@@ -997,6 +1007,11 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
 
     db.run(`DROP TABLE IF EXISTS ${quotedTable}`);
     db.run(`ALTER TABLE ${quotedTmp} RENAME TO ${quotedTable}`);
+    if (operation.secondaryObjects && operation.secondaryObjects.length > 0) {
+      for (const object of operation.secondaryObjects) {
+        db.run(object.sql);
+      }
+    }
     db.run("RELEASE toss_restore_table");
   } catch (error) {
     try {

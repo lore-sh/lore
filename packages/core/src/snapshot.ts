@@ -14,19 +14,23 @@ import {
   MAIN_REF_NAME,
   openDatabase,
   resolveDbPath,
-  runInTransaction,
+  runInTransactionWithDeferredForeignKeys,
   SNAPSHOT_TABLE,
 } from "./db";
 import { TossError } from "./errors";
-import { executeOperation } from "./executors/apply";
 import {
   appendCommitExact,
   getCommitById,
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
+} from "./log";
+import {
+  applyRowEffectsWithOptions,
+  applyUserRowAndSchemaEffects,
+  assertNoForeignKeyViolations,
   type RowEffect,
   type SchemaEffect,
-} from "./log";
+} from "./observed";
 import { schemaHash, stateHash } from "./rows";
 import { quoteIdentifier } from "./sql";
 import type { CommitEntry, CommitKind, DatabaseOptions, Operation, SnapshotEntry } from "./types";
@@ -239,9 +243,6 @@ function replayCommitExactly(db: Database, replay: ReplayCommit): void {
       `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.schemaHashBefore}, got ${beforeSchemaHash}`,
     );
   }
-  for (const operation of replay.operations) {
-    executeOperation(db, operation);
-  }
 
   const computedPlanHash = sha256Hex(replay.operations);
   if (computedPlanHash !== replay.planHash) {
@@ -250,6 +251,17 @@ function replayCommitExactly(db: Database, replay: ReplayCommit): void {
       `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.planHash}, got ${computedPlanHash}`,
     );
   }
+
+  applyUserRowAndSchemaEffects(db, replay.rowEffects, replay.schemaEffects, "forward", {
+    disableTableTriggers: true,
+  });
+  applyRowEffectsWithOptions(db, replay.rowEffects, "forward", {
+    disableTableTriggers: true,
+    includeUserEffects: false,
+    includeSystemEffects: true,
+    systemPolicy: "reconcile",
+  });
+  assertNoForeignKeyViolations(db, "RECOVER_FAILED", `replay ${replay.commitId}`);
 
   const afterSchemaHash = schemaHash(db);
   if (afterSchemaHash !== replay.schemaHashAfter) {
@@ -315,7 +327,7 @@ export async function recoverFromSnapshot(
   try {
     assertInitialized(replayDb, stagingPath);
     for (const replay of replayCommits) {
-      runInTransaction(replayDb, () => {
+      runInTransactionWithDeferredForeignKeys(replayDb, () => {
         replayCommitExactly(replayDb, replay);
       });
     }

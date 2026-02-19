@@ -77,4 +77,36 @@ describe("applyPlan", () => {
       }
     }
   });
+
+  testWithTmp("operations fail when observed table contains NULL primary-key values", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const direct = new Database(dbPath);
+    direct.run("CREATE TABLE weak_pk (k TEXT PRIMARY KEY, v TEXT)");
+    direct.run("INSERT INTO weak_pk(k, v) VALUES (NULL, 'a')");
+    direct.run("INSERT INTO weak_pk(k, v) VALUES (NULL, 'b')");
+    direct.close(false);
+
+    const plan = writePlanFile(dir, "plan-with-nullable-pk-values.json", {
+      message: "noop create",
+      operations: [
+        {
+          type: "create_table",
+          table: "safe_table",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+
+    try {
+      await applyPlan(plan, { dbPath });
+      throw new Error("applyPlan should fail when NULL PK values exist in tracked table");
+    } catch (error) {
+      expect(isTossError(error)).toBe(true);
+      if (isTossError(error)) {
+        expect(error.code).toBe("NULL_PRIMARY_KEY_VALUE");
+      }
+    }
+  });
 });

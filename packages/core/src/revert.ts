@@ -1,14 +1,13 @@
-import type { Database } from "bun:sqlite";
 import { canonicalJson } from "./checksum";
-import { buildCommitOperationsResult } from "./commit";
+import { appendCommitFromObservedChange } from "./commit";
 import {
   assertInitialized,
   closeDatabase,
   COMMIT_TABLE,
   openDatabase,
-  runInTransaction,
+  runInTransactionWithDeferredForeignKeys,
 } from "./db";
-import { TossError } from "./errors";
+import { TossError, isTossError } from "./errors";
 import {
   getCommitById,
   getRowEffectsByCommitId,
@@ -16,14 +15,25 @@ import {
   type StoredRowEffect,
   type StoredSchemaEffect,
 } from "./log";
-import { fetchRowByPk, normalizeRowObject, rowHash } from "./rows";
-import type {
-  DatabaseOptions,
-  JsonPrimitive,
-  Operation,
-  RevertConflict,
-  RevertResult,
-} from "./types";
+import {
+  applyRowEffectsWithOptions,
+  applyUserRowAndSchemaEffects,
+  assertNoForeignKeyViolations,
+  captureObservedState,
+  fetchObservedRowByPk,
+  isSystemSideEffectTable,
+  rowHash,
+} from "./observed";
+import { schemaHash } from "./rows";
+import type { DatabaseOptions, RevertConflict, RevertResult } from "./types";
+import type { Database } from "bun:sqlite";
+
+function tableExists(db: Database, tableName: string): boolean {
+  const row = db
+    .query("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
+    .get(tableName) as { ok?: number } | null;
+  return row?.ok === 1;
+}
 
 export function detectSchemaConflicts(
   schemaEffects: StoredSchemaEffect[],
@@ -31,21 +41,31 @@ export function detectSchemaConflicts(
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
   for (const effect of schemaEffects) {
-    const matched = laterSchemaEffects.filter((later) => {
-      if (later.tableName !== effect.tableName) {
-        return false;
-      }
-      if (!effect.columnName) {
-        return true;
-      }
-      return later.columnName === effect.columnName || later.columnName === null;
-    });
+    const matched = laterSchemaEffects.filter((later) => later.tableName === effect.tableName);
     for (const later of matched) {
       conflicts.push({
         kind: "schema",
         table: effect.tableName,
-        column: effect.columnName ?? undefined,
-        reason: `Later schema change found on ${later.tableName}${later.columnName ? `.${later.columnName}` : ""}`,
+        reason: `Later schema change found on ${later.tableName}`,
+      });
+    }
+  }
+  return conflicts;
+}
+
+export function detectSchemaRowConflicts(
+  schemaEffects: StoredSchemaEffect[],
+  laterRowEffects: StoredRowEffect[],
+): RevertConflict[] {
+  const conflicts: RevertConflict[] = [];
+  for (const effect of schemaEffects) {
+    const touched = laterRowEffects.filter((later) => later.tableName === effect.tableName);
+    for (const later of touched) {
+      conflicts.push({
+        kind: "schema",
+        table: effect.tableName,
+        pk: later.pk,
+        reason: `Later row change found on ${effect.tableName}; reverting schema would discard post-commit row mutations.`,
       });
     }
   }
@@ -58,14 +78,26 @@ export function detectRowConflict(
   laterRowEffects: StoredRowEffect[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
+  const missingTables = new Set<string>();
   for (const effect of targetRowEffects) {
+    if (!tableExists(db, effect.tableName)) {
+      if (!missingTables.has(effect.tableName)) {
+        conflicts.push({
+          kind: isSystemSideEffectTable(effect.tableName) ? "row" : "schema",
+          table: effect.tableName,
+          reason: `Current table is missing (${effect.tableName}); later schema changes prevent row-level revert.`,
+        });
+        missingTables.add(effect.tableName);
+      }
+      continue;
+    }
     const pkJson = canonicalJson(effect.pk);
     const touchedLater = laterRowEffects.some(
       (later) => later.tableName === effect.tableName && canonicalJson(later.pk) === pkJson,
     );
-    const currentRowRaw = fetchRowByPk(db, effect.tableName, effect.pk);
-    const currentRow = currentRowRaw ? normalizeRowObject(currentRowRaw) : null;
+    const currentRow = fetchObservedRowByPk(db, effect.tableName, effect.pk);
     const currentHash = rowHash(currentRow);
+
     if (effect.opKind === "update" && currentHash !== effect.afterHash) {
       conflicts.push({
         kind: "row",
@@ -75,6 +107,7 @@ export function detectRowConflict(
       });
       continue;
     }
+
     if (effect.opKind === "insert" && currentHash !== effect.afterHash) {
       conflicts.push({
         kind: "row",
@@ -84,14 +117,15 @@ export function detectRowConflict(
       });
       continue;
     }
+
     if (effect.opKind === "delete" && currentRow) {
       conflicts.push({
         kind: "row",
         table: effect.tableName,
         pk: effect.pk,
         reason: touchedLater
-          ? "Later commits touched this deleted row and it exists now; revert insert would violate PRIMARY KEY."
-          : "Deleted row already exists now; revert insert would violate PRIMARY KEY.",
+          ? "Later commits touched this deleted row and it exists now; inverse insert would violate PRIMARY KEY."
+          : "Deleted row already exists now; inverse insert would violate PRIMARY KEY.",
       });
     }
   }
@@ -111,110 +145,80 @@ export function fetchLaterEffects(db: Database, seq: number): { rows: StoredRowE
   return { rows, schemas };
 }
 
-function primitiveValues(row: Record<string, unknown>): Record<string, JsonPrimitive> {
-  const values: Record<string, JsonPrimitive> = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      values[key] = value;
-      continue;
-    }
-    throw new TossError(
-      "REVERT_FAILED",
-      `Non-primitive value cannot be represented in inverse operation: ${key} (${typeof value})`,
-    );
+function sqliteConstraintConflict(error: unknown): RevertConflict | null {
+  if (!(error instanceof Error)) {
+    return null;
   }
-  return values;
+  const message = error.message;
+  if (!message.toUpperCase().includes("CONSTRAINT")) {
+    return null;
+  }
+  const unique = /UNIQUE constraint failed: ([^.]+)\./i.exec(message);
+  if (unique?.[1]) {
+    return {
+      kind: "row",
+      table: unique[1],
+      reason: message,
+    };
+  }
+  const notNull = /NOT NULL constraint failed: ([^.]+)\./i.exec(message);
+  if (notNull?.[1]) {
+    return {
+      kind: "row",
+      table: notNull[1],
+      reason: message,
+    };
+  }
+  return {
+    kind: "schema",
+    table: "(unknown)",
+    reason: message,
+  };
 }
 
-export function applyInverseEffects(db: Database, commitId: string): { operations: Operation[] } {
-  const rowEffects = getRowEffectsByCommitId(db, commitId);
-  const schemaEffects = getSchemaEffectsByCommitId(db, commitId);
-  const inverseOperations: Operation[] = [];
-
-  for (const effect of schemaEffects.toReversed()) {
-    if (effect.opKind === "create_table") {
-      inverseOperations.push({ type: "drop_table", table: effect.tableName });
-      continue;
+function preflightInverseApply(
+  db: Database,
+  targetRows: StoredRowEffect[],
+  targetSchemas: StoredSchemaEffect[],
+): RevertConflict[] {
+  db.run("SAVEPOINT toss_revert_preflight");
+  try {
+    applyUserRowAndSchemaEffects(db, targetRows, targetSchemas, "inverse", {
+      disableTableTriggers: true,
+    });
+    applyRowEffectsWithOptions(db, targetRows, "inverse", {
+      disableTableTriggers: true,
+      includeUserEffects: false,
+      includeSystemEffects: true,
+      systemPolicy: "reconcile",
+    });
+    assertNoForeignKeyViolations(db, "REVERT_FAILED", "revert preflight");
+    db.run("ROLLBACK TO toss_revert_preflight");
+    db.run("RELEASE toss_revert_preflight");
+    return [];
+  } catch (error) {
+    try {
+      db.run("ROLLBACK TO toss_revert_preflight");
+      db.run("RELEASE toss_revert_preflight");
+    } catch {
+      // no-op
     }
-
-    if (
-      effect.opKind === "drop_table" ||
-      effect.opKind === "drop_column" ||
-      effect.opKind === "add_column" ||
-      effect.opKind === "alter_column_type"
-    ) {
-      if (!effect.ddlBeforeSql) {
-        throw new TossError("REVERT_FAILED", `Missing ddl_before_sql for ${commitId}`);
-      }
-      inverseOperations.push({
-        type: "restore_table",
-        table: effect.tableName,
-        ddlSql: effect.ddlBeforeSql,
-        rows: effect.tableRowsBefore,
-      });
-      continue;
+    if (isTossError(error) && error.code === "REVERT_FAILED") {
+      return [{ kind: "schema", table: "(unknown)", reason: error.message }];
     }
-
-    if (effect.opKind === "restore_table") {
-      if (!effect.ddlBeforeSql) {
-        inverseOperations.push({ type: "drop_table", table: effect.tableName });
-        continue;
-      }
-      inverseOperations.push({
-        type: "restore_table",
-        table: effect.tableName,
-        ddlSql: effect.ddlBeforeSql,
-        rows: effect.tableRowsBefore,
-      });
-      continue;
+    const conflict = sqliteConstraintConflict(error);
+    if (conflict) {
+      return [conflict];
     }
-
-    throw new TossError("REVERT_FAILED", `Unsupported schema effect kind: ${effect.opKind}`);
+    throw error;
   }
-
-  for (const effect of rowEffects.toReversed()) {
-    if (effect.opKind === "insert") {
-      inverseOperations.push({ type: "delete", table: effect.tableName, where: effect.pk });
-      continue;
-    }
-
-    if (effect.opKind === "delete") {
-      if (!effect.beforeRow) {
-        continue;
-      }
-      inverseOperations.push({
-        type: "insert",
-        table: effect.tableName,
-        values: primitiveValues(effect.beforeRow),
-      });
-      continue;
-    }
-
-    if (effect.opKind === "update") {
-      if (!effect.beforeRow) {
-        throw new TossError(
-          "REVERT_FAILED",
-          `Missing beforeRow for update effect on ${effect.tableName} at commit ${commitId}`,
-        );
-      }
-      inverseOperations.push({
-        type: "update",
-        table: effect.tableName,
-        values: primitiveValues(effect.beforeRow),
-        where: effect.pk,
-      });
-      continue;
-    }
-  }
-
-  return { operations: inverseOperations };
 }
 
 export function revertCommit(commitId: string, options: DatabaseOptions = {}): RevertResult {
   const { db, dbPath } = openDatabase(options.dbPath);
   try {
     assertInitialized(db, dbPath);
-    return runInTransaction(db, () => {
+    return runInTransactionWithDeferredForeignKeys(db, () => {
       const targetCommit = getCommitById(db, commitId);
       if (!targetCommit) {
         throw new TossError("NOT_FOUND", `Commit not found: ${commitId}`);
@@ -236,19 +240,34 @@ export function revertCommit(commitId: string, options: DatabaseOptions = {}): R
       const conflicts = [
         ...detectRowConflict(db, targetRows, later.rows),
         ...detectSchemaConflicts(targetSchemas, later.schemas),
+        ...detectSchemaRowConflicts(targetSchemas, later.rows),
+        ...preflightInverseApply(db, targetRows, targetSchemas),
       ];
       if (conflicts.length > 0) {
         return { ok: false, conflicts };
       }
 
-      const inverse = applyInverseEffects(db, commitId);
-      const revertCommitEntry = buildCommitOperationsResult(
-        db,
-        inverse.operations,
-        "revert",
-        `Revert ${targetCommit.commitId}: ${targetCommit.message}`,
-        targetCommit.commitId,
-      );
+      const beforeSchemaHash = schemaHash(db);
+      const beforeObservedState = captureObservedState(db);
+      applyUserRowAndSchemaEffects(db, targetRows, targetSchemas, "inverse", {
+        disableTableTriggers: true,
+      });
+      applyRowEffectsWithOptions(db, targetRows, "inverse", {
+        disableTableTriggers: true,
+        includeUserEffects: false,
+        includeSystemEffects: true,
+        systemPolicy: "reconcile",
+      });
+      assertNoForeignKeyViolations(db, "REVERT_FAILED", "revert apply");
+
+      const revertCommitEntry = appendCommitFromObservedChange(db, {
+        operations: [],
+        kind: "revert",
+        message: `Revert ${targetCommit.commitId}: ${targetCommit.message}`,
+        revertedTargetId: targetCommit.commitId,
+        beforeSchemaHash,
+        beforeObservedState,
+      });
       return { ok: true, revertCommit: revertCommitEntry };
     });
   } finally {

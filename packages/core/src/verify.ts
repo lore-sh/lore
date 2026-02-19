@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { sha256Hex } from "./checksum";
 import { assertInitialized, closeDatabase, ENGINE_META_TABLE, openDatabase } from "./db";
-import { listCommits } from "./log";
+import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./log";
 import type { DatabaseOptions, VerifyResult } from "./types";
 
 export function putMeta(db: Database, key: string, value: string): void {
@@ -22,7 +21,7 @@ export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {
 
     const commits = listCommits(db, false);
     for (const commit of commits) {
-      const expected = sha256Hex({
+      const expected = computeCommitId({
         seq: commit.seq,
         kind: commit.kind,
         message: commit.message,
@@ -35,6 +34,8 @@ export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {
         inverseReady: commit.inverseReady,
         revertedTargetId: commit.revertedTargetId,
         operations: commit.operations,
+        rowEffects: getRowEffectsByCommitId(db, commit.commitId),
+        schemaEffects: getSchemaEffectsByCommitId(db, commit.commitId),
       });
       if (expected !== commit.commitId) {
         issues.push(`Commit hash mismatch: ${commit.commitId}`);

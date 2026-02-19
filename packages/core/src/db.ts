@@ -4,7 +4,7 @@ import { Database } from "bun:sqlite";
 import { TossError } from "./errors";
 
 export const DEFAULT_DB_NAME = "toss.db";
-export const SCHEMA_FINGERPRINT = "toss-canonical-2026-02-19";
+export const SCHEMA_FINGERPRINT = "toss-canonical-observed-2026-02-19";
 export const DEFAULT_SNAPSHOT_INTERVAL = 100;
 export const DEFAULT_SNAPSHOT_RETAIN = 20;
 export const MAIN_REF_NAME = "main";
@@ -134,18 +134,15 @@ export function initializeStorage(db: Database): void {
       commit_id TEXT NOT NULL,
       effect_index INTEGER NOT NULL,
       table_name TEXT NOT NULL,
-      column_name TEXT,
-      op_kind TEXT NOT NULL,
-      ddl_before_sql TEXT,
-      ddl_after_sql TEXT,
-      table_rows_before_json TEXT,
+      before_table_json TEXT,
+      after_table_json TEXT,
       PRIMARY KEY (commit_id, effect_index)
     );
   `);
 
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_toss_effect_schema_table_column
-      ON ${EFFECT_SCHEMA_TABLE}(table_name, column_name);
+      ON ${EFFECT_SCHEMA_TABLE}(table_name);
   `);
 
   db.run(`
@@ -215,6 +212,20 @@ export function assertInitialized(db: Database, dbPath: string): void {
 export function runInTransaction<T>(db: Database, fn: () => T): T {
   db.run("BEGIN IMMEDIATE");
   try {
+    const result = fn();
+    db.run("COMMIT");
+    return result;
+  } catch (error) {
+    db.run("ROLLBACK");
+    throw error;
+  }
+}
+
+export function runInTransactionWithDeferredForeignKeys<T>(db: Database, fn: () => T): T {
+  db.run("PRAGMA foreign_keys=ON");
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("PRAGMA defer_foreign_keys=ON");
     const result = fn();
     db.run("COMMIT");
     return result;

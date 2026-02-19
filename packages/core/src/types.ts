@@ -4,6 +4,23 @@ export interface JsonObject {
   [key: string]: JsonValue;
 }
 
+export type SqlStorageClass = "null" | "integer" | "real" | "text" | "blob";
+
+export interface EncodedCell {
+  storageClass: SqlStorageClass;
+  sqlLiteral: string;
+}
+
+export interface EncodedRow {
+  [column: string]: EncodedCell;
+}
+
+export interface TableSecondaryObject {
+  type: "index" | "trigger";
+  name: string;
+  sql: string;
+}
+
 export interface SourceInfo {
   planner?: string | undefined;
   skill?: string | undefined;
@@ -58,7 +75,8 @@ export interface RestoreTableOperation {
   type: "restore_table";
   table: string;
   ddlSql: string;
-  rows: JsonObject[] | null;
+  rows: EncodedRow[] | null;
+  secondaryObjects?: TableSecondaryObject[] | undefined;
 }
 
 export interface UpdateOperation {
@@ -135,7 +153,7 @@ export interface TossStatus {
 export interface RevertConflict {
   kind: "row" | "schema";
   table: string;
-  pk?: Record<string, JsonPrimitive> | undefined;
+  pk?: Record<string, string> | undefined;
   column?: string | undefined;
   reason: string;
 }
