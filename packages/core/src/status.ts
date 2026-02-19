@@ -8,9 +8,9 @@ import {
 } from "./db";
 import { getHeadCommit, listCommits } from "./log";
 import { quoteIdentifier } from "./sql";
-import type { CommitEntry, ServiceOptions, TossStatus } from "./types";
+import type { CommitEntry, DatabaseOptions, TossStatus } from "./types";
 
-export function getStatus(options: ServiceOptions = {}): TossStatus {
+export function getStatus(options: DatabaseOptions = {}): TossStatus {
   const { db, dbPath } = openDatabase(options.dbPath);
   try {
     assertInitialized(db, dbPath);
@@ -48,7 +48,7 @@ export function getStatus(options: ServiceOptions = {}): TossStatus {
 }
 
 export function getHistory(
-  options: ServiceOptions & {
+  options: DatabaseOptions & {
     verbose?: boolean;
   } = {},
 ): CommitEntry[] {

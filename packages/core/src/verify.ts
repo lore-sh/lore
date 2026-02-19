@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
 import { assertInitialized, closeDatabase, ENGINE_META_TABLE, openDatabase } from "./db";
 import { listCommits } from "./log";
-import type { ServiceOptions, VerifyResult } from "./types";
+import type { DatabaseOptions, VerifyResult } from "./types";
 
 export function putMeta(db: Database, key: string, value: string): void {
   db.query(
@@ -13,7 +13,7 @@ export function putMeta(db: Database, key: string, value: string): void {
   ).run(key, value);
 }
 
-export function verifyDatabase(options: ServiceOptions & { full?: boolean } = {}): VerifyResult {
+export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {}): VerifyResult {
   const { db, dbPath } = openDatabase(options.dbPath);
   try {
     assertInitialized(db, dbPath);

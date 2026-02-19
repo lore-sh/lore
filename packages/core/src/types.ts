@@ -170,11 +170,11 @@ export interface SnapshotEntry {
   rowCountHint: number;
 }
 
-export interface ServiceOptions {
+export interface DatabaseOptions {
   dbPath?: string;
 }
 
-export interface InitDatabaseOptions extends ServiceOptions {
+export interface InitDatabaseOptions extends DatabaseOptions {
   generateSkills?: boolean;
   workspacePath?: string;
   forceNew?: boolean;

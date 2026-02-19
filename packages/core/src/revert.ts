@@ -18,11 +18,11 @@ import {
 } from "./log";
 import { fetchRowByPk, normalizeRowObject, rowHash } from "./rows";
 import type {
+  DatabaseOptions,
   JsonPrimitive,
   Operation,
   RevertConflict,
   RevertResult,
-  ServiceOptions,
 } from "./types";
 
 export function detectSchemaConflicts(
@@ -210,7 +210,7 @@ export function applyInverseEffects(db: Database, commitId: string): { operation
   return { operations: inverseOperations };
 }
 
-export function revertCommit(commitId: string, options: ServiceOptions = {}): RevertResult {
+export function revertCommit(commitId: string, options: DatabaseOptions = {}): RevertResult {
   const { db, dbPath } = openDatabase(options.dbPath);
   try {
     assertInitialized(db, dbPath);

@@ -29,7 +29,7 @@ import {
 } from "./log";
 import { schemaHash, stateHash } from "./rows";
 import { quoteIdentifier } from "./sql";
-import type { CommitEntry, CommitKind, Operation, ServiceOptions, SnapshotEntry } from "./types";
+import type { CommitEntry, CommitKind, DatabaseOptions, Operation, SnapshotEntry } from "./types";
 
 interface ReplayCommit {
   commitId: string;
@@ -162,7 +162,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   }
 }
 
-export function listSnapshots(options: ServiceOptions = {}): SnapshotEntry[] {
+export function listSnapshots(options: DatabaseOptions = {}): SnapshotEntry[] {
   const { db, dbPath } = openDatabase(options.dbPath);
   try {
     assertInitialized(db, dbPath);
@@ -302,7 +302,7 @@ function resolveSnapshotForRecovery(
 
 export async function recoverFromSnapshot(
   commitId: string,
-  options: ServiceOptions = {},
+  options: DatabaseOptions = {},
 ): Promise<{ dbPath: string; restoredCommitId: string; replayedCommits: number }> {
   const dbPath = resolveDbPath(options.dbPath);
   const { snapshotPath, replayCommits } = resolveSnapshotForRecovery(dbPath, commitId);

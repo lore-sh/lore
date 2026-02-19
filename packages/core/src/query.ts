@@ -1,9 +1,9 @@
 import { assertInitialized, closeDatabase, openDatabase } from "./db";
 import { executeReadSql } from "./executors/read";
-import type { ServiceOptions } from "./types";
+import type { DatabaseOptions } from "./types";
 import { validateReadSql } from "./validators/sql";
 
-export function readQuery(sqlInput: string, options: ServiceOptions = {}): Record<string, unknown>[] {
+export function readQuery(sqlInput: string, options: DatabaseOptions = {}): Record<string, unknown>[] {
   const sql = validateReadSql(sqlInput);
   const { db, dbPath } = openDatabase(options.dbPath);
   try {

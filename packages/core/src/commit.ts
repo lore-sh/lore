@@ -29,7 +29,7 @@ import {
   tableDDL,
 } from "./rows";
 import { quoteIdentifier } from "./sql";
-import type { CommitEntry, JsonPrimitive, Operation, ServiceOptions } from "./types";
+import type { CommitEntry, DatabaseOptions, JsonPrimitive, Operation } from "./types";
 import { parseAndValidateOperationPlan } from "./validators/operation";
 
 export function readPlanInput(planRef: string): Promise<string> {
@@ -205,7 +205,7 @@ export function buildCommitOperationsResult(db: Database, planOperations: Operat
   });
 }
 
-export async function applyPlan(planRef: string, options: ServiceOptions = {}): Promise<CommitEntry> {
+export async function applyPlan(planRef: string, options: DatabaseOptions = {}): Promise<CommitEntry> {
   const payload = await readPlanInput(planRef);
   const plan = parseAndValidateOperationPlan(payload);
 
