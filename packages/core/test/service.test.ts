@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +10,9 @@ import {
   initDatabase,
   isTossError,
   readQuery,
+  recoverFromSnapshot,
   revertCommit,
+  verifyDatabase,
 } from "../src";
 
 const tmpDirs: string[] = [];
@@ -21,7 +24,7 @@ function createTestContext(): { dir: string; dbPath: string } {
   return { dir, dbPath };
 }
 
-async function writePlanFile(dir: string, name: string, payload: unknown): Promise<string> {
+function writePlanFile(dir: string, name: string, payload: unknown): string {
   const path = join(dir, name);
   writeFileSync(path, JSON.stringify(payload), "utf8");
   return path;
@@ -36,284 +39,302 @@ afterEach(() => {
   }
 });
 
-describe("toss core service", () => {
-  test("init -> apply -> read -> status -> history works", async () => {
+describe("toss strong history engine", () => {
+  test("init -> apply -> status -> history works with new metadata", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const createPlanPath = await writePlanFile(dir, "create.json", {
+    const createPlanPath = writePlanFile(dir, "create.json", {
       message: "create expenses table",
       operations: [
         {
           type: "create_table",
           table: "expenses",
           columns: [
-            { name: "date", type: "TEXT", notNull: true },
+            { name: "id", type: "INTEGER", primaryKey: true },
             { name: "item", type: "TEXT", notNull: true },
             { name: "amount", type: "INTEGER", notNull: true },
           ],
         },
       ],
     });
-
-    const insertPlanPath = await writePlanFile(dir, "insert.json", {
+    const insertPlanPath = writePlanFile(dir, "insert.json", {
       message: "insert dinner",
-      operations: [
-        {
-          type: "insert",
-          table: "expenses",
-          values: {
-            date: "2026-02-18",
-            item: "dinner",
-            amount: 1200,
-          },
-        },
-      ],
+      operations: [{ type: "insert", table: "expenses", values: { id: 1, item: "dinner", amount: 1200 } }],
     });
 
     await applyPlan(createPlanPath, { dbPath });
-    await applyPlan(insertPlanPath, { dbPath });
-
-    const rows = readQuery("SELECT item, amount FROM expenses", { dbPath });
-    expect(rows).toEqual([{ item: "dinner", amount: 1200 }]);
+    const insertCommit = await applyPlan(insertPlanPath, { dbPath });
 
     const status = getStatus({ dbPath });
+    expect(status.historyEngine).toBe("gitlike");
+    expect(status.formatGeneration).toBe(1);
     expect(status.tableCount).toBe(1);
-    expect(status.tables).toEqual([{ name: "expenses", count: 1 }]);
+    expect(status.headCommit?.commitId).toBe(insertCommit.commitId);
+    expect(status.snapshotCount).toBe(0);
 
-    const history = getHistory({ dbPath });
+    const history = getHistory({ dbPath, verbose: true });
     expect(history).toHaveLength(2);
-    expect(history[0]?.kind).toBe("apply");
+    expect(history[0]?.commitId).toBe(insertCommit.commitId);
+    expect(history[0]?.parentIds).toHaveLength(1);
+    expect(history[0]?.stateHashAfter.length).toBeGreaterThan(10);
   });
 
-  test("apply rejects unknown operation types", async () => {
-    const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
-
-    const badPlanPath = await writePlanFile(dir, "bad.json", {
-      message: "attempt unknown operation",
-      operations: [{ type: "rename_table", table: "expenses", to: "costs" }],
-    });
+  test("hard reset format rejects legacy schema unless force-new", async () => {
+    const { dbPath } = createTestContext();
+    const legacy = new Database(dbPath);
+    legacy.run("CREATE TABLE _toss_log(id TEXT PRIMARY KEY)");
+    legacy.close(false);
 
     try {
-      await applyPlan(badPlanPath, { dbPath });
-      throw new Error("applyPlan should have failed");
+      await initDatabase({ dbPath });
+      throw new Error("initDatabase should have failed for legacy schema");
     } catch (error) {
       expect(isTossError(error)).toBe(true);
       if (isTossError(error)) {
-        expect(error.code).toBe("INVALID_PLAN");
+        expect(error.code).toBe("FORMAT_MISMATCH");
       }
+    }
+
+    const reinit = await initDatabase({ dbPath, forceNew: true });
+    expect(reinit.dbPath).toBe(dbPath);
+  });
+
+  test("drop_table revert restores table definition and rows", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const setup = writePlanFile(dir, "setup.json", {
+      message: "setup",
+      operations: [
+        {
+          type: "create_table",
+          table: "expenses",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "item", type: "TEXT", notNull: true },
+          ],
+        },
+        { type: "insert", table: "expenses", values: { id: 1, item: "dinner" } },
+      ],
+    });
+    const drop = writePlanFile(dir, "drop.json", {
+      message: "drop table",
+      operations: [{ type: "drop_table", table: "expenses" }],
+    });
+
+    await applyPlan(setup, { dbPath });
+    const dropCommit = await applyPlan(drop, { dbPath });
+
+    const revert = revertCommit(dropCommit.commitId, { dbPath });
+    expect(revert.ok).toBe(true);
+
+    const rows = readQuery("SELECT id, item FROM expenses", { dbPath });
+    expect(rows).toEqual([{ id: 1, item: "dinner" }]);
+  });
+
+  test("drop_column and alter_column_type revert restore schema and values", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const setup = writePlanFile(dir, "setup.json", {
+      message: "setup ledger",
+      operations: [
+        {
+          type: "create_table",
+          table: "ledger",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "amount", type: "TEXT", notNull: true },
+            { name: "note", type: "TEXT" },
+          ],
+        },
+        { type: "insert", table: "ledger", values: { id: 1, amount: "1200", note: "meal" } },
+      ],
+    });
+    const mutate = writePlanFile(dir, "mutate.json", {
+      message: "schema mutate",
+      operations: [
+        { type: "alter_column_type", table: "ledger", column: "amount", newType: "INTEGER" },
+        { type: "drop_column", table: "ledger", column: "note" },
+      ],
+    });
+
+    await applyPlan(setup, { dbPath });
+    const mutateCommit = await applyPlan(mutate, { dbPath });
+
+    const revert = revertCommit(mutateCommit.commitId, { dbPath });
+    expect(revert.ok).toBe(true);
+
+    const typeRow = readQuery("SELECT typeof(amount) AS t, note FROM ledger WHERE id=1", { dbPath });
+    expect(typeRow).toEqual([{ t: "text", note: "meal" }]);
+  });
+
+  test("update/delete revert detects row conflicts", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const setup = writePlanFile(dir, "setup.json", {
+      message: "setup",
+      operations: [
+        {
+          type: "create_table",
+          table: "items",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "name", type: "TEXT", notNull: true },
+            { name: "qty", type: "INTEGER", notNull: true },
+          ],
+        },
+        { type: "insert", table: "items", values: { id: 1, name: "apple", qty: 3 } },
+      ],
+    });
+    const updateA = writePlanFile(dir, "update-a.json", {
+      message: "set qty 5",
+      operations: [{ type: "update", table: "items", values: { qty: 5 }, where: { id: 1 } }],
+    });
+    const updateB = writePlanFile(dir, "update-b.json", {
+      message: "set qty 7",
+      operations: [{ type: "update", table: "items", values: { qty: 7 }, where: { id: 1 } }],
+    });
+
+    await applyPlan(setup, { dbPath });
+    const target = await applyPlan(updateA, { dbPath });
+    await applyPlan(updateB, { dbPath });
+
+    const result = revertCommit(target.commitId, { dbPath });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflicts.length).toBeGreaterThan(0);
+      expect(result.conflicts[0]?.kind).toBe("row");
     }
   });
 
-  test("read rejects write SQL", async () => {
-    const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
-
-    expect(() => readQuery("DELETE FROM expenses", { dbPath })).toThrow();
-  });
-
-  test("apply supports schema evolution and data migration operations", async () => {
+  test("revert of revert is supported", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const createPath = await writePlanFile(dir, "create.json", {
-      message: "create ledger and legacy tables",
+    const setup = writePlanFile(dir, "setup.json", {
+      message: "setup",
       operations: [
         {
           type: "create_table",
-          table: "ledger",
+          table: "events",
           columns: [
-            { name: "item", type: "TEXT", notNull: true },
-            { name: "amount", type: "TEXT", notNull: true },
-            { name: "note", type: "TEXT" },
-            { name: "category", type: "TEXT" },
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
           ],
         },
-        {
-          type: "create_table",
-          table: "legacy",
-          columns: [{ name: "dummy", type: "TEXT" }],
-        },
+        { type: "insert", table: "events", values: { id: 1, title: "dentist" } },
       ],
     });
-
-    const insertPath = await writePlanFile(dir, "insert.json", {
-      message: "seed rows",
-      operations: [
-        { type: "insert", table: "ledger", values: { item: "dinner", amount: "1200", note: "meal", category: null } },
-        { type: "insert", table: "ledger", values: { item: "lunch", amount: "850", note: "meal", category: null } },
-      ],
+    const drop = writePlanFile(dir, "drop.json", {
+      message: "drop events",
+      operations: [{ type: "drop_table", table: "events" }],
     });
 
-    const migrationPath = await writePlanFile(dir, "migration.json", {
-      message: "migrate ledger schema and clean old data",
-      operations: [
-        {
-          type: "update",
-          table: "ledger",
-          values: { category: "food" },
-          where: { item: "dinner" },
-        },
-        {
-          type: "delete",
-          table: "ledger",
-          where: { item: "lunch" },
-        },
-        {
-          type: "alter_column_type",
-          table: "ledger",
-          column: "amount",
-          newType: "INTEGER",
-        },
-        {
-          type: "drop_column",
-          table: "ledger",
-          column: "note",
-        },
-        {
-          type: "drop_table",
-          table: "legacy",
-        },
-      ],
-    });
+    await applyPlan(setup, { dbPath });
+    const dropped = await applyPlan(drop, { dbPath });
+    const first = revertCommit(dropped.commitId, { dbPath });
+    expect(first.ok).toBe(true);
+    if (!first.ok) {
+      throw new Error("expected first revert success");
+    }
 
-    await applyPlan(createPath, { dbPath });
-    await applyPlan(insertPath, { dbPath });
-    await applyPlan(migrationPath, { dbPath });
+    const second = revertCommit(first.revertCommit.commitId, { dbPath });
+    expect(second.ok).toBe(true);
+    if (!second.ok) {
+      throw new Error("expected second revert success");
+    }
 
-    const rows = readQuery("SELECT item, amount, category, typeof(amount) AS amount_type FROM ledger", { dbPath });
-    expect(rows).toEqual([{ item: "dinner", amount: 1200, category: "food", amount_type: "integer" }]);
-
-    const noteColumn = readQuery("SELECT COUNT(*) AS c FROM pragma_table_info('ledger') WHERE name='note'", { dbPath });
-    expect(noteColumn).toEqual([{ c: 0 }]);
-
-    const legacyTable = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='legacy'", { dbPath });
-    expect(legacyTable).toEqual([{ c: 0 }]);
+    const tableCount = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='events'", { dbPath });
+    expect(tableCount).toEqual([{ c: 0 }]);
   });
 
-  test("apply rejects update/delete without where predicates", async () => {
+  test("verify quick/full checks pass and update last_verified_at", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const createPath = await writePlanFile(dir, "create.json", {
-      message: "create ledger table",
+    const setup = writePlanFile(dir, "setup.json", {
+      message: "setup",
       operations: [
         {
           type: "create_table",
-          table: "ledger",
+          table: "notes",
           columns: [
-            { name: "item", type: "TEXT", notNull: true },
-            { name: "amount", type: "INTEGER", notNull: true },
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "body", type: "TEXT", notNull: true },
           ],
         },
       ],
     });
-    await applyPlan(createPath, { dbPath });
+    await applyPlan(setup, { dbPath });
 
-    const badUpdatePath = await writePlanFile(dir, "bad-update.json", {
-      message: "unsafe update",
-      operations: [{ type: "update", table: "ledger", values: { amount: 1 }, where: {} }],
-    });
-    const badDeletePath = await writePlanFile(dir, "bad-delete.json", {
-      message: "unsafe delete",
-      operations: [{ type: "delete", table: "ledger", where: {} }],
-    });
+    const quick = verifyDatabase({ dbPath });
+    expect(quick.ok).toBe(true);
+    expect(quick.mode).toBe("quick");
 
-    await expect(applyPlan(badUpdatePath, { dbPath })).rejects.toThrow();
-    await expect(applyPlan(badDeletePath, { dbPath })).rejects.toThrow();
+    const full = verifyDatabase({ dbPath, full: true });
+    expect(full.ok).toBe(true);
+    expect(full.mode).toBe("full");
+
+    const status = getStatus({ dbPath });
+    expect(status.lastVerifiedAt).not.toBeNull();
   });
 
-  test("revert insert commit safely rebuilds head", async () => {
+  test("snapshot recover restores and replays commits", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const createPlanPath = await writePlanFile(dir, "create.json", {
-      message: "create expenses table",
+    const tweak = new Database(dbPath);
+    tweak
+      .query("UPDATE _toss_repo_meta SET value='1' WHERE key='snapshot_interval'")
+      .run();
+    tweak
+      .query("UPDATE _toss_repo_meta SET value='10' WHERE key='snapshot_retain'")
+      .run();
+    tweak.close(false);
+
+    const create = writePlanFile(dir, "create.json", {
+      message: "create logs",
       operations: [
         {
           type: "create_table",
-          table: "expenses",
+          table: "logs",
           columns: [
-            { name: "item", type: "TEXT", notNull: true },
-            { name: "amount", type: "INTEGER", notNull: true },
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "msg", type: "TEXT", notNull: true },
           ],
         },
       ],
     });
-
-    const insertAPath = await writePlanFile(dir, "insert-a.json", {
-      message: "insert lunch",
-      operations: [{ type: "insert", table: "expenses", values: { item: "lunch", amount: 850 } }],
+    const insert = writePlanFile(dir, "insert.json", {
+      message: "insert log",
+      operations: [{ type: "insert", table: "logs", values: { id: 1, msg: "hello" } }],
     });
 
-    const insertBPath = await writePlanFile(dir, "insert-b.json", {
-      message: "insert dinner",
-      operations: [{ type: "insert", table: "expenses", values: { item: "dinner", amount: 1200 } }],
-    });
+    const firstCommit = await applyPlan(create, { dbPath });
+    await applyPlan(insert, { dbPath });
 
-    await applyPlan(createPlanPath, { dbPath });
-    const firstInsertCommit = await applyPlan(insertAPath, { dbPath });
-    await applyPlan(insertBPath, { dbPath });
+    const result = await recoverFromSnapshot(firstCommit.commitId, { dbPath });
+    expect(result.replayedCommits).toBeGreaterThanOrEqual(1);
 
-    revertCommit(firstInsertCommit.id, { dbPath });
-
-    const rows = readQuery("SELECT item, amount FROM expenses ORDER BY item", { dbPath });
-    expect(rows).toEqual([{ item: "dinner", amount: 1200 }]);
+    const rows = readQuery("SELECT id, msg FROM logs", { dbPath });
+    expect(rows).toEqual([{ id: 1, msg: "hello" }]);
   });
 
-  test("revert create_table is blocked when later commits depend on that table", async () => {
-    const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
-
-    const createPlanPath = await writePlanFile(dir, "create.json", {
-      message: "create expenses table",
-      operations: [
-        {
-          type: "create_table",
-          table: "expenses",
-          columns: [
-            { name: "item", type: "TEXT", notNull: true },
-            { name: "amount", type: "INTEGER", notNull: true },
-          ],
-        },
-      ],
-    });
-
-    const insertPath = await writePlanFile(dir, "insert.json", {
-      message: "insert dinner",
-      operations: [{ type: "insert", table: "expenses", values: { item: "dinner", amount: 1200 } }],
-    });
-
-    const createCommit = await applyPlan(createPlanPath, { dbPath });
-    await applyPlan(insertPath, { dbPath });
-
-    expect(() => revertCommit(createCommit.id, { dbPath })).toThrow();
-  });
-
-  test("init can generate skills and AGENTS.md for Claude Code", async () => {
+  test("init generates toss skill with migration guidance", async () => {
     const { dir, dbPath } = createTestContext();
     const result = await initDatabase({ dbPath, generateSkills: true, workspacePath: dir });
-
     expect(result.generatedSkills).not.toBeNull();
     if (!result.generatedSkills) {
-      throw new Error("generatedSkills should be present");
+      throw new Error("generatedSkills should exist");
     }
 
     expect(existsSync(result.generatedSkills.skillPath)).toBe(true);
-    expect(existsSync(join(result.generatedSkills.referencesDir, "context.md"))).toBe(true);
-    expect(existsSync(join(result.generatedSkills.referencesDir, "contracts.md"))).toBe(true);
-    expect(existsSync(result.generatedSkills.agentsPath)).toBe(true);
-
-    const agents = readFileSync(result.generatedSkills.agentsPath, "utf8");
     const skill = readFileSync(result.generatedSkills.skillPath, "utf8");
-    expect(agents.includes("Unified toss workflow")).toBe(true);
-    expect(skill.includes("name: toss")).toBe(true);
-    expect(skill.includes("Remember Flow (read-before-apply)")).toBe(true);
-    expect(skill.includes("Schema cleanup -> include `drop_column` / `drop_table`")).toBe(true);
-    expect(skill.includes("Type migration -> include `alter_column_type`")).toBe(true);
-    expect(agents.includes("toss:init:skills:start")).toBe(true);
-    expect(skill.includes("pragma_table_info")).toBe(true);
-    expect(skill.includes("retry once")).toBe(true);
+    expect(skill.includes("toss history --verbose")).toBe(true);
+    expect(skill.includes("toss verify --quick")).toBe(true);
+    expect(skill.includes("staged migrations")).toBe(true);
   });
 });

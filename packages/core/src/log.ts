@@ -1,139 +1,312 @@
 import type { Database } from "bun:sqlite";
-import { sha256Hex } from "./checksum";
-import type { LogEntry, LogKind, Operation } from "./types";
+import { canonicalJson, sha256Hex } from "./checksum";
+import { MAIN_REF_NAME } from "./db";
+import type { CommitEntry, CommitKind, JsonObject, Operation } from "./types";
 
-interface AppendLogInput {
-  kind: LogKind;
-  message: string;
-  operations: Operation[];
-  schemaVersion: number;
-  revertedTargetId?: string | null;
+export interface RowEffect {
+  tableName: string;
+  pk: Record<string, string | number | boolean | null>;
+  opKind: "insert" | "update" | "delete";
+  beforeRow: JsonObject | null;
+  afterRow: JsonObject | null;
 }
 
-interface RawLogRow {
-  rowid: number;
-  id: string;
-  timestamp: string;
-  kind: LogKind;
+export interface SchemaEffect {
+  tableName: string;
+  columnName: string | null;
+  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type";
+  ddlBeforeSql: string | null;
+  ddlAfterSql: string | null;
+  tableRowsBefore: JsonObject[] | null;
+}
+
+export interface CommitWriteInput {
+  seq: number;
+  kind: CommitKind;
   message: string;
-  operations: string;
-  schema_version: number;
-  checksum: string;
+  createdAt: string;
+  parentIds: string[];
+  schemaHashBefore: string;
+  schemaHashAfter: string;
+  stateHashAfter: string;
+  planHash: string;
+  inverseReady: boolean;
+  revertedTargetId: string | null;
+  operations: Operation[];
+  rowEffects: RowEffect[];
+  schemaEffects: SchemaEffect[];
+}
+
+interface RawCommitRow {
+  commit_id: string;
+  seq: number;
+  kind: CommitKind;
+  message: string;
+  created_at: string;
+  parent_count: number;
+  schema_hash_before: string;
+  schema_hash_after: string;
+  state_hash_after: string;
+  plan_hash: string;
+  inverse_ready: number;
   reverted_target_id: string | null;
 }
 
-export function generateCommitId(): string {
-  return crypto.randomUUID();
+function normalizeObject(value: unknown): JsonObject | null {
+  if (value === null) {
+    return null;
+  }
+  return value as JsonObject;
 }
 
-function checksumPayload(entry: {
-  id: string;
-  timestamp: string;
-  kind: LogKind;
-  message: string;
-  operations: Operation[];
-  schemaVersion: number;
-  revertedTargetId: string | null;
-}): Record<string, unknown> {
+function decodeCommit(db: Database, row: RawCommitRow): CommitEntry {
+  const parents = db
+    .query("SELECT parent_commit_id FROM _toss_commit_parent WHERE commit_id=? ORDER BY ord ASC")
+    .all(row.commit_id) as Array<{ parent_commit_id: string }>;
+  const operations = db
+    .query("SELECT op_json FROM _toss_op WHERE commit_id=? ORDER BY op_index ASC")
+    .all(row.commit_id) as Array<{ op_json: string }>;
+
   return {
-    id: entry.id,
-    timestamp: entry.timestamp,
-    kind: entry.kind,
-    message: entry.message,
-    operations: entry.operations,
-    schemaVersion: entry.schemaVersion,
-    revertedTargetId: entry.revertedTargetId,
+    commitId: row.commit_id,
+    seq: row.seq,
+    kind: row.kind,
+    message: row.message,
+    createdAt: row.created_at,
+    parentIds: parents.map((parent) => parent.parent_commit_id),
+    parentCount: row.parent_count,
+    schemaHashBefore: row.schema_hash_before,
+    schemaHashAfter: row.schema_hash_after,
+    stateHashAfter: row.state_hash_after,
+    planHash: row.plan_hash,
+    inverseReady: row.inverse_ready === 1,
+    revertedTargetId: row.reverted_target_id,
+    operations: operations.map((operation) => JSON.parse(operation.op_json) as Operation),
   };
 }
 
-export function appendLog(db: Database, input: AppendLogInput): LogEntry {
-  const id = generateCommitId();
-  const timestamp = new Date().toISOString();
-  const revertedTargetId = input.revertedTargetId ?? null;
-  const checksum = sha256Hex(
-    checksumPayload({
-      id,
-      timestamp,
-      kind: input.kind,
-      message: input.message,
-      operations: input.operations,
-      schemaVersion: input.schemaVersion,
-      revertedTargetId,
-    }),
-  );
+export function getHeadCommitId(db: Database): string | null {
+  const row = db.query("SELECT commit_id FROM _toss_ref WHERE name=? LIMIT 1").get(MAIN_REF_NAME) as
+    | { commit_id: string | null }
+    | null;
+  return row?.commit_id ?? null;
+}
+
+export function getHeadCommit(db: Database): CommitEntry | null {
+  const head = getHeadCommitId(db);
+  if (!head) {
+    return null;
+  }
+  return getCommitById(db, head);
+}
+
+export function getNextCommitSeq(db: Database): number {
+  const row = db.query("SELECT COALESCE(MAX(seq), 0) AS max_seq FROM _toss_commit").get() as { max_seq: number };
+  return row.max_seq + 1;
+}
+
+function commitHashPayload(input: CommitWriteInput): Record<string, unknown> {
+  return {
+    seq: input.seq,
+    kind: input.kind,
+    message: input.message,
+    createdAt: input.createdAt,
+    parentIds: input.parentIds,
+    schemaHashBefore: input.schemaHashBefore,
+    schemaHashAfter: input.schemaHashAfter,
+    stateHashAfter: input.stateHashAfter,
+    planHash: input.planHash,
+    inverseReady: input.inverseReady,
+    revertedTargetId: input.revertedTargetId,
+    operations: input.operations,
+  };
+}
+
+export function computeCommitId(input: CommitWriteInput): string {
+  return sha256Hex(commitHashPayload(input));
+}
+
+export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry {
+  const commitId = computeCommitId(input);
+  const oldHead = getHeadCommitId(db);
 
   db.query(
     `
-    INSERT INTO _toss_log(id, timestamp, kind, message, operations, schema_version, checksum, reverted_target_id)
+    INSERT INTO _toss_commit(
+      commit_id, seq, kind, message, created_at, parent_count,
+      schema_hash_before, schema_hash_after, state_hash_after, plan_hash, inverse_ready, reverted_target_id
+    )
+    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  ).run(
+    commitId,
+    input.seq,
+    input.kind,
+    input.message,
+    input.createdAt,
+    input.parentIds.length,
+    input.schemaHashBefore,
+    input.schemaHashAfter,
+    input.stateHashAfter,
+    input.planHash,
+    input.inverseReady ? 1 : 0,
+    input.revertedTargetId,
+  );
+
+  const insertParent = db.query(
+    "INSERT INTO _toss_commit_parent(commit_id, parent_commit_id, ord) VALUES(?, ?, ?)",
+  );
+  input.parentIds.forEach((parentId, index) => {
+    insertParent.run(commitId, parentId, index);
+  });
+
+  const insertOp = db.query("INSERT INTO _toss_op(commit_id, op_index, op_type, op_json) VALUES(?, ?, ?, ?)");
+  input.operations.forEach((operation, index) => {
+    insertOp.run(commitId, index, operation.type, canonicalJson(operation));
+  });
+
+  const insertRowEffect = db.query(
+    `
+    INSERT INTO _toss_effect_row(
+      commit_id, effect_index, table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
+    )
+    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  );
+  input.rowEffects.forEach((effect, index) => {
+    const beforeRowJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
+    const afterRowJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
+    const beforeHash = beforeRowJson ? sha256Hex(beforeRowJson) : null;
+    const afterHash = afterRowJson ? sha256Hex(afterRowJson) : null;
+    insertRowEffect.run(commitId, index, effect.tableName, canonicalJson(effect.pk), effect.opKind, beforeRowJson, afterRowJson, beforeHash, afterHash);
+  });
+
+  const insertSchemaEffect = db.query(
+    `
+    INSERT INTO _toss_effect_schema(
+      commit_id, effect_index, table_name, column_name, op_kind, ddl_before_sql, ddl_after_sql, table_rows_before_json
+    )
     VALUES(?, ?, ?, ?, ?, ?, ?, ?)
     `,
-  ).run(id, timestamp, input.kind, input.message, JSON.stringify(input.operations), input.schemaVersion, checksum, revertedTargetId);
+  );
+  input.schemaEffects.forEach((effect, index) => {
+    insertSchemaEffect.run(
+      commitId,
+      index,
+      effect.tableName,
+      effect.columnName,
+      effect.opKind,
+      effect.ddlBeforeSql,
+      effect.ddlAfterSql,
+      effect.tableRowsBefore ? canonicalJson(effect.tableRowsBefore) : null,
+    );
+  });
 
-  const row = db
-    .query(
-      `
-      SELECT rowid, id, timestamp, kind, message, operations, schema_version, checksum, reverted_target_id
-      FROM _toss_log WHERE id = ? LIMIT 1
-      `,
-    )
-    .get(id) as RawLogRow;
-  return decodeLogRow(row);
+  db.query("UPDATE _toss_ref SET commit_id=?, updated_at=? WHERE name=?").run(commitId, input.createdAt, MAIN_REF_NAME);
+  db.query(
+    `
+    INSERT INTO _toss_reflog(ref_name, old_commit_id, new_commit_id, reason, created_at)
+    VALUES(?, ?, ?, ?, ?)
+    `,
+  ).run(MAIN_REF_NAME, oldHead, commitId, input.kind === "revert" ? "revert" : "apply", input.createdAt);
+
+  const row = db.query("SELECT * FROM _toss_commit WHERE commit_id=? LIMIT 1").get(commitId) as RawCommitRow;
+  return decodeCommit(db, row);
 }
 
-function decodeLogRow(row: RawLogRow): LogEntry {
-  return {
-    rowid: row.rowid,
-    id: row.id,
-    timestamp: row.timestamp,
-    kind: row.kind,
-    message: row.message,
-    operations: JSON.parse(row.operations) as Operation[],
-    schemaVersion: row.schema_version,
-    checksum: row.checksum,
-    revertedTargetId: row.reverted_target_id,
-  };
+export function getCommitById(db: Database, commitId: string): CommitEntry | null {
+  const row = db.query("SELECT * FROM _toss_commit WHERE commit_id=? LIMIT 1").get(commitId) as RawCommitRow | null;
+  if (!row) {
+    return null;
+  }
+  return decodeCommit(db, row);
 }
 
-export function listLogsAscending(db: Database): LogEntry[] {
+export function listCommits(db: Database, descending: boolean): CommitEntry[] {
+  const rows = db
+    .query(`SELECT * FROM _toss_commit ORDER BY seq ${descending ? "DESC" : "ASC"}`)
+    .all() as RawCommitRow[];
+  return rows.map((row) => decodeCommit(db, row));
+}
+
+export interface StoredRowEffect {
+  tableName: string;
+  pk: Record<string, string | number | boolean | null>;
+  opKind: "insert" | "update" | "delete";
+  beforeRow: JsonObject | null;
+  afterRow: JsonObject | null;
+  beforeHash: string | null;
+  afterHash: string | null;
+}
+
+export interface StoredSchemaEffect {
+  tableName: string;
+  columnName: string | null;
+  opKind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type";
+  ddlBeforeSql: string | null;
+  ddlAfterSql: string | null;
+  tableRowsBefore: JsonObject[] | null;
+}
+
+export function getRowEffectsByCommitId(db: Database, commitId: string): StoredRowEffect[] {
   const rows = db
     .query(
       `
-      SELECT rowid, id, timestamp, kind, message, operations, schema_version, checksum, reverted_target_id
-      FROM _toss_log
-      ORDER BY rowid ASC
+      SELECT table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
+      FROM _toss_effect_row
+      WHERE commit_id=?
+      ORDER BY effect_index ASC
       `,
     )
-    .all() as RawLogRow[];
-  return rows.map(decodeLogRow);
+    .all(commitId) as Array<{
+    table_name: string;
+    pk_json: string;
+    op_kind: "insert" | "update" | "delete";
+    before_row_json: string | null;
+    after_row_json: string | null;
+    before_hash: string | null;
+    after_hash: string | null;
+  }>;
+
+  return rows.map((row) => ({
+    tableName: row.table_name,
+    pk: JSON.parse(row.pk_json) as Record<string, string | number | boolean | null>,
+    opKind: row.op_kind,
+    beforeRow: normalizeObject(row.before_row_json ? JSON.parse(row.before_row_json) : null),
+    afterRow: normalizeObject(row.after_row_json ? JSON.parse(row.after_row_json) : null),
+    beforeHash: row.before_hash,
+    afterHash: row.after_hash,
+  }));
 }
 
-export function listLogsDescending(db: Database): LogEntry[] {
+export function getSchemaEffectsByCommitId(db: Database, commitId: string): StoredSchemaEffect[] {
   const rows = db
     .query(
       `
-      SELECT rowid, id, timestamp, kind, message, operations, schema_version, checksum, reverted_target_id
-      FROM _toss_log
-      ORDER BY rowid DESC
+      SELECT table_name, column_name, op_kind, ddl_before_sql, ddl_after_sql, table_rows_before_json
+      FROM _toss_effect_schema
+      WHERE commit_id=?
+      ORDER BY effect_index ASC
       `,
     )
-    .all() as RawLogRow[];
-  return rows.map(decodeLogRow);
+    .all(commitId) as Array<{
+    table_name: string;
+    column_name: string | null;
+    op_kind: "create_table" | "add_column" | "drop_table" | "drop_column" | "alter_column_type";
+    ddl_before_sql: string | null;
+    ddl_after_sql: string | null;
+    table_rows_before_json: string | null;
+  }>;
+
+  return rows.map((row) => ({
+    tableName: row.table_name,
+    columnName: row.column_name,
+    opKind: row.op_kind,
+    ddlBeforeSql: row.ddl_before_sql,
+    ddlAfterSql: row.ddl_after_sql,
+    tableRowsBefore: row.table_rows_before_json
+      ? (JSON.parse(row.table_rows_before_json) as JsonObject[])
+      : null,
+  }));
 }
 
-export function collectRevertedTargets(logs: LogEntry[]): Set<string> {
-  const reverted = new Set<string>();
-  for (const entry of logs) {
-    if (entry.kind === "revert" && entry.revertedTargetId) {
-      reverted.add(entry.revertedTargetId);
-    }
-  }
-  return reverted;
-}
-
-export function activeApplyLogs(logs: LogEntry[], extraRevertedTargets: string[] = []): LogEntry[] {
-  const reverted = collectRevertedTargets(logs);
-  for (const id of extraRevertedTargets) {
-    reverted.add(id);
-  }
-  return logs.filter((entry) => entry.kind === "apply" && !reverted.has(entry.id));
-}

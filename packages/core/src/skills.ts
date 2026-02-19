@@ -29,6 +29,8 @@ Use this skill for all toss operations in Claude Code style workflows.
 ## Command surface
 - Write path: \`bun run --cwd "${workspacePath}" toss apply --plan -\`
 - Read path: \`bun run --cwd "${workspacePath}" toss read --sql "<SELECT ...>" --json\`
+- History path: \`bun run --cwd "${workspacePath}" toss history --verbose\`
+- Verify path: \`bun run --cwd "${workspacePath}" toss verify --full\`
 
 ## Workflow Router
 1. If request is store/remember:
@@ -57,6 +59,7 @@ JSON
 \`\`\`
 4. If apply fails due to schema mismatch, re-read schema and retry once with corrected plan.
 5. For schema migration tasks, run a verification read query and summarize before/after impact.
+6. Before destructive schema changes, run \`toss history --verbose\` and \`toss verify --quick\`.
 
 ## Recall Flow
 1. Convert intent to read-only SQL (\`SELECT\` or \`WITH ... SELECT\` only).
@@ -100,7 +103,7 @@ This separation keeps the execution layer deterministic and safe.
 4. Schema should evolve continuously with data migration, not stay fixed forever.
 
 ## 2-layer model
-- Operation Log: immutable source of truth (\`_toss_log\`)
+- Commit Log: immutable source of truth (\`_toss_commit\`, \`_toss_op\`, \`_toss_effect_*\`)
 - HEAD State: materialized current tables, always rebuildable
 
 ## Use cases
@@ -157,6 +160,11 @@ Schema evolution best practice:
 - Only \`SELECT\` / \`WITH ... SELECT\`
 - Single statement only
 
+## history / verify / revert
+- \`toss history --verbose\`: includes parent ids, state hash, inverse readiness.
+- \`toss verify\` / \`toss verify --full\`: checks commit chain hash + SQLite integrity checks.
+- \`toss revert <commit_id>\`: returns conflict details for row/schema collisions.
+
 ## schema introspection query (for remember flow)
 \`\`\`sql
 SELECT m.name AS table_name, p.name AS column_name, p.type, p.notnull
@@ -190,6 +198,8 @@ function agentsBlock(skills: GeneratedSkills): string {
 - Trigger rules: Use \`toss\` whenever user intent touches toss memory, storage, query, or analysis.
 - For writes: always run schema introspection first, then build OperationPlan with explicit migration intent.
 - For reads: generate read-only SQL only.
+- For destructive changes: run \`toss history --verbose\` and \`toss verify --quick\` before apply.
+- If \`toss revert\` returns conflicts, present conflict details and propose a staged migration plan.
 - Execution: Skills should call toss through \`bun run --cwd "${resolve(dirname(skills.agentsPath))}" toss ...\`.
 ${AGENTS_BLOCK_END}
 `;

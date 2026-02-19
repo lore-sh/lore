@@ -1,4 +1,8 @@
 export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export interface JsonObject {
+  [key: string]: JsonValue;
+}
 
 export interface SourceInfo {
   planner?: string | undefined;
@@ -79,18 +83,23 @@ export interface OperationPlan {
   source?: SourceInfo | undefined;
 }
 
-export type LogKind = "apply" | "revert" | "system";
+export type CommitKind = "apply" | "revert" | "system";
 
-export interface LogEntry {
-  rowid: number;
-  id: string;
-  timestamp: string;
-  kind: LogKind;
+export interface CommitEntry {
+  commitId: string;
+  seq: number;
+  kind: CommitKind;
   message: string;
-  operations: Operation[];
-  schemaVersion: number;
-  checksum: string;
+  createdAt: string;
+  parentIds: string[];
+  parentCount: number;
+  schemaHashBefore: string;
+  schemaHashAfter: string;
+  stateHashAfter: string;
+  planHash: string;
+  inverseReady: boolean;
   revertedTargetId: string | null;
+  operations: Operation[];
 }
 
 export interface StatusTable {
@@ -100,13 +109,57 @@ export interface StatusTable {
 
 export interface TossStatus {
   dbPath: string;
-  schemaVersion: number;
+  historyEngine: string;
+  formatGeneration: number;
+  sqliteMinVersion: string;
   tableCount: number;
   tables: StatusTable[];
-  latestCommit: {
-    id: string;
-    timestamp: string;
-    kind: LogKind;
+  headCommit: {
+    commitId: string;
+    seq: number;
+    kind: CommitKind;
     message: string;
+    createdAt: string;
   } | null;
+  snapshotCount: number;
+  lastVerifiedAt: string | null;
 }
+
+export interface RevertConflict {
+  kind: "row" | "schema";
+  table: string;
+  pk?: Record<string, JsonPrimitive> | undefined;
+  column?: string | undefined;
+  reason: string;
+}
+
+export interface RevertSuccessResult {
+  ok: true;
+  revertCommit: CommitEntry;
+}
+
+export interface RevertConflictResult {
+  ok: false;
+  conflicts: RevertConflict[];
+}
+
+export type RevertResult = RevertSuccessResult | RevertConflictResult;
+
+export interface VerifyResult {
+  ok: boolean;
+  mode: "quick" | "full";
+  chainValid: boolean;
+  quickCheck: string;
+  integrityCheck?: string | undefined;
+  issues: string[];
+  checkedAt: string;
+}
+
+export interface SnapshotEntry {
+  commitId: string;
+  filePath: string;
+  fileSha256: string;
+  createdAt: string;
+  rowCountHint: number;
+}
+

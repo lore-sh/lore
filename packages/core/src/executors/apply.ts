@@ -71,12 +71,12 @@ function buildColumnSql(column: ColumnDefinition, forAddColumn = false): string 
 
 function executeCreateTable(db: Database, operation: CreateTableOperation): void {
   const columns = operation.columns.map((column) => buildColumnSql(column)).join(", ");
-  db.exec(`CREATE TABLE ${quoteIdentifier(operation.table)} (${columns})`);
+  db.run(`CREATE TABLE ${quoteIdentifier(operation.table)} (${columns})`);
 }
 
 function executeAddColumn(db: Database, operation: AddColumnOperation): void {
   const column = buildColumnSql(operation.column, true);
-  db.exec(`ALTER TABLE ${quoteIdentifier(operation.table)} ADD COLUMN ${column}`);
+  db.run(`ALTER TABLE ${quoteIdentifier(operation.table)} ADD COLUMN ${column}`);
 }
 
 function executeInsert(db: Database, operation: InsertOperation): void {
@@ -155,11 +155,11 @@ function executeDelete(db: Database, operation: DeleteOperation): void {
 }
 
 function executeDropTable(db: Database, operation: DropTableOperation): void {
-  db.exec(`DROP TABLE ${quoteIdentifier(operation.table)}`);
+  db.run(`DROP TABLE ${quoteIdentifier(operation.table)}`);
 }
 
 function executeDropColumn(db: Database, operation: DropColumnOperation): void {
-  db.exec(`ALTER TABLE ${quoteIdentifier(operation.table)} DROP COLUMN ${quoteIdentifier(operation.column)}`);
+  db.run(`ALTER TABLE ${quoteIdentifier(operation.table)} DROP COLUMN ${quoteIdentifier(operation.column)}`);
 }
 
 interface TableInfoRow {
@@ -222,13 +222,13 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
     })
     .join(", ");
 
-  db.exec(`CREATE TABLE ${quotedTempTable} (${columnDefinitions.join(", ")})`);
-  db.exec(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${tableName}`);
-  db.exec(`DROP TABLE ${tableName}`);
-  db.exec(`ALTER TABLE ${quotedTempTable} RENAME TO ${tableName}`);
+  db.run(`CREATE TABLE ${quotedTempTable} (${columnDefinitions.join(", ")})`);
+  db.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${tableName}`);
+  db.run(`DROP TABLE ${tableName}`);
+  db.run(`ALTER TABLE ${quotedTempTable} RENAME TO ${tableName}`);
 
   for (const object of secondaryObjects) {
-    db.exec(object.sql);
+    db.run(object.sql);
   }
 }
 
