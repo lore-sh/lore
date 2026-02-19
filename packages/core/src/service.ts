@@ -37,6 +37,7 @@ import {
   type StoredSchemaEffect,
 } from "./log";
 import { generateSkills, type GeneratedSkills } from "./skills";
+import { quoteIdentifier } from "./sql";
 import type {
   CommitEntry,
   JsonObject,
@@ -50,8 +51,6 @@ import type {
 } from "./types";
 import { parseAndValidateOperationPlan } from "./validators/operation";
 import { validateReadSql } from "./validators/sql";
-
-const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 interface TableInfoRow {
   cid: number;
@@ -70,13 +69,6 @@ export interface InitDatabaseOptions extends ServiceOptions {
   generateSkills?: boolean;
   workspacePath?: string;
   forceNew?: boolean;
-}
-
-function quoteIdentifier(value: string): string {
-  if (!IDENTIFIER_PATTERN.test(value)) {
-    throw new TossError("INVALID_IDENTIFIER", `Invalid identifier: ${value}`);
-  }
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function serializeValue(value: JsonPrimitive): JsonPrimitive {
@@ -205,17 +197,15 @@ function fetchRowByPk(
     if (typeof rowid !== "number") {
       throw new TossError("INVALID_OPERATION", "Invalid __rowid key");
     }
-    const row = db
+    return db
       .query(`SELECT rowid AS __toss_rowid, * FROM ${quoteIdentifier(table)} WHERE rowid = ? LIMIT 1`)
       .get(rowid) as Record<string, unknown> | null;
-    return row;
   }
 
   const { clause, bindings } = whereClauseFromRecord(pk);
-  const row = db
+  return db
     .query(`SELECT rowid AS __toss_rowid, * FROM ${quoteIdentifier(table)} WHERE ${clause} LIMIT 1`)
     .get(...bindings) as Record<string, unknown> | null;
-  return row;
 }
 
 function rowHash(row: JsonObject | null): string | null {
@@ -271,11 +261,32 @@ function buildRowEffectsForUpdateDelete(
   return effects;
 }
 
+function applySchemaOperationWithEffects(
+  db: Database,
+  operation: Operation & { table: string },
+  opKind: SchemaEffect["opKind"],
+  columnName: string | null,
+): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
+  const capturesBefore = opKind !== "create_table";
+  const ddlBeforeSql = capturesBefore ? tableDDL(db, operation.table) : null;
+  const tableRowsBefore = capturesBefore ? fetchAllRows(db, operation.table) : null;
+
+  executeOperation(db, operation);
+
+  const capturesAfter = opKind !== "drop_table";
+  const ddlAfterSql = capturesAfter ? tableDDL(db, operation.table) : null;
+
+  return {
+    rowEffects: [],
+    schemaEffects: [{ tableName: operation.table, columnName, opKind, ddlBeforeSql, ddlAfterSql, tableRowsBefore }],
+  };
+}
+
 function applyOperationWithEffects(db: Database, operation: Operation): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
   if (operation.type === "insert") {
     executeOperation(db, operation);
     const pkCols = primaryKeyColumns(db, operation.table);
-    let insertedRow: Record<string, unknown> | null = null;
+    let insertedRow: Record<string, unknown> | null;
     if (pkCols.length > 0 && pkCols.every((column) => Object.hasOwn(operation.values, column))) {
       const pkWhere = Object.fromEntries(pkCols.map((column) => [column, operation.values[column] ?? null])) as Record<
         string,
@@ -283,10 +294,9 @@ function applyOperationWithEffects(db: Database, operation: Operation): { rowEff
       >;
       insertedRow = fetchRowByPk(db, operation.table, pkWhere);
     } else {
-      const row = db
+      insertedRow = db
         .query(`SELECT rowid AS __toss_rowid, * FROM ${quoteIdentifier(operation.table)} WHERE rowid = last_insert_rowid()`)
         .get() as Record<string, unknown> | null;
-      insertedRow = row;
     }
 
     if (!insertedRow) {
@@ -320,96 +330,23 @@ function applyOperationWithEffects(db: Database, operation: Operation): { rowEff
   }
 
   if (operation.type === "create_table") {
-    executeOperation(db, operation);
-    return {
-      rowEffects: [],
-      schemaEffects: [
-        {
-          tableName: operation.table,
-          columnName: null,
-          opKind: "create_table",
-          ddlBeforeSql: null,
-          ddlAfterSql: tableDDL(db, operation.table),
-          tableRowsBefore: null,
-        },
-      ],
-    };
+    return applySchemaOperationWithEffects(db, operation, "create_table", null);
   }
 
   if (operation.type === "add_column") {
-    const beforeDDL = tableDDL(db, operation.table);
-    const rowsBefore = fetchAllRows(db, operation.table);
-    executeOperation(db, operation);
-    return {
-      rowEffects: [],
-      schemaEffects: [
-        {
-          tableName: operation.table,
-          columnName: operation.column.name,
-          opKind: "add_column",
-          ddlBeforeSql: beforeDDL,
-          ddlAfterSql: tableDDL(db, operation.table),
-          tableRowsBefore: rowsBefore,
-        },
-      ],
-    };
+    return applySchemaOperationWithEffects(db, operation, "add_column", operation.column.name);
   }
 
   if (operation.type === "drop_table") {
-    const beforeDDL = tableDDL(db, operation.table);
-    const rowsBefore = fetchAllRows(db, operation.table);
-    executeOperation(db, operation);
-    return {
-      rowEffects: [],
-      schemaEffects: [
-        {
-          tableName: operation.table,
-          columnName: null,
-          opKind: "drop_table",
-          ddlBeforeSql: beforeDDL,
-          ddlAfterSql: null,
-          tableRowsBefore: rowsBefore,
-        },
-      ],
-    };
+    return applySchemaOperationWithEffects(db, operation, "drop_table", null);
   }
 
   if (operation.type === "drop_column") {
-    const beforeDDL = tableDDL(db, operation.table);
-    const rowsBefore = fetchAllRows(db, operation.table);
-    executeOperation(db, operation);
-    return {
-      rowEffects: [],
-      schemaEffects: [
-        {
-          tableName: operation.table,
-          columnName: operation.column,
-          opKind: "drop_column",
-          ddlBeforeSql: beforeDDL,
-          ddlAfterSql: tableDDL(db, operation.table),
-          tableRowsBefore: rowsBefore,
-        },
-      ],
-    };
+    return applySchemaOperationWithEffects(db, operation, "drop_column", operation.column);
   }
 
   if (operation.type === "alter_column_type") {
-    const beforeDDL = tableDDL(db, operation.table);
-    const rowsBefore = fetchAllRows(db, operation.table);
-    executeOperation(db, operation);
-    return {
-      rowEffects: [],
-      schemaEffects: [
-        {
-          tableName: operation.table,
-          columnName: operation.column,
-          opKind: "alter_column_type",
-          ddlBeforeSql: beforeDDL,
-          ddlAfterSql: tableDDL(db, operation.table),
-          tableRowsBefore: rowsBefore,
-        },
-      ],
-    };
+    return applySchemaOperationWithEffects(db, operation, "alter_column_type", operation.column);
   }
 
   throw new TossError("UNSUPPORTED_OPERATION", `Unsupported operation type: ${(operation as Operation).type}`);
@@ -654,7 +591,7 @@ export function getHistory(
   }
 }
 
-function hasLaterSchemaChange(
+function detectSchemaConflicts(
   schemaEffects: StoredSchemaEffect[],
   laterSchemaEffects: StoredSchemaEffect[],
 ): RevertConflict[] {
@@ -819,46 +756,30 @@ function applyInverseEffects(db: Database, targetCommit: CommitEntry): {
       }
       const rowsBeforeInverse = fetchAllRows(db, effect.tableName);
       reconstructTableFromDdl(db, effect.tableName, effect.ddlBeforeSql, effect.tableRowsBefore);
+
+      const columnName = effect.columnName ?? "unknown_column";
+      let inverseOp: Operation;
+      let inverseOpKind: SchemaEffect["opKind"];
       if (effect.opKind === "drop_column") {
-        inverseOperations.push({
-          type: "add_column",
-          table: effect.tableName,
-          column: { name: effect.columnName ?? "unknown_column", type: "TEXT" },
-        });
-        inverseSchemaEffects.push({
-          tableName: effect.tableName,
-          columnName: effect.columnName,
-          opKind: "add_column",
-          ddlBeforeSql: effect.ddlAfterSql,
-          ddlAfterSql: effect.ddlBeforeSql,
-          tableRowsBefore: rowsBeforeInverse,
-        });
+        inverseOp = { type: "add_column", table: effect.tableName, column: { name: columnName, type: "TEXT" } };
+        inverseOpKind = "add_column";
       } else if (effect.opKind === "add_column") {
-        inverseOperations.push({ type: "drop_column", table: effect.tableName, column: effect.columnName ?? "unknown_column" });
-        inverseSchemaEffects.push({
-          tableName: effect.tableName,
-          columnName: effect.columnName,
-          opKind: "drop_column",
-          ddlBeforeSql: effect.ddlAfterSql,
-          ddlAfterSql: effect.ddlBeforeSql,
-          tableRowsBefore: rowsBeforeInverse,
-        });
+        inverseOp = { type: "drop_column", table: effect.tableName, column: columnName };
+        inverseOpKind = "drop_column";
       } else {
-        inverseOperations.push({
-          type: "alter_column_type",
-          table: effect.tableName,
-          column: effect.columnName ?? "unknown_column",
-          newType: "TEXT",
-        });
-        inverseSchemaEffects.push({
-          tableName: effect.tableName,
-          columnName: effect.columnName,
-          opKind: "alter_column_type",
-          ddlBeforeSql: effect.ddlAfterSql,
-          ddlAfterSql: effect.ddlBeforeSql,
-          tableRowsBefore: rowsBeforeInverse,
-        });
+        inverseOp = { type: "alter_column_type", table: effect.tableName, column: columnName, newType: "TEXT" };
+        inverseOpKind = "alter_column_type";
       }
+
+      inverseOperations.push(inverseOp);
+      inverseSchemaEffects.push({
+        tableName: effect.tableName,
+        columnName: effect.columnName,
+        opKind: inverseOpKind,
+        ddlBeforeSql: effect.ddlAfterSql,
+        ddlAfterSql: effect.ddlBeforeSql,
+        tableRowsBefore: rowsBeforeInverse,
+      });
       continue;
     }
 
@@ -979,7 +900,7 @@ export function revertCommit(commitId: string, options: ServiceOptions = {}): Re
     const targetRows = getRowEffectsByCommitId(db, commitId);
     const targetSchemas = getSchemaEffectsByCommitId(db, commitId);
     const later = fetchLaterEffects(db, targetCommit.seq);
-    const conflicts = [...detectRowConflict(db, targetRows, later.rows), ...hasLaterSchemaChange(targetSchemas, later.schemas)];
+    const conflicts = [...detectRowConflict(db, targetRows, later.rows), ...detectSchemaConflicts(targetSchemas, later.schemas)];
     if (conflicts.length > 0) {
       return { ok: false, conflicts };
     }

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { TossError } from "../errors";
+import { COLUMN_TYPE_PATTERN, quoteIdentifier } from "../sql";
 import type {
   AddColumnOperation,
   AlterColumnTypeOperation,
@@ -12,16 +13,6 @@ import type {
   Operation,
   UpdateOperation,
 } from "../types";
-
-const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const COLUMN_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\s*\(\s*\d+\s*(,\s*\d+\s*)?\))?$/;
-
-function quoteIdentifier(value: string): string {
-  if (!IDENTIFIER_PATTERN.test(value)) {
-    throw new TossError("INVALID_IDENTIFIER", `Invalid identifier: ${value}`);
-  }
-  return `"${value.replaceAll('"', '""')}"`;
-}
 
 function serializeLiteral(value: string | number | boolean | null): string {
   if (value === null) {

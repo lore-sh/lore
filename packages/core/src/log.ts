@@ -156,14 +156,15 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
   const insertParent = db.query(
     "INSERT INTO _toss_commit_parent(commit_id, parent_commit_id, ord) VALUES(?, ?, ?)",
   );
-  input.parentIds.forEach((parentId, index) => {
-    insertParent.run(commitId, parentId, index);
-  });
+  for (let i = 0; i < input.parentIds.length; i++) {
+    insertParent.run(commitId, input.parentIds[i]!, i);
+  }
 
   const insertOp = db.query("INSERT INTO _toss_op(commit_id, op_index, op_type, op_json) VALUES(?, ?, ?, ?)");
-  input.operations.forEach((operation, index) => {
-    insertOp.run(commitId, index, operation.type, canonicalJson(operation));
-  });
+  for (let i = 0; i < input.operations.length; i++) {
+    const operation = input.operations[i]!;
+    insertOp.run(commitId, i, operation.type, canonicalJson(operation));
+  }
 
   const insertRowEffect = db.query(
     `
@@ -173,13 +174,14 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
     VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
   );
-  input.rowEffects.forEach((effect, index) => {
+  for (let i = 0; i < input.rowEffects.length; i++) {
+    const effect = input.rowEffects[i]!;
     const beforeRowJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
     const afterRowJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
     const beforeHash = beforeRowJson ? sha256Hex(beforeRowJson) : null;
     const afterHash = afterRowJson ? sha256Hex(afterRowJson) : null;
-    insertRowEffect.run(commitId, index, effect.tableName, canonicalJson(effect.pk), effect.opKind, beforeRowJson, afterRowJson, beforeHash, afterHash);
-  });
+    insertRowEffect.run(commitId, i, effect.tableName, canonicalJson(effect.pk), effect.opKind, beforeRowJson, afterRowJson, beforeHash, afterHash);
+  }
 
   const insertSchemaEffect = db.query(
     `
@@ -189,10 +191,11 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
     VALUES(?, ?, ?, ?, ?, ?, ?, ?)
     `,
   );
-  input.schemaEffects.forEach((effect, index) => {
+  for (let i = 0; i < input.schemaEffects.length; i++) {
+    const effect = input.schemaEffects[i]!;
     insertSchemaEffect.run(
       commitId,
-      index,
+      i,
       effect.tableName,
       effect.columnName,
       effect.opKind,
@@ -200,7 +203,7 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
       effect.ddlAfterSql,
       effect.tableRowsBefore ? canonicalJson(effect.tableRowsBefore) : null,
     );
-  });
+  }
 
   db.query("UPDATE _toss_ref SET commit_id=?, updated_at=? WHERE name=?").run(commitId, input.createdAt, MAIN_REF_NAME);
   db.query(

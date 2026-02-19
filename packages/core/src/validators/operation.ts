@@ -1,9 +1,7 @@
 import { z } from "zod";
 import { TossError } from "../errors";
+import { COLUMN_TYPE_PATTERN, IDENTIFIER_PATTERN } from "../sql";
 import type { OperationPlan } from "../types";
-
-const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const COLUMN_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\s*\(\s*\d+\s*(,\s*\d+\s*)?\))?$/;
 
 const scalarValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
