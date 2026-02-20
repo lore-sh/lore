@@ -1,15 +1,15 @@
 import type { Database } from "bun:sqlite";
+import { and, asc, eq, gt } from "drizzle-orm";
 import { canonicalJson } from "./checksum";
 import { appendCommitFromObservedChange } from "./commit";
 import {
-  COMMIT_TABLE,
-  getRow,
-  getRows,
   runInSavepoint,
   runInTransactionWithDeferredForeignKeys,
   tableExists,
   withInitializedDatabase,
 } from "./db";
+import { createEngineDb } from "./engine/client";
+import { CommitTable } from "./engine/schema.sql";
 import { TossError, isTossError } from "./errors";
 import {
   getCommitById,
@@ -128,12 +128,17 @@ export function detectRowConflict(
 }
 
 export function fetchLaterEffects(db: Database, seq: number): { rows: StoredRowEffect[]; schemas: StoredSchemaEffect[] } {
-  const laterCommits = getRows<{ commit_id: string }>(db, `SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`, seq);
+  const laterCommits = createEngineDb(db)
+    .select({ commitId: CommitTable.commitId })
+    .from(CommitTable)
+    .where(gt(CommitTable.seq, seq))
+    .orderBy(asc(CommitTable.seq))
+    .all();
   const rows: StoredRowEffect[] = [];
   const schemas: StoredSchemaEffect[] = [];
   for (const commit of laterCommits) {
-    rows.push(...getRowEffectsByCommitId(db, commit.commit_id));
-    schemas.push(...getSchemaEffectsByCommitId(db, commit.commit_id));
+    rows.push(...getRowEffectsByCommitId(db, commit.commitId));
+    schemas.push(...getSchemaEffectsByCommitId(db, commit.commitId));
   }
   return { rows, schemas };
 }
@@ -216,12 +221,13 @@ export function revertCommit(commitId: string): RevertResult {
         throw new TossError("REVERT_UNSUPPORTED", `Commit ${commitId} has no inverse metadata`);
       }
 
-      const already = getRow<{ ok?: number }>(
-        db,
-        `SELECT 1 AS ok FROM ${COMMIT_TABLE} WHERE kind='revert' AND reverted_target_id=? LIMIT 1`,
-        commitId,
-      );
-      if (already?.ok === 1) {
+      const already = createEngineDb(db)
+        .select({ commitId: CommitTable.commitId })
+        .from(CommitTable)
+        .where(and(eq(CommitTable.kind, "revert"), eq(CommitTable.revertedTargetId, commitId)))
+        .limit(1)
+        .get();
+      if (already) {
         throw new TossError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
       }
 

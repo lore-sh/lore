@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { getClientPath, getSqlite, hasClient, initClient, withClient } from "./engine/client";
+import { EngineMetaTable, RefTable } from "./engine/schema.sql";
 import { TossError } from "./errors";
 import { resolveHomeDir } from "./fsx";
 
@@ -50,21 +51,23 @@ function assertDatabaseFileExists(dbPath: string): void {
   }
 }
 
-function runtimeDbPath(path?: string): string {
-  if (path) {
-    return resolveDbPath(path);
-  }
+function runtimeDbPath(): string {
   return getClientPath() ?? resolveDbPath();
 }
 
-function openDatabase(path?: string): DatabaseContext {
-  const dbPath = runtimeDbPath(path);
+function openDatabase(dbPath: string, options: { recreateClient?: boolean } = {}): DatabaseContext {
   ensureDatabaseDirectory(dbPath);
-  if (path || !hasClient()) {
+  if (!hasClient()) {
     initClient(dbPath);
+  } else if (getClientPath() !== dbPath) {
+    initClient(dbPath, { recreate: options.recreateClient ?? false });
   }
   const db = getSqlite();
   return { db, dbPath };
+}
+
+export function configureDatabase(dbPathFromArg?: string): DatabaseContext {
+  return openDatabase(resolveDbPath(dbPathFromArg), { recreateClient: true });
 }
 
 export function getRow<T>(db: Database, sql: string, ...bindings: SQLQueryBindings[]): T | null {
@@ -75,23 +78,12 @@ export function getRows<T>(db: Database, sql: string, ...bindings: SQLQueryBindi
   return db.query<T, SQLQueryBindings[]>(sql).all(...bindings);
 }
 
-export function withDatabaseAtPath<T>(dbPath: string, run: (ctx: DatabaseContext) => T): T {
-  const ctx = openDatabase(dbPath);
-  return run(ctx);
-}
-
-export async function withDatabaseAsyncAtPath<T>(dbPath: string, run: (ctx: DatabaseContext) => Promise<T>): Promise<T> {
-  const ctx = openDatabase(dbPath);
-  return await run(ctx);
-}
-
 export function withInitializedDatabase<T>(run: (ctx: DatabaseContext) => T): T {
   const resolvedPath = runtimeDbPath();
   assertDatabaseFileExists(resolvedPath);
-  return withDatabaseAtPath(resolvedPath, (ctx) => {
-    assertInitialized(ctx.db, ctx.dbPath);
-    return run(ctx);
-  });
+  const ctx = openDatabase(resolvedPath);
+  assertInitialized(ctx.db, ctx.dbPath);
+  return run(ctx);
 }
 
 export async function withInitializedDatabaseAsync<T>(
@@ -99,10 +91,9 @@ export async function withInitializedDatabaseAsync<T>(
 ): Promise<T> {
   const resolvedPath = runtimeDbPath();
   assertDatabaseFileExists(resolvedPath);
-  return withDatabaseAsyncAtPath(resolvedPath, (ctx) => {
-    assertInitialized(ctx.db, ctx.dbPath);
-    return run(ctx);
-  });
+  const ctx = openDatabase(resolvedPath);
+  assertInitialized(ctx.db, ctx.dbPath);
+  return await run(ctx);
 }
 
 export function initializeStorage(): void {
@@ -111,16 +102,26 @@ export function initializeStorage(): void {
   }
   withClient((db) => {
     migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
-    const sqlite = db.$client;
-    const upsertMeta = sqlite.query(
-      `INSERT INTO ${ENGINE_META_TABLE}(key, value) VALUES(?, ?)
-       ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-    );
-    upsertMeta.run("snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL));
-    upsertMeta.run("snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN));
-    sqlite
-      .query(`INSERT INTO ${REF_TABLE}(name, commit_id, updated_at) VALUES(?, NULL, ?) ON CONFLICT(name) DO NOTHING`)
-      .run(MAIN_REF_NAME, Date.now());
+    db.insert(EngineMetaTable)
+      .values({ key: "snapshot_interval", value: String(DEFAULT_SNAPSHOT_INTERVAL) })
+      .onConflictDoUpdate({
+        target: EngineMetaTable.key,
+        set: { value: String(DEFAULT_SNAPSHOT_INTERVAL) },
+      })
+      .run();
+    db.insert(EngineMetaTable)
+      .values({ key: "snapshot_retain", value: String(DEFAULT_SNAPSHOT_RETAIN) })
+      .onConflictDoUpdate({
+        target: EngineMetaTable.key,
+        set: { value: String(DEFAULT_SNAPSHOT_RETAIN) },
+      })
+      .run();
+    db.insert(RefTable)
+      .values({ name: MAIN_REF_NAME, commitId: null, updatedAt: Date.now() })
+      .onConflictDoNothing({
+        target: RefTable.name,
+      })
+      .run();
   });
 }
 

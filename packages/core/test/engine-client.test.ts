@@ -34,6 +34,20 @@ describe("engine client", () => {
     }
   });
 
+  testWithTmp("init can switch db path when recreate is requested", () => {
+    const first = createTestContext().dbPath;
+    const second = createTestContext().dbPath;
+    try {
+      initClient(first);
+      const switched = initClient(second, { recreate: true });
+      expect(switched.path).toBe(second);
+      const current = getClient();
+      expect(current.path).toBe(second);
+    } finally {
+      closeClient();
+    }
+  });
+
   testWithTmp("isolated client does not share handle with cached client", () => {
     const { dbPath } = createTestContext();
     const isolated = openIsolatedClient(dbPath);

@@ -4,15 +4,15 @@ import { resolve } from "node:path";
 import { TossError } from "../errors";
 import * as schema from "./schema.sql";
 
-function createDrizzle(sqlite: Database) {
+export function createEngineDb(sqlite: Database) {
   return drizzle({ client: sqlite, schema });
 }
-type EngineDb = ReturnType<typeof createDrizzle>;
+type EngineDb = ReturnType<typeof createEngineDb>;
 type EngineTx = Parameters<EngineDb["transaction"]>[0] extends (tx: infer T) => unknown ? T : never;
 
 export interface EngineClient {
   readonly path: string;
-  readonly db: EngineDb;
+  readonly sqlite: Database;
   close(): void;
 }
 
@@ -20,39 +20,42 @@ let client: EngineClient | null = null;
 let configuredPath: string | null = null;
 
 function applyPragmas(db: Database, isReadonly = false): void {
-  if (!isReadonly) {
-    db.run("PRAGMA journal_mode=WAL");
-    db.run("PRAGMA synchronous=FULL");
-  }
   db.run("PRAGMA foreign_keys=ON");
   db.run("PRAGMA busy_timeout=5000");
+  if (isReadonly) {
+    return;
+  }
+  db.run("PRAGMA journal_mode=WAL");
+  db.run("PRAGMA synchronous=NORMAL");
+  db.run("PRAGMA optimize=0x10002");
 }
 
 function createClient(path: string, isReadonly = false): EngineClient {
-  const sqlite = isReadonly ? new Database(path, { readonly: true }) : new Database(path);
+  const sqlite = new Database(path, { readonly: isReadonly, strict: true });
   applyPragmas(sqlite, isReadonly);
-  const db = createDrizzle(sqlite);
   return {
     path,
-    db,
+    sqlite,
     close() {
       sqlite.close(false);
     },
   };
 }
 
-export function initClient(dbPath: string): EngineClient {
+export function initClient(dbPath: string, options: { recreate?: boolean } = {}): EngineClient {
   const path = resolve(dbPath);
-  if (configuredPath && configuredPath !== path) {
+  if (client && configuredPath === path) {
+    return client;
+  }
+  if (client && !options.recreate) {
     throw new TossError(
       "CONFIG_ERROR",
       `Database client already initialized for ${configuredPath}. Refusing to switch to ${path}.`,
     );
   }
+  closeClient();
+  client = createClient(path);
   configuredPath = path;
-  if (!client) {
-    client = createClient(path);
-  }
   return client;
 }
 
@@ -72,7 +75,7 @@ export function getClientPath(): string | null {
 }
 
 export function getSqlite(): Database {
-  return getClient().db.$client;
+  return getClient().sqlite;
 }
 
 export function closeClient(options: { resetPath?: boolean } = {}): void {
@@ -86,11 +89,11 @@ export function closeClient(options: { resetPath?: boolean } = {}): void {
 }
 
 export function withClient<T>(run: (db: EngineDb) => T): T {
-  return run(getClient().db);
+  return run(createEngineDb(getClient().sqlite));
 }
 
 export function withTransaction<T>(run: (tx: EngineTx) => T): T {
-  return getClient().db.transaction((tx) => run(tx), { behavior: "immediate" });
+  return createEngineDb(getClient().sqlite).transaction((tx) => run(tx), { behavior: "immediate" });
 }
 
 export function openIsolatedClient(dbPath: string, options: { readonly?: boolean } = {}): EngineClient {

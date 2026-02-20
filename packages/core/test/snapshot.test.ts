@@ -10,6 +10,8 @@ import {
   revertCommit,
   verifyDatabase,
 } from "../src";
+import { getClientPath } from "../src/engine/client";
+import { promotePreparedDatabase } from "../src/snapshot";
 import { COMMIT_TABLE } from "../src/db";
 import { createTestContext, enableSnapshotEveryCommit, writePlanFile, withTmpDirCleanup } from "./helpers";
 
@@ -17,6 +19,25 @@ const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name,
 
 
 describe("snapshot / recover", () => {
+  testWithTmp("recover promotion failure preserves configured db path", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const direct = new Database(dbPath);
+    direct.run("CREATE TABLE keep_path_check (id INTEGER PRIMARY KEY, value TEXT NOT NULL)");
+    direct.run("INSERT INTO keep_path_check(id, value) VALUES (1, 'ok')");
+    direct.close(false);
+
+    expect(getClientPath()).toBe(dbPath);
+
+    const missingPreparedPath = `${dir}/missing-prepared-${crypto.randomUUID().replaceAll("-", "")}.db`;
+    await expect(promotePreparedDatabase(missingPreparedPath, dbPath)).rejects.toBeInstanceOf(Error);
+
+    expect(getClientPath()).toBe(dbPath);
+    const rows = readQuery("SELECT id, value FROM keep_path_check");
+    expect(rows).toEqual([{ id: 1, value: "ok" }]);
+  });
+
   testWithTmp("snapshot recover restores and replays exact commit ids", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });

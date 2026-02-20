@@ -1,5 +1,5 @@
 import { closeClient } from "./engine/client";
-import { initializeStorage, resolveDbPath, withDatabaseAtPath } from "./db";
+import { configureDatabase, initializeStorage, resolveDbPath } from "./db";
 import { deleteWithSidecars } from "./fsx";
 import { generateSkills, type GeneratedSkills } from "./skills";
 import type { InitDatabaseOptions } from "./types";
@@ -16,9 +16,8 @@ export async function initDatabase(
     closeClient();
     await removeExistingDbFiles(dbPath);
   }
-  withDatabaseAtPath(dbPath, () => {
-    initializeStorage();
-  });
+  configureDatabase(dbPath);
+  initializeStorage();
 
   const generatedSkills = options.generateSkills
     ? await generateSkills(options.skillPlatforms ? { platforms: options.skillPlatforms } : {})

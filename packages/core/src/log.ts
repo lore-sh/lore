@@ -1,17 +1,17 @@
 import type { Database } from "bun:sqlite";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { canonicalJson, sha256Hex } from "./checksum";
+import { MAIN_REF_NAME } from "./db";
+import { createEngineDb } from "./engine/client";
 import {
-  COMMIT_PARENT_TABLE,
-  COMMIT_TABLE,
-  EFFECT_ROW_TABLE,
-  EFFECT_SCHEMA_TABLE,
-  getRow,
-  getRows,
-  MAIN_REF_NAME,
-  OP_TABLE,
-  REF_TABLE,
-  REFLOG_TABLE,
-} from "./db";
+  CommitParentTable,
+  CommitTable,
+  EffectRowTable,
+  EffectSchemaTable,
+  OpTable,
+  ReflogTable,
+  RefTable,
+} from "./engine/schema.sql";
 import { TossError } from "./errors";
 import type { RowEffect, SchemaEffect } from "./observed";
 import type { CommitEntry, CommitKind, Operation } from "./types";
@@ -37,54 +37,49 @@ export interface CommitReplayInput extends CommitWriteInput {
   commitId: string;
 }
 
-interface RawCommitRow {
-  commit_id: string;
-  seq: number;
-  kind: CommitKind;
-  message: string;
-  created_at: number;
-  parent_count: number;
-  schema_hash_before: string;
-  schema_hash_after: string;
-  state_hash_after: string;
-  plan_hash: string;
-  inverse_ready: number;
-  reverted_target_id: string | null;
-}
+type CommitRow = typeof CommitTable.$inferSelect;
 
-function decodeCommit(db: Database, row: RawCommitRow): CommitEntry {
-  const parents = getRows<{ parent_commit_id: string }>(
-    db,
-    `SELECT parent_commit_id FROM ${COMMIT_PARENT_TABLE} WHERE commit_id=? ORDER BY ord ASC`,
-    row.commit_id,
-  );
-  const operations = getRows<{ op_json: string }>(
-    db,
-    `SELECT op_json FROM ${OP_TABLE} WHERE commit_id=? ORDER BY op_index ASC`,
-    row.commit_id,
-  );
+function decodeCommit(db: Database, row: CommitRow): CommitEntry {
+  const engineDb = createEngineDb(db);
+  const parents = engineDb
+    .select({ parentCommitId: CommitParentTable.parentCommitId })
+    .from(CommitParentTable)
+    .where(eq(CommitParentTable.commitId, row.commitId))
+    .orderBy(asc(CommitParentTable.ord))
+    .all();
+  const operations = engineDb
+    .select({ opJson: OpTable.opJson })
+    .from(OpTable)
+    .where(eq(OpTable.commitId, row.commitId))
+    .orderBy(asc(OpTable.opIndex))
+    .all();
 
   return {
-    commitId: row.commit_id,
+    commitId: row.commitId,
     seq: row.seq,
     kind: row.kind,
     message: row.message,
-    createdAt: row.created_at,
-    parentIds: parents.map((parent) => parent.parent_commit_id),
-    parentCount: row.parent_count,
-    schemaHashBefore: row.schema_hash_before,
-    schemaHashAfter: row.schema_hash_after,
-    stateHashAfter: row.state_hash_after,
-    planHash: row.plan_hash,
-    inverseReady: row.inverse_ready === 1,
-    revertedTargetId: row.reverted_target_id,
-    operations: operations.map((operation) => JSON.parse(operation.op_json) as Operation),
+    createdAt: row.createdAt,
+    parentIds: parents.map((parent) => parent.parentCommitId),
+    parentCount: row.parentCount,
+    schemaHashBefore: row.schemaHashBefore,
+    schemaHashAfter: row.schemaHashAfter,
+    stateHashAfter: row.stateHashAfter,
+    planHash: row.planHash,
+    inverseReady: row.inverseReady === 1,
+    revertedTargetId: row.revertedTargetId,
+    operations: operations.map((operation) => JSON.parse(operation.opJson) as Operation),
   };
 }
 
 export function getHeadCommitId(db: Database): string | null {
-  const row = getRow<{ commit_id: string | null }>(db, `SELECT commit_id FROM ${REF_TABLE} WHERE name=? LIMIT 1`, MAIN_REF_NAME);
-  return row?.commit_id ?? null;
+  const row = createEngineDb(db)
+    .select({ commitId: RefTable.commitId })
+    .from(RefTable)
+    .where(eq(RefTable.name, MAIN_REF_NAME))
+    .limit(1)
+    .get();
+  return row?.commitId ?? null;
 }
 
 export function getHeadCommit(db: Database): CommitEntry | null {
@@ -96,8 +91,11 @@ export function getHeadCommit(db: Database): CommitEntry | null {
 }
 
 export function getNextCommitSeq(db: Database): number {
-  const row = getRow<{ max_seq: number }>(db, `SELECT COALESCE(MAX(seq), 0) AS max_seq FROM ${COMMIT_TABLE}`);
-  return (row?.max_seq ?? 0) + 1;
+  const row = createEngineDb(db)
+    .select({ maxSeq: sql<number>`coalesce(max(${CommitTable.seq}), 0)` })
+    .from(CommitTable)
+    .get();
+  return (row?.maxSeq ?? 0) + 1;
 }
 
 function commitHashPayload(input: CommitWriteInput): Record<string, unknown> {
@@ -148,97 +146,104 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
   if (expected !== commitId) {
     throw new TossError("RECOVER_FAILED", `Commit payload mismatch for replayed commit ${commitId}`);
   }
+
+  const engineDb = createEngineDb(db);
   const oldHead = getHeadCommitId(db);
 
-  db.query(
-    `
-    INSERT INTO ${COMMIT_TABLE}(
-      commit_id, seq, kind, message, created_at, parent_count,
-      schema_hash_before, schema_hash_after, state_hash_after, plan_hash, inverse_ready, reverted_target_id
-    )
-    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-  ).run(
-    commitId,
-    input.seq,
-    input.kind,
-    input.message,
-    input.createdAt,
-    input.parentIds.length,
-    input.schemaHashBefore,
-    input.schemaHashAfter,
-    input.stateHashAfter,
-    input.planHash,
-    input.inverseReady ? 1 : 0,
-    input.revertedTargetId,
-  );
+  engineDb
+    .insert(CommitTable)
+    .values({
+      commitId,
+      seq: input.seq,
+      kind: input.kind,
+      message: input.message,
+      createdAt: input.createdAt,
+      parentCount: input.parentIds.length,
+      schemaHashBefore: input.schemaHashBefore,
+      schemaHashAfter: input.schemaHashAfter,
+      stateHashAfter: input.stateHashAfter,
+      planHash: input.planHash,
+      inverseReady: input.inverseReady ? 1 : 0,
+      revertedTargetId: input.revertedTargetId,
+    })
+    .run();
 
-  const insertParent = db.query(`INSERT INTO ${COMMIT_PARENT_TABLE}(commit_id, parent_commit_id, ord) VALUES(?, ?, ?)`);
   for (let i = 0; i < input.parentIds.length; i++) {
-    insertParent.run(commitId, input.parentIds[i]!, i);
+    engineDb
+      .insert(CommitParentTable)
+      .values({
+        commitId,
+        parentCommitId: input.parentIds[i]!,
+        ord: i,
+      })
+      .run();
   }
 
-  const insertOp = db.query(`INSERT INTO ${OP_TABLE}(commit_id, op_index, op_type, op_json) VALUES(?, ?, ?, ?)`);
   for (let i = 0; i < input.operations.length; i++) {
     const operation = input.operations[i]!;
-    insertOp.run(commitId, i, operation.type, canonicalJson(operation));
+    engineDb
+      .insert(OpTable)
+      .values({
+        commitId,
+        opIndex: i,
+        opType: operation.type,
+        opJson: canonicalJson(operation),
+      })
+      .run();
   }
 
-  const insertRowEffect = db.query(
-    `
-    INSERT INTO ${EFFECT_ROW_TABLE}(
-      commit_id, effect_index, table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
-    )
-    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-  );
   for (let i = 0; i < input.rowEffects.length; i++) {
     const effect = input.rowEffects[i]!;
     const beforeRowJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
     const afterRowJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
-    const beforeHash = beforeRowJson ? sha256Hex(beforeRowJson) : null;
-    const afterHash = afterRowJson ? sha256Hex(afterRowJson) : null;
-    insertRowEffect.run(
-      commitId,
-      i,
-      effect.tableName,
-      canonicalJson(effect.pk),
-      effect.opKind,
-      beforeRowJson,
-      afterRowJson,
-      beforeHash,
-      afterHash,
-    );
+    engineDb
+      .insert(EffectRowTable)
+      .values({
+        commitId,
+        effectIndex: i,
+        tableName: effect.tableName,
+        pkJson: canonicalJson(effect.pk),
+        opKind: effect.opKind,
+        beforeRowJson,
+        afterRowJson,
+        beforeHash: beforeRowJson ? sha256Hex(beforeRowJson) : null,
+        afterHash: afterRowJson ? sha256Hex(afterRowJson) : null,
+      })
+      .run();
   }
 
-  const insertSchemaEffect = db.query(
-    `
-    INSERT INTO ${EFFECT_SCHEMA_TABLE}(
-      commit_id, effect_index, table_name, before_table_json, after_table_json
-    )
-    VALUES(?, ?, ?, ?, ?)
-    `,
-  );
   for (let i = 0; i < input.schemaEffects.length; i++) {
     const effect = input.schemaEffects[i]!;
-    insertSchemaEffect.run(
-      commitId,
-      i,
-      effect.tableName,
-      effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
-      effect.afterTable ? canonicalJson(effect.afterTable) : null,
-    );
+    engineDb
+      .insert(EffectSchemaTable)
+      .values({
+        commitId,
+        effectIndex: i,
+        tableName: effect.tableName,
+        beforeTableJson: effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
+        afterTableJson: effect.afterTable ? canonicalJson(effect.afterTable) : null,
+      })
+      .run();
   }
 
-  db.query(`UPDATE ${REF_TABLE} SET commit_id=?, updated_at=? WHERE name=?`).run(commitId, input.createdAt, MAIN_REF_NAME);
-  db.query(
-    `
-    INSERT INTO ${REFLOG_TABLE}(ref_name, old_commit_id, new_commit_id, reason, created_at)
-    VALUES(?, ?, ?, ?, ?)
-    `,
-  ).run(MAIN_REF_NAME, oldHead, commitId, input.kind === "revert" ? "revert" : "apply", input.createdAt);
+  engineDb
+    .update(RefTable)
+    .set({ commitId, updatedAt: input.createdAt })
+    .where(eq(RefTable.name, MAIN_REF_NAME))
+    .run();
 
-  const row = getRow<RawCommitRow>(db, `SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`, commitId);
+  engineDb
+    .insert(ReflogTable)
+    .values({
+      refName: MAIN_REF_NAME,
+      oldCommitId: oldHead,
+      newCommitId: commitId,
+      reason: input.kind === "revert" ? "revert" : "apply",
+      createdAt: input.createdAt,
+    })
+    .run();
+
+  const row = engineDb.select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
   if (!row) {
     throw new TossError("INTERNAL", `Inserted commit not found: ${commitId}`);
   }
@@ -246,7 +251,7 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
 }
 
 export function getCommitById(db: Database, commitId: string): CommitEntry | null {
-  const row = getRow<RawCommitRow>(db, `SELECT * FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`, commitId);
+  const row = createEngineDb(db).select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
   if (!row) {
     return null;
   }
@@ -254,7 +259,11 @@ export function getCommitById(db: Database, commitId: string): CommitEntry | nul
 }
 
 export function listCommits(db: Database, descending: boolean): CommitEntry[] {
-  const rows = getRows<RawCommitRow>(db, `SELECT * FROM ${COMMIT_TABLE} ORDER BY seq ${descending ? "DESC" : "ASC"}`);
+  const rows = createEngineDb(db)
+    .select()
+    .from(CommitTable)
+    .orderBy(descending ? desc(CommitTable.seq) : asc(CommitTable.seq))
+    .all();
   return rows.map((row) => decodeCommit(db, row));
 }
 
@@ -266,55 +275,35 @@ export interface StoredRowEffect extends RowEffect {
 export type StoredSchemaEffect = SchemaEffect;
 
 export function getRowEffectsByCommitId(db: Database, commitId: string): StoredRowEffect[] {
-  const rows = getRows<{
-    table_name: string;
-    pk_json: string;
-    op_kind: "insert" | "update" | "delete";
-    before_row_json: string | null;
-    after_row_json: string | null;
-    before_hash: string | null;
-    after_hash: string | null;
-  }>(
-    db,
-    `
-      SELECT table_name, pk_json, op_kind, before_row_json, after_row_json, before_hash, after_hash
-      FROM ${EFFECT_ROW_TABLE}
-      WHERE commit_id=?
-      ORDER BY effect_index ASC
-      `,
-    commitId,
-  );
+  const rows = createEngineDb(db)
+    .select()
+    .from(EffectRowTable)
+    .where(eq(EffectRowTable.commitId, commitId))
+    .orderBy(asc(EffectRowTable.effectIndex))
+    .all();
 
   return rows.map((row) => ({
-    tableName: row.table_name,
-    pk: JSON.parse(row.pk_json) as Record<string, string>,
-    opKind: row.op_kind,
-    beforeRow: row.before_row_json ? (JSON.parse(row.before_row_json) as RowEffect["beforeRow"]) : null,
-    afterRow: row.after_row_json ? (JSON.parse(row.after_row_json) as RowEffect["afterRow"]) : null,
-    beforeHash: row.before_hash,
-    afterHash: row.after_hash,
+    tableName: row.tableName,
+    pk: JSON.parse(row.pkJson) as Record<string, string>,
+    opKind: row.opKind,
+    beforeRow: row.beforeRowJson ? (JSON.parse(row.beforeRowJson) as RowEffect["beforeRow"]) : null,
+    afterRow: row.afterRowJson ? (JSON.parse(row.afterRowJson) as RowEffect["afterRow"]) : null,
+    beforeHash: row.beforeHash,
+    afterHash: row.afterHash,
   }));
 }
 
 export function getSchemaEffectsByCommitId(db: Database, commitId: string): StoredSchemaEffect[] {
-  const rows = getRows<{
-    table_name: string;
-    before_table_json: string | null;
-    after_table_json: string | null;
-  }>(
-    db,
-    `
-      SELECT table_name, before_table_json, after_table_json
-      FROM ${EFFECT_SCHEMA_TABLE}
-      WHERE commit_id=?
-      ORDER BY effect_index ASC
-      `,
-    commitId,
-  );
+  const rows = createEngineDb(db)
+    .select()
+    .from(EffectSchemaTable)
+    .where(eq(EffectSchemaTable.commitId, commitId))
+    .orderBy(asc(EffectSchemaTable.effectIndex))
+    .all();
 
   return rows.map((row) => ({
-    tableName: row.table_name,
-    beforeTable: row.before_table_json ? (JSON.parse(row.before_table_json) as SchemaEffect["beforeTable"]) : null,
-    afterTable: row.after_table_json ? (JSON.parse(row.after_table_json) as SchemaEffect["afterTable"]) : null,
+    tableName: row.tableName,
+    beforeTable: row.beforeTableJson ? (JSON.parse(row.beforeTableJson) as SchemaEffect["beforeTable"]) : null,
+    afterTable: row.afterTableJson ? (JSON.parse(row.afterTableJson) as SchemaEffect["afterTable"]) : null,
   }));
 }

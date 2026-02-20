@@ -1,24 +1,23 @@
 import { Database } from "bun:sqlite";
+import { asc, desc, eq, gt } from "drizzle-orm";
 import { mkdir, rename } from "fs/promises";
 import { dirname, resolve } from "node:path";
 import { sha256Hex } from "./checksum";
-import { closeClient } from "./engine/client";
+import { closeClient, createEngineDb } from "./engine/client";
 import {
   assertInitialized,
-  COMMIT_TABLE,
+  configureDatabase,
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
   getMetaValue,
   getRow,
-  getRows,
   listUserTables,
   MAIN_REF_NAME,
   runInTransactionWithDeferredForeignKeys,
-  SNAPSHOT_TABLE,
-  withDatabaseAtPath,
-  withDatabaseAsyncAtPath,
   withInitializedDatabase,
+  withInitializedDatabaseAsync,
 } from "./db";
+import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
 import { TossError } from "./errors";
 import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
 import {
@@ -76,35 +75,43 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
   const db = new Database(snapshotDbPath, { readonly: true });
   try {
     assertInitialized(db, snapshotDbPath);
-    const head = getRow<{ commit_id: string | null }>(db, `SELECT commit_id FROM _toss_ref WHERE name=? LIMIT 1`, MAIN_REF_NAME);
-    const commitId = head?.commit_id;
+    const engineDb = createEngineDb(db);
+    const head = engineDb.select({ commitId: RefTable.commitId }).from(RefTable).where(eq(RefTable.name, MAIN_REF_NAME)).limit(1).get();
+    const commitId = head?.commitId;
     if (!commitId) {
       throw new TossError("SNAPSHOT_FAILED", "Snapshot DB has no HEAD commit");
     }
-    const seqRow = getRow<{ seq: number }>(db, `SELECT seq FROM ${COMMIT_TABLE} WHERE commit_id=? LIMIT 1`, commitId);
-    if (!seqRow) {
-      throw new TossError("SNAPSHOT_FAILED", `Snapshot commit not found in ${COMMIT_TABLE}: ${commitId}`);
+    const commit = engineDb.select({ seq: CommitTable.seq }).from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
+    if (!commit) {
+      throw new TossError("SNAPSHOT_FAILED", `Snapshot commit not found in _toss_commit: ${commitId}`);
     }
-    return { commitId, seq: seqRow.seq, rowCountHint: countRows(db) };
+    return { commitId, seq: commit.seq, rowCountHint: countRows(db) };
   } finally {
     db.close(false);
   }
 }
 
-export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): Promise<void> {
-  const shouldCreate = withDatabaseAtPath(dbPath, ({ db }) => {
+export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
+  const runtime = withInitializedDatabase(({ db, dbPath }) => {
     const interval = getSnapshotInterval(db);
-    return interval > 0 && commit.seq % interval === 0;
+    if (interval <= 0 || commit.seq % interval !== 0) {
+      return null;
+    }
+    return { dbPath };
   });
-  if (!shouldCreate) {
+  if (!runtime) {
     return;
   }
+  const { dbPath } = runtime;
 
   const snapshotsDir = resolve(dirname(dbPath), "snapshots");
   await mkdir(snapshotsDir, { recursive: true });
   const tmpSnapshotPath = resolve(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 
-  withDatabaseAtPath(dbPath, ({ db: snapshotDb }) => {
+  withInitializedDatabase(({ db: snapshotDb, dbPath: currentPath }) => {
+    if (currentPath !== dbPath) {
+      throw new TossError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
+    }
     snapshotDb.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
   });
 
@@ -114,56 +121,70 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   await rename(tmpSnapshotPath, snapshotPath);
   const [digest] = await Promise.all([hashFile(snapshotPath), deleteWithSidecars(tmpSnapshotPath)]);
 
-  await withDatabaseAsyncAtPath(dbPath, async ({ db: writeDb }) => {
-    writeDb
-      .query(
-        `INSERT OR REPLACE INTO ${SNAPSHOT_TABLE}(commit_id, file_path, file_sha256, created_at, row_count_hint) VALUES(?, ?, ?, ?, ?)`,
-      )
-      .run(snapshotHead.commitId, snapshotPath, digest, Date.now(), snapshotHead.rowCountHint);
+  await withInitializedDatabaseAsync(async ({ db: writeDb, dbPath: currentPath }) => {
+    if (currentPath !== dbPath) {
+      throw new TossError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
+    }
+    const engineDb = createEngineDb(writeDb);
+    engineDb
+      .insert(SnapshotTable)
+      .values({
+        commitId: snapshotHead.commitId,
+        filePath: snapshotPath,
+        fileSha256: digest,
+        createdAt: Date.now(),
+        rowCountHint: snapshotHead.rowCountHint,
+      })
+      .onConflictDoUpdate({
+        target: SnapshotTable.commitId,
+        set: {
+          filePath: snapshotPath,
+          fileSha256: digest,
+          createdAt: Date.now(),
+          rowCountHint: snapshotHead.rowCountHint,
+        },
+      })
+      .run();
 
     const retain = getSnapshotRetain(writeDb);
-    const stale = getRows<{ commit_id: string; file_path: string }>(
-      writeDb,
-      `
-        SELECT commit_id, file_path FROM ${SNAPSHOT_TABLE}
-        ORDER BY created_at DESC
-        LIMIT -1 OFFSET ?
-        `,
-      retain,
-    );
+    const allSnapshots = engineDb
+      .select({ commitId: SnapshotTable.commitId, filePath: SnapshotTable.filePath })
+      .from(SnapshotTable)
+      .orderBy(desc(SnapshotTable.createdAt))
+      .all();
+    const stale = allSnapshots.slice(Math.max(retain, 0));
     for (const row of stale) {
-      await deleteWithSidecars(row.file_path);
-      writeDb.query(`DELETE FROM ${SNAPSHOT_TABLE} WHERE commit_id=?`).run(row.commit_id);
+      await deleteWithSidecars(row.filePath);
+      engineDb.delete(SnapshotTable).where(eq(SnapshotTable.commitId, row.commitId)).run();
     }
   });
 }
 
 export function listSnapshots(): SnapshotEntry[] {
   return withInitializedDatabase(({ db }) => {
-    const rows = getRows<{
-      commit_id: string;
-      file_path: string;
-      file_sha256: string;
-      created_at: number;
-      row_count_hint: number;
-    }>(db, `SELECT commit_id, file_path, file_sha256, created_at, row_count_hint FROM ${SNAPSHOT_TABLE} ORDER BY created_at DESC`);
+    const rows = createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
     return rows.map((row) => ({
-      commitId: row.commit_id,
-      filePath: row.file_path,
-      fileSha256: row.file_sha256,
-      createdAt: row.created_at,
-      rowCountHint: row.row_count_hint,
+      commitId: row.commitId,
+      filePath: row.filePath,
+      fileSha256: row.fileSha256,
+      createdAt: row.createdAt,
+      rowCountHint: row.rowCountHint,
     }));
   });
 }
 
 function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitReplayInput[] {
-  const commitRows = getRows<{ commit_id: string }>(db, `SELECT commit_id FROM ${COMMIT_TABLE} WHERE seq > ? ORDER BY seq ASC`, fromSeqExclusive);
+  const commitRows = createEngineDb(db)
+    .select({ commitId: CommitTable.commitId })
+    .from(CommitTable)
+    .where(gt(CommitTable.seq, fromSeqExclusive))
+    .orderBy(asc(CommitTable.seq))
+    .all();
   const replayCommits: CommitReplayInput[] = [];
   for (const row of commitRows) {
-    const commit = getCommitById(db, row.commit_id);
+    const commit = getCommitById(db, row.commitId);
     if (!commit) {
-      throw new TossError("RECOVER_FAILED", `Replay commit not found: ${row.commit_id}`);
+      throw new TossError("RECOVER_FAILED", `Replay commit not found: ${row.commitId}`);
     }
     const { parentCount: _, ...base } = commit;
     replayCommits.push({
@@ -175,14 +196,19 @@ function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitR
   return replayCommits;
 }
 
-async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
+export async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
+  closeClient({ resetPath: false });
   try {
-    closeClient({ resetPath: false });
-    await deleteWalAndShm(dbPath);
     await rename(preparedDbPath, dbPath);
     await deleteWalAndShm(dbPath);
+    configureDatabase(dbPath);
   } catch (error) {
     await deleteWithSidecars(preparedDbPath);
+    try {
+      configureDatabase(dbPath);
+    } catch {
+      // Best effort: preserve runtime continuity on the original path.
+    }
     throw error;
   }
 }
@@ -236,23 +262,22 @@ function replayCommitExactly(db: Database, replay: CommitReplayInput): void {
 
 function resolveSnapshotForRecovery(commitId: string): { dbPath: string; snapshotPath: string; replayCommits: CommitReplayInput[] } {
   return withInitializedDatabase(({ db, dbPath }) => {
-    const snapshot = getRow<{ file_path: string; seq: number }>(
-      db,
-      `
-        SELECT s.file_path, c.seq
-        FROM ${SNAPSHOT_TABLE} s
-        JOIN ${COMMIT_TABLE} c ON c.commit_id = s.commit_id
-        WHERE s.commit_id=?
-        LIMIT 1
-        `,
-      commitId,
-    );
+    const snapshot = createEngineDb(db)
+      .select({
+        filePath: SnapshotTable.filePath,
+        seq: CommitTable.seq,
+      })
+      .from(SnapshotTable)
+      .innerJoin(CommitTable, eq(CommitTable.commitId, SnapshotTable.commitId))
+      .where(eq(SnapshotTable.commitId, commitId))
+      .limit(1)
+      .get();
     if (!snapshot) {
       throw new TossError("NOT_FOUND", `Snapshot not found for commit: ${commitId}`);
     }
     return {
       dbPath,
-      snapshotPath: snapshot.file_path,
+      snapshotPath: snapshot.filePath,
       replayCommits: loadCommitReplayInputs(db, snapshot.seq),
     };
   });

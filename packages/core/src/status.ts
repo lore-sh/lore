@@ -1,10 +1,12 @@
+import { sql } from "drizzle-orm";
 import {
   getMetaValue,
   getRow,
   listUserTables,
-  SNAPSHOT_TABLE,
   withInitializedDatabase,
 } from "./db";
+import { createEngineDb } from "./engine/client";
+import { SnapshotTable } from "./engine/schema.sql";
 import { getHeadCommit, listCommits } from "./log";
 import { quoteIdentifier } from "./sql";
 import type { CommitEntry, TossStatus } from "./types";
@@ -17,7 +19,7 @@ export function getStatus(): TossStatus {
     });
 
     const head = getHeadCommit(db);
-    const snapshotCountRow = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${SNAPSHOT_TABLE}`);
+    const snapshotCountRow = createEngineDb(db).select({ c: sql<number>`count(*)` }).from(SnapshotTable).get();
     const verifiedOkRaw = getMetaValue(db, "last_verified_ok");
 
     return {
