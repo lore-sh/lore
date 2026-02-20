@@ -27,15 +27,20 @@ function parseStudioArgs(args: string[]): { port: number; open: boolean } {
   return { port, open };
 }
 
+function browserCommand(url: string): string[] {
+  switch (process.platform) {
+    case "darwin":
+      return ["open", url];
+    case "win32":
+      return ["cmd", "/c", "start", "", url];
+    default:
+      return ["xdg-open", url];
+  }
+}
+
 function openBrowser(url: string): void {
-  const commands =
-    process.platform === "darwin"
-      ? ["open", url]
-      : process.platform === "win32"
-        ? ["cmd", "/c", "start", "", url]
-        : ["xdg-open", url];
   try {
-    Bun.spawn(commands, {
+    Bun.spawn(browserCommand(url), {
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
@@ -73,7 +78,7 @@ export function startStudioServer(options: StartStudioServerOptions = {}): Start
   ensureClientBundle();
   const port = normalizeStudioPort(options.port);
   const host = options.host ?? DEFAULT_HOST;
-  const app = createStudioApp({ dbPath: options.dbPath });
+  const app = createStudioApp(options);
   const server = Bun.serve({
     hostname: host,
     port,

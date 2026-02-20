@@ -1,6 +1,6 @@
 import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { deleteIfExists } from "./fsx";
+import { deleteIfExists, isEnoent, resolveHomeDir } from "./fsx";
 import type { SkillPlatform } from "./types";
 
 const ALL_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "codex", "opencode", "openclaw"];
@@ -59,14 +59,6 @@ export interface CleanSkillsResult {
 
 export interface GenerateSkillsOptions {
   platforms?: SkillPlatform[] | undefined;
-}
-
-function resolveHomeDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (!home) {
-    throw new Error("HOME (or USERPROFILE) is required for global skill installation");
-  }
-  return resolve(home);
 }
 
 function envPath(name: string): string | undefined {
@@ -622,10 +614,6 @@ async function upsertManagedBlock(path: string, block: string, blocks: ManagedBl
   const stripped = stripManagedBlocks(current, blocks, path).trimEnd();
   const next = stripped.length === 0 ? `${block}\n` : `${stripped}\n\n${block}\n`;
   await writeText(path, next);
-}
-
-function isEnoent(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 async function removeDirIfExists(path: string): Promise<boolean> {

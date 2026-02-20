@@ -1,10 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { schemaQueryOptions } from "../lib/queries";
 
-function constraintLabel(value: boolean, label: string): string {
-  return value ? label : "";
-}
-
 export function SchemaPage() {
   const { data: schema } = useSuspenseQuery(schemaQueryOptions());
   const tables = schema.tables;
@@ -32,11 +28,11 @@ export function SchemaPage() {
             <tbody>
               {table.columns.map((column) => {
                 const constraints = [
-                  constraintLabel(column.primaryKey, "PK"),
-                  constraintLabel(column.notNull, "NOT NULL"),
-                  constraintLabel(column.unique, "UNIQUE"),
+                  column.primaryKey && "PK",
+                  column.notNull && "NOT NULL",
+                  column.unique && "UNIQUE",
                 ]
-                  .filter((item) => item.length > 0)
+                  .filter(Boolean)
                   .join(", ");
                 return (
                   <tr key={column.name} className="border-t border-slate-100">

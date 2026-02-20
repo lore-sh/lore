@@ -6,15 +6,9 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function HistoryDetail(props: { commitId: string; open: boolean }) {
-  const detail = useQuery({
-    ...commitDetailQueryOptions(props.commitId),
-    enabled: props.open,
-  });
+function HistoryDetail(props: { commitId: string }) {
+  const detail = useQuery(commitDetailQueryOptions(props.commitId));
 
-  if (!props.open) {
-    return null;
-  }
   if (detail.isPending) {
     return <p className="text-sm text-slate-600">Loading detail...</p>;
   }
@@ -55,8 +49,7 @@ export function HistoryPage() {
   }
 
   function toggle(commitId: string): void {
-    const opened = openIds[commitId] === true;
-    setOpenIds((prev) => ({ ...prev, [commitId]: !opened }));
+    setOpenIds((prev) => ({ ...prev, [commitId]: !prev[commitId] }));
   }
 
   return (
@@ -85,7 +78,7 @@ export function HistoryPage() {
             </button>
             {opened ? (
               <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
-                <HistoryDetail commitId={commit.commitId} open={opened} />
+                <HistoryDetail commitId={commit.commitId} />
               </div>
             ) : null}
           </article>

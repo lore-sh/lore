@@ -2,6 +2,7 @@ import { type SQLQueryBindings, Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { TossError } from "./errors";
+import { resolveHomeDir } from "./fsx";
 import type { DatabaseOptions } from "./types";
 
 export const DEFAULT_DB_DIR = ".toss";
@@ -23,14 +24,6 @@ export const SNAPSHOT_TABLE = "_toss_snapshot";
 export interface DatabaseContext {
   db: Database;
   dbPath: string;
-}
-
-function resolveHomeDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (!home) {
-    throw new TossError("CONFIG_ERROR", "HOME (or USERPROFILE) is required to resolve the default database path.");
-  }
-  return resolve(home);
 }
 
 function defaultDbPath(): string {
@@ -264,10 +257,9 @@ export function isInitialized(db: Database): boolean {
     EFFECT_SCHEMA_TABLE,
     SNAPSHOT_TABLE,
   ];
-  if (!requiredTables.every((table) => tableExists(db, table))) {
+  if (requiredTables.some((table) => !tableExists(db, table))) {
     return false;
   }
-
   const fingerprint = getRow<{ value?: string }>(db, `SELECT value FROM ${ENGINE_META_TABLE} WHERE key='schema_fingerprint'`);
   return fingerprint?.value === SCHEMA_FINGERPRINT;
 }

@@ -11,7 +11,7 @@ import {
 import { TossError } from "./errors";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./log";
 import { describeSchema, normalizeRowObject, type SchemaDescriptor, type SchemaTableDescriptor } from "./rows";
-import { quoteName } from "./sql";
+import { asciiCaseFold, quoteName } from "./sql";
 import type { CommitEntry, CommitKind, DatabaseOptions, JsonObject } from "./types";
 
 export type StudioSortDirection = "asc" | "desc";
@@ -115,10 +115,6 @@ function isVisibleStudioColumn(hidden: number): boolean {
 
 function visibleStudioColumnNames(table: SchemaTableDescriptor): string[] {
   return table.columns.filter((column) => isVisibleStudioColumn(column.hidden)).map((column) => column.name);
-}
-
-function asciiCaseFold(value: string): string {
-  return value.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
 }
 
 function resolveTableName(tableNames: string[], requestedTable: string): string {

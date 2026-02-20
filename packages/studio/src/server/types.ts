@@ -1,6 +1,6 @@
-export interface StudioServerOptions {
-  dbPath?: string | undefined;
-}
+import type { DatabaseOptions } from "@toss/core";
+
+export interface StudioServerOptions extends DatabaseOptions {}
 
 export interface StartStudioServerOptions extends StudioServerOptions {
   port?: number | undefined;

@@ -1,7 +1,7 @@
 import { withInitializedDatabase, getRow } from "./db";
 import { TossError } from "./errors";
 import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./rows";
-import { quoteName } from "./sql";
+import { asciiCaseFold, quoteName } from "./sql";
 import type { DatabaseOptions } from "./types";
 
 export interface GetSchemaOptions extends DatabaseOptions {
@@ -32,14 +32,7 @@ function selectTables(tables: SchemaTableDescriptor[], tableName?: string | unde
 }
 
 function sqliteIdentifierEquals(left: string, right: string): boolean {
-  if (left === right) {
-    return true;
-  }
-  return asciiCaseFold(left) === asciiCaseFold(right);
-}
-
-function asciiCaseFold(value: string): string {
-  return value.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+  return left === right || asciiCaseFold(left) === asciiCaseFold(right);
 }
 
 export function getSchema(options: GetSchemaOptions = {}): SchemaView {

@@ -1,5 +1,16 @@
-function isEnoent(error: unknown): boolean {
+import { resolve } from "node:path";
+import { TossError } from "./errors";
+
+export function isEnoent(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+export function resolveHomeDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    throw new TossError("CONFIG_ERROR", "HOME (or USERPROFILE) is required to resolve the home directory.");
+  }
+  return resolve(home);
 }
 
 export async function deleteIfExists(path: string): Promise<void> {

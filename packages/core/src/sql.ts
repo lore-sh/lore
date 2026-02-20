@@ -21,6 +21,10 @@ export function isWordBoundary(char: string | undefined): boolean {
   return !/[A-Za-z0-9_]/.test(char);
 }
 
+export function asciiCaseFold(value: string): string {
+  return value.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+}
+
 export function splitTopLevelCommaList(sql: string): string[] {
   const parts: string[] = [];
   let start = 0;

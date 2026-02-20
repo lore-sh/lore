@@ -2,27 +2,7 @@ import { getStudioTableSchema, listStudioTables, readStudioTable, TossError } fr
 import { Hono } from "hono";
 import { validator } from "hono/validator";
 import type { StudioServerOptions } from "../types";
-
-function parsePositiveInt(value: string | undefined): number | undefined {
-  if (!value) {
-    return undefined;
-  }
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    return undefined;
-  }
-  return parsed;
-}
-
-function singleValue(input: string | string[] | undefined): string | undefined {
-  if (typeof input === "string") {
-    return input;
-  }
-  if (Array.isArray(input)) {
-    return typeof input[0] === "string" ? input[0] : undefined;
-  }
-  return undefined;
-}
+import { parsePositiveInt, singleValue } from "./query";
 
 function parseFilters(raw: string | undefined): Record<string, string> {
   if (!raw || raw.trim().length === 0) {
@@ -56,7 +36,6 @@ function parseFilters(raw: string | undefined): Record<string, string> {
 }
 
 export function createTableRoutes(options: StudioServerOptions) {
-  const dbOptions = options.dbPath ? { dbPath: options.dbPath } : {};
   const tableQuery = validator("query", (query) => {
     const page = parsePositiveInt(singleValue(query.page));
     const pageSize = parsePositiveInt(singleValue(query.pageSize));
@@ -74,13 +53,13 @@ export function createTableRoutes(options: StudioServerOptions) {
 
   return new Hono()
     .get("/api/tables", (c) => {
-      return c.json(listStudioTables(dbOptions));
+      return c.json(listStudioTables(options));
     })
     .get("/api/tables/:name", tableQuery, (c) => {
       const query = c.req.valid("query");
       return c.json(
         readStudioTable({
-          ...dbOptions,
+          ...options,
           table: c.req.param("name"),
           page: query.page,
           pageSize: query.pageSize,
@@ -91,6 +70,6 @@ export function createTableRoutes(options: StudioServerOptions) {
       );
     })
     .get("/api/tables/:name/schema", (c) => {
-      return c.json(getStudioTableSchema(c.req.param("name"), dbOptions));
+      return c.json(getStudioTableSchema(c.req.param("name"), options));
     });
 }
