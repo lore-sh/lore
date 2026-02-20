@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createStudioApp, isAssetRequestPath } from "./app";
+import { createStudioApp, isAssetRequestPath } from "../../src/server/app";
 
 describe("studio app asset routing", () => {
   test("isAssetRequestPath matches vite asset URLs", () => {

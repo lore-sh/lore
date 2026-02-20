@@ -2,8 +2,11 @@ export function parsePositiveInt(value: string | undefined): number | undefined 
   if (!value) {
     return undefined;
   }
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
+  if (!/^\d+$/.test(value)) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
     return undefined;
   }
   return parsed;

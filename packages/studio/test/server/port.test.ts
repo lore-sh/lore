@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_STUDIO_PORT, normalizeStudioPort, parseStudioPort, parseStudioPortArg } from "./port";
+import { DEFAULT_STUDIO_PORT, normalizeStudioPort, parseStudioPort, parseStudioPortArg } from "../../src/server/port";
 
 describe("studio port parsing", () => {
   test("parseStudioPort accepts decimal integers in range", () => {

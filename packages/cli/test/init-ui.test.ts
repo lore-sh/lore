@@ -10,7 +10,7 @@ import {
   renderInitResult,
   reduceMultiSelectState,
   resolveInitSelection,
-} from "./init-ui";
+} from "../src/init-ui";
 
 describe("init-ui", () => {
   test("canUseInteractivePrompt requires both stdin and stdout TTY", () => {

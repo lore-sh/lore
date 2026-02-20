@@ -2,9 +2,9 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "jsx": "react-jsx",
     "types": ["bun", "vite/client", "react", "react-dom"]
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }
