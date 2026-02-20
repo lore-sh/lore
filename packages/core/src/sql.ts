@@ -158,6 +158,7 @@ export function normalizeSql(sql: string, options: { tight?: boolean } = {}): st
       pendingSpace = false;
       return;
     }
+    pendingSpace = false;
     const prev = out[out.length - 1];
     if (
       prev === " " ||
@@ -168,11 +169,9 @@ export function normalizeSql(sql: string, options: { tight?: boolean } = {}): st
       nextChar === "," ||
       nextChar === ";"
     ) {
-      pendingSpace = false;
       return;
     }
     out += " ";
-    pendingSpace = false;
   };
 
   while (i < sql.length) {

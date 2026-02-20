@@ -59,15 +59,9 @@ function buildColumnSql(column: ColumnDefinition, forAddColumn = false): string 
   if (column.notNull) {
     tokens.push("NOT NULL");
   }
-  if (Object.hasOwn(column, "default")) {
-    const defaultValue = column.default;
-    if (!defaultValue) {
-      tokens.push("DEFAULT", "NULL");
-    } else if (defaultValue.kind === "literal") {
-      tokens.push("DEFAULT", serializeLiteral(defaultValue.value));
-    } else {
-      tokens.push("DEFAULT", defaultValue.expr);
-    }
+  if (column.default) {
+    const def = column.default;
+    tokens.push("DEFAULT", def.kind === "literal" ? serializeLiteral(def.value) : def.expr);
   }
 
   return tokens.join(" ");
