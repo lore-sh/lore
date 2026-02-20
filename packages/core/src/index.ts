@@ -10,4 +10,5 @@ export * from "./plan";
 export * from "./revert";
 export * from "./verify";
 export * from "./snapshot";
+export * from "./studio";
 export { operationPlanSchema } from "./validators/operation";

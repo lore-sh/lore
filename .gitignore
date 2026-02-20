@@ -7,3 +7,5 @@ bun.lock
 .toss/
 private/
 .claude/
+packages/*/dist/
+*.tsbuildinfo

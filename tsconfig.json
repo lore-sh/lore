@@ -6,7 +6,9 @@
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true
+    "exactOptionalPropertyTypes": true,
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable", "DOM.AsyncIterable"]
   },
-  "include": ["packages/**/*.ts"]
+  "include": ["packages/**/*.ts", "packages/**/*.tsx"]
 }

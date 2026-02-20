@@ -14,6 +14,7 @@ import {
   verifyDatabase,
 } from "@toss/core";
 import type { CommitEntry } from "@toss/core";
+import { parseStudioPortArg, startStudioServer } from "@toss/studio";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { printTable, toJson } from "./format";
@@ -42,6 +43,7 @@ function usage(): string {
     "  toss revert <commit_id>",
     "  toss verify [--full]",
     "  toss recover --from-snapshot <commit_id>",
+    "  toss studio [--port <n>] [--no-open]",
     "",
     "Environment:",
     "  TOSS_DB_PATH   Override default database path (default: ~/.toss/toss.db)",
@@ -229,6 +231,35 @@ function runStatus(args: string[]): void {
   console.log(rows.length === 0 ? "(no user tables)" : printTable(rows));
 }
 
+function parseStudioArgs(args: string[]): { port?: number | undefined; open: boolean } {
+  let port: number | undefined;
+  let open = true;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "--port") {
+      port = parseStudioPortArg(args[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (arg === "--no-open") {
+      open = false;
+      continue;
+    }
+    throw new Error(`studio does not accept argument: ${arg}`);
+  }
+  return { port, open };
+}
+
+function runStudio(args: string[]): void {
+  const parsed = parseStudioArgs(args);
+  const started = startStudioServer({
+    port: parsed.port,
+    open: parsed.open,
+  });
+  console.log(`Studio: ${started.url}`);
+  console.log("Press Ctrl+C to stop.");
+}
+
 function runHistory(args: string[]): void {
   const verbose = hasFlag(args, "--verbose");
   const invalidArgs = args.filter((arg) => arg !== "--verbose");
@@ -339,6 +370,9 @@ async function main(): Promise<void> {
       return;
     case "recover":
       await runRecover(rest);
+      return;
+    case "studio":
+      runStudio(rest);
       return;
     default:
       throw new Error(`Unknown command: ${command}`);

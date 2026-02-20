@@ -7,6 +7,7 @@
     "toss": "./src/main.ts"
   },
   "dependencies": {
-    "@toss/core": "workspace:*"
+    "@toss/core": "workspace:*",
+    "@toss/studio": "workspace:*"
   }
 }

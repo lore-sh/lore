@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+:root {
+  font-family:
+    "Avenir Next",
+    "Segoe UI",
+    "Hiragino Sans",
+    "Noto Sans JP",
+    sans-serif;
+  color: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
