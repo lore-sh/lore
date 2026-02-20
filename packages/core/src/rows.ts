@@ -668,7 +668,7 @@ function extractCheckConstraints(tableSql: string | null): string[] {
 }
 
 export function describeSchema(db: Database): SchemaDescriptor {
-  const tables = listUserTables(db);
+  const tableNames = listUserTables(db);
   const tableList = getRows<TableListRow>(db, "PRAGMA table_list");
   const tableOpts = new Map(
     tableList
@@ -676,7 +676,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
       .map((row) => [row.name, { withoutRowid: row.wr === 1, strict: row.strict === 1 }] as const),
   );
 
-  const tablesDescriptor = tables.map((table) => {
+  const tables = tableNames.map((table) => {
     const tableDdl = tableDDL(db, table);
     const columnDefs = parseColumnDefinitionsFromCreateTable(tableDdl);
     const checks = extractCheckConstraints(tableDdl);
@@ -771,7 +771,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
       })),
     };
   });
-  return { tables: tablesDescriptor };
+  return { tables };
 }
 
 export function schemaHash(db: Database): string {

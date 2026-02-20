@@ -39,35 +39,16 @@ function sqliteIdentifierEquals(left: string, right: string): boolean {
 }
 
 function asciiCaseFold(value: string): string {
-  let out = "";
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if (code >= 65 && code <= 90) {
-      out += String.fromCharCode(code + 32);
-      continue;
-    }
-    out += value[i];
-  }
-  return out;
+  return value.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
 }
 
 export function getSchema(options: GetSchemaOptions = {}): SchemaView {
   return withInitializedDatabase(options, ({ db, dbPath }) => {
     const descriptor = describeSchema(db);
     const selected = selectTables(descriptor.tables, options.table);
-    const tables = selected.map((table) => {
-      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(table.table)}`);
-      return {
-        name: table.table,
-        tableSql: table.tableSql,
-        rowCount: row?.c ?? 0,
-        options: table.options,
-        columns: table.columns,
-        foreignKeys: table.foreignKeys,
-        indexes: table.indexes,
-        checks: table.checks,
-        triggers: table.triggers,
-      };
+    const tables = selected.map(({ table: name, ...rest }) => {
+      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(name)}`);
+      return { name, ...rest, rowCount: row?.c ?? 0 };
     });
 
     return {

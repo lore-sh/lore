@@ -52,20 +52,14 @@ export interface PlanCheckResult {
   checkedAt: string;
 }
 
-function emptySummary(): PlanCheckSummary {
-  return {
-    operations: 0,
-    schemaOperations: 0,
-    dataOperations: 0,
-    destructiveOperations: 0,
-    touchedTables: [],
-    predicted: {
-      rowEffects: 0,
-      schemaEffects: 0,
-      tables: [],
-    },
-  };
-}
+const EMPTY_SUMMARY: PlanCheckSummary = {
+  operations: 0,
+  schemaOperations: 0,
+  dataOperations: 0,
+  destructiveOperations: 0,
+  touchedTables: [],
+  predicted: { rowEffects: 0, schemaEffects: 0, tables: [] },
+};
 
 function issueFromError(error: unknown): PlanCheckIssue {
   if (isTossError(error)) {
@@ -90,41 +84,35 @@ function classifyRisk(
   return "low";
 }
 
+function uniqueSorted(values: string[]): string[] {
+  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+}
+
 function summarizeOperations(operations: Operation[]): Omit<PlanCheckSummary, "predicted"> {
-  const touchedTables = Array.from(new Set(operations.map((operation) => operation.table))).sort((a, b) => a.localeCompare(b));
-  const schemaOperations = operations.reduce(
-    (count, operation) => count + (SCHEMA_OPERATION_TYPES.has(operation.type) ? 1 : 0),
-    0,
-  );
-  const destructiveOperations = operations.reduce(
-    (count, operation) => count + (DESTRUCTIVE_OPERATION_TYPES.has(operation.type) ? 1 : 0),
-    0,
-  );
+  const touchedTables = uniqueSorted(operations.map((op) => op.table));
+  const schemaOps = operations.filter((op) => SCHEMA_OPERATION_TYPES.has(op.type)).length;
+  const destructiveOps = operations.filter((op) => DESTRUCTIVE_OPERATION_TYPES.has(op.type)).length;
   return {
     operations: operations.length,
-    schemaOperations,
-    dataOperations: operations.length - schemaOperations,
-    destructiveOperations,
+    schemaOperations: schemaOps,
+    dataOperations: operations.length - schemaOps,
+    destructiveOperations: destructiveOps,
     touchedTables,
   };
 }
 
 function destructiveWarnings(operations: Operation[]): PlanCheckIssue[] {
-  const warnings: PlanCheckIssue[] = [];
-  for (let i = 0; i < operations.length; i += 1) {
-    const operation = operations[i]!;
-    if (!DESTRUCTIVE_OPERATION_TYPES.has(operation.type)) {
-      continue;
-    }
-    warnings.push({
-      code: "DESTRUCTIVE_OPERATION",
-      message: `Operation ${i} (${operation.type}) changes or removes existing data/schema.`,
-      operationIndex: i,
-      operationType: operation.type,
-      table: operation.table,
-    });
-  }
-  return warnings;
+  return operations.flatMap((op, i) =>
+    DESTRUCTIVE_OPERATION_TYPES.has(op.type)
+      ? [{
+          code: "DESTRUCTIVE_OPERATION",
+          message: `Operation ${i} (${op.type}) changes or removes existing data/schema.`,
+          operationIndex: i,
+          operationType: op.type,
+          table: op.table,
+        }]
+      : [],
+  );
 }
 
 function failedResult(checkedAt: string, error: unknown): PlanCheckResult {
@@ -133,9 +121,48 @@ function failedResult(checkedAt: string, error: unknown): PlanCheckResult {
     risk: "high",
     errors: [issueFromError(error)],
     warnings: [],
-    summary: emptySummary(),
+    summary: EMPTY_SUMMARY,
     checkedAt,
   };
+}
+
+interface DryRunResult {
+  errors: PlanCheckIssue[];
+  predicted: PlanCheckSummary["predicted"];
+}
+
+function dryRun(operations: Operation[], options: DatabaseOptions): DryRunResult {
+  try {
+    const predicted = withInitializedDatabase(options, ({ db }) => {
+      const before = captureObservedState(db);
+      return runInSavepoint(
+        db,
+        "toss_plan_check",
+        () => {
+          for (const op of operations) {
+            executeOperation(db, op);
+          }
+          const after = captureObservedState(db);
+          const diff = diffObservedState(before, after);
+          return {
+            rowEffects: diff.rowEffects.length,
+            schemaEffects: diff.schemaEffects.length,
+            tables: uniqueSorted([
+              ...diff.rowEffects.map((e) => e.tableName),
+              ...diff.schemaEffects.map((e) => e.tableName),
+            ]),
+          };
+        },
+        { rollbackOnSuccess: true },
+      );
+    });
+    return { errors: [], predicted };
+  } catch (error) {
+    return {
+      errors: [issueFromError(error)],
+      predicted: { rowEffects: 0, schemaEffects: 0, tables: [] },
+    };
+  }
 }
 
 export async function planCheck(planRef: string, options: DatabaseOptions = {}): Promise<PlanCheckResult> {
@@ -156,47 +183,9 @@ export async function planCheck(planRef: string, options: DatabaseOptions = {}):
 
   const warnings = destructiveWarnings(plan.operations);
   const summaryBase = summarizeOperations(plan.operations);
-  const errors: PlanCheckIssue[] = [];
-  let predictedRowEffects = 0;
-  let predictedSchemaEffects = 0;
-  let predictedTables: string[] = [];
+  const { errors, predicted } = dryRun(plan.operations, options);
 
-  try {
-    withInitializedDatabase(options, ({ db }) => {
-      const before = captureObservedState(db);
-      runInSavepoint(
-        db,
-        "toss_plan_check",
-        () => {
-          for (const operation of plan.operations) {
-            executeOperation(db, operation);
-          }
-          const after = captureObservedState(db);
-          const diff = diffObservedState(before, after);
-          predictedRowEffects = diff.rowEffects.length;
-          predictedSchemaEffects = diff.schemaEffects.length;
-          predictedTables = Array.from(
-            new Set([
-              ...diff.rowEffects.map((effect) => effect.tableName),
-              ...diff.schemaEffects.map((effect) => effect.tableName),
-            ]),
-          ).sort((a, b) => a.localeCompare(b));
-        },
-        { rollbackOnSuccess: true },
-      );
-    });
-  } catch (error) {
-    errors.push(issueFromError(error));
-  }
-
-  const summary: PlanCheckSummary = {
-    ...summaryBase,
-    predicted: {
-      rowEffects: predictedRowEffects,
-      schemaEffects: predictedSchemaEffects,
-      tables: predictedTables,
-    },
-  };
+  const summary: PlanCheckSummary = { ...summaryBase, predicted };
 
   return {
     ok: errors.length === 0,

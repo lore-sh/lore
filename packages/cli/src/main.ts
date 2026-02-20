@@ -165,42 +165,29 @@ async function runApply(args: string[]): Promise<void> {
   console.log(toJson({ status: "ok", commit: summarizeCommit(commit), operations: commit.operations.length }));
 }
 
-interface ParsedSchemaArgs {
-  table?: string | undefined;
-}
-
-function parseSchemaArgs(args: string[]): ParsedSchemaArgs {
-  const parsed: ParsedSchemaArgs = {};
+function parseSchemaArgs(args: string[]): { table?: string | undefined } {
+  let table: string | undefined;
   for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i] ?? "";
+    const arg = args[i]!;
     if (arg === "--table") {
-      const value = args[i + 1];
-      if (!value) {
+      table = args[i + 1];
+      if (!table) {
         throw new Error("schema requires a value for --table");
       }
-      parsed.table = value;
       i += 1;
-      continue;
-    }
-    if (arg.startsWith("--table=")) {
-      parsed.table = arg.slice("--table=".length);
-      if (!parsed.table) {
-        throw new Error("schema requires a non-empty value for --table");
-      }
       continue;
     }
     throw new Error(`schema does not accept argument: ${arg}`);
   }
-  return parsed;
+  return { table };
 }
 
 function runSchema(args: string[]): void {
-  const parsed = parseSchemaArgs(args);
-  const schema = getSchema({ table: parsed.table });
-  console.log(toJson(schema));
+  const { table } = parseSchemaArgs(args);
+  console.log(toJson(getSchema({ table })));
 }
 
-async function runPlan(args: string[]): Promise<never | void> {
+async function runPlan(args: string[]): Promise<void> {
   const planRef = parseSinglePlanRef("plan", args);
   const result = await planCheck(planRef);
   console.log(toJson(result));
