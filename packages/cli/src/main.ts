@@ -44,7 +44,7 @@ function usage(): string {
     "  toss recover --from-snapshot <commit_id>",
     "",
     "Environment:",
-    "  TOSS_DB_PATH   Override default database path (default: ./toss.db)",
+    "  TOSS_DB_PATH   Override default database path (default: ~/.toss/toss.db)",
     "",
     "Init Platforms:",
     "  claude,cursor,codex,opencode,openclaw",

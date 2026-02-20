@@ -33,6 +33,7 @@ interface GlobalEnvSnapshot {
   HOME?: string | undefined;
   CODEX_HOME?: string | undefined;
   XDG_CONFIG_HOME?: string | undefined;
+  TOSS_DB_PATH?: string | undefined;
 }
 
 function captureGlobalEnv(): GlobalEnvSnapshot {
@@ -40,6 +41,7 @@ function captureGlobalEnv(): GlobalEnvSnapshot {
     HOME: process.env.HOME,
     CODEX_HOME: process.env.CODEX_HOME,
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+    TOSS_DB_PATH: process.env.TOSS_DB_PATH,
   };
 }
 
@@ -59,6 +61,11 @@ function restoreGlobalEnv(snapshot: GlobalEnvSnapshot): void {
   } else {
     process.env.XDG_CONFIG_HOME = snapshot.XDG_CONFIG_HOME;
   }
+  if (snapshot.TOSS_DB_PATH === undefined) {
+    delete process.env.TOSS_DB_PATH;
+  } else {
+    process.env.TOSS_DB_PATH = snapshot.TOSS_DB_PATH;
+  }
 }
 
 async function withGlobalSkillEnv<T>(
@@ -76,6 +83,7 @@ async function withGlobalSkillEnv<T>(
   process.env.HOME = paths.home;
   process.env.CODEX_HOME = paths.codexHome;
   process.env.XDG_CONFIG_HOME = paths.xdgConfigHome;
+  delete process.env.TOSS_DB_PATH;
   try {
     return await fn(paths);
   } finally {
@@ -98,6 +106,26 @@ describe("initDatabase", () => {
     const status = getStatus({ dbPath });
     expect(status.tableCount).toBe(0);
     expect(status.headCommit).toBeNull();
+  });
+
+  testWithTmp("default database path is ~/.toss/toss.db", async () => {
+    const { dir } = createTestContext();
+    await withGlobalSkillEnv(dir, async (paths) => {
+      const result = await initDatabase({ generateSkills: false });
+      const expected = join(paths.home, ".toss", "toss.db");
+      expect(result.dbPath).toBe(expected);
+      expect(await Bun.file(expected).exists()).toBe(true);
+    });
+  });
+
+  testWithTmp("status on missing default database does not create a new file", async () => {
+    const { dir } = createTestContext();
+    await withGlobalSkillEnv(dir, async (paths) => {
+      const expected = join(paths.home, ".toss", "toss.db");
+      expect(await Bun.file(expected).exists()).toBe(false);
+      expect(() => getStatus()).toThrow("Database is not initialized");
+      expect(await Bun.file(expected).exists()).toBe(false);
+    });
   });
 
   testWithTmp("init generates only selected global platforms", async () => {
@@ -220,10 +248,9 @@ describe("initDatabase", () => {
       expect(await Bun.file(openclawSkillPath).exists()).toBe(true);
       expect(await Bun.file(openclawAgentsPath).exists()).toBe(true);
       const skillText = await Bun.file(openclawSkillPath).text();
-      expect(skillText.includes('bun run --cwd "$PWD" toss schema')).toBe(true);
-      expect(skillText.includes('bun run --cwd "$PWD" toss plan -')).toBe(true);
-      expect(skillText.includes('bun run --cwd "$PWD" toss apply -')).toBe(true);
-      expect(skillText.includes(`bun run --cwd "${dir}" toss apply -`)).toBe(false);
+      expect(skillText.includes("toss schema")).toBe(true);
+      expect(skillText.includes("toss plan -")).toBe(true);
+      expect(skillText.includes("toss apply -")).toBe(true);
     });
   });
 

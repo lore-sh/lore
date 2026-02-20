@@ -100,7 +100,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
     return;
   }
 
-  const snapshotsDir = resolve(dirname(dbPath), ".toss", "snapshots");
+  const snapshotsDir = resolve(dirname(dbPath), "snapshots");
   await mkdir(snapshotsDir, { recursive: true });
   const tmpSnapshotPath = resolve(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 

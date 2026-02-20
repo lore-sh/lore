@@ -202,7 +202,7 @@ schema -> plan -> apply
 
 1. Read current schema:
 \`\`\`bash
-bun run --cwd "$PWD" toss schema
+toss schema
 \`\`\`
 
 2. Build OperationPlan. Include schema changes and data mutations together:
@@ -233,14 +233,14 @@ bun run --cwd "$PWD" toss schema
 
 3. Dry-run (recommended for schema changes, optional for simple inserts):
 \`\`\`bash
-cat <<'JSON' | bun run --cwd "$PWD" toss plan -
+cat <<'JSON' | toss plan -
 <plan JSON>
 JSON
 \`\`\`
 
 4. Apply:
 \`\`\`bash
-cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+cat <<'JSON' | toss apply -
 <plan JSON>
 JSON
 \`\`\`
@@ -251,7 +251,7 @@ JSON
 
 Convert request to SQL and query:
 \`\`\`bash
-bun run --cwd "$PWD" toss read --sql "SELECT date, item, amount FROM expenses WHERE category = 'food' AND date >= '2026-02-01' ORDER BY date" --json
+toss read --sql "SELECT date, item, amount FROM expenses WHERE category = 'food' AND date >= '2026-02-01' ORDER BY date" --json
 \`\`\`
 
 Present results with a short interpretation.
@@ -279,7 +279,7 @@ Present results with a short interpretation.
 | \`toss verify [--full]\` | Integrity check |
 | \`toss revert <commit_id>\` | Reverse a commit |
 
-All commands: \`bun run --cwd "$PWD" toss <command>\`
+IMPORTANT: You can run toss commands from any directory. By default, toss always uses \`~/.toss/toss.db\` (unless \`TOSS_DB_PATH\` overrides it).
 
 ## Examples
 
@@ -291,7 +291,7 @@ User says: "I booked a dentist appointment tomorrow at 2pm"
 # 1. Read schema -> schedules table does not exist yet
 
 # 2. Apply with table creation + insert
-cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+cat <<'JSON' | toss apply -
 {
   "message": "dentist appointment 2026-02-21 14:00",
   "operations": [
@@ -326,7 +326,7 @@ User says: "Had lunch at Ichiran in Shibuya, 1200 yen"
 Schema already has \`expenses(id, date, item, amount, category, note)\` — location is new.
 
 \`\`\`bash
-cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+cat <<'JSON' | toss apply -
 {
   "message": "lunch expense with location tracking",
   "operations": [
@@ -353,7 +353,7 @@ JSON
 During debugging, user resolves a tricky issue:
 
 \`\`\`bash
-cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+cat <<'JSON' | toss apply -
 {
   "message": "debug insight: SQLite WAL mode lock contention",
   "operations": [
@@ -378,7 +378,7 @@ JSON
 User asks: "How much did I spend on food this month?"
 
 \`\`\`bash
-bun run --cwd "$PWD" toss read --sql "SELECT SUM(amount) as total, COUNT(*) as count FROM expenses WHERE category = 'food' AND date >= '2026-02-01'" --json
+toss read --sql "SELECT SUM(amount) as total, COUNT(*) as count FROM expenses WHERE category = 'food' AND date >= '2026-02-01'" --json
 \`\`\`
 
 Response: "You spent a total of 12,450 yen on food this month across 14 meals."
@@ -527,10 +527,10 @@ Activate when conversation contains information worth remembering or user asks a
 - Read schema before every write. Use schema -> plan -> apply flow.
 
 ## Commands
-- \`bun run --cwd "$PWD" toss schema\` — read current schema
-- \`bun run --cwd "$PWD" toss plan -\` — dry-run validation
-- \`bun run --cwd "$PWD" toss apply -\` — execute and commit
-- \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\` — query data
+- \`toss schema\` — read current schema
+- \`toss plan -\` — dry-run validation
+- \`toss apply -\` — execute and commit
+- \`toss read --sql "<SELECT ...>" --json\` — query data
 
 ## Rules
 - One semantic unit per apply.

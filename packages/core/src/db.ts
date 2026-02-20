@@ -1,8 +1,10 @@
 import { type SQLQueryBindings, Database } from "bun:sqlite";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { TossError } from "./errors";
 import type { DatabaseOptions } from "./types";
 
+export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
 export const SCHEMA_FINGERPRINT = "toss-canonical-observed-2026-02-19";
 export const DEFAULT_SNAPSHOT_INTERVAL = 100;
@@ -23,9 +25,35 @@ export interface DatabaseContext {
   dbPath: string;
 }
 
+function resolveHomeDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    throw new TossError("CONFIG_ERROR", "HOME (or USERPROFILE) is required to resolve the default database path.");
+  }
+  return resolve(home);
+}
+
+function defaultDbPath(): string {
+  return resolve(resolveHomeDir(), DEFAULT_DB_DIR, DEFAULT_DB_NAME);
+}
+
 export function resolveDbPath(pathFromArg?: string): string {
-  const candidate = pathFromArg ?? Bun.env.TOSS_DB_PATH ?? DEFAULT_DB_NAME;
-  return resolve(process.cwd(), candidate);
+  const candidate = pathFromArg ?? Bun.env.TOSS_DB_PATH ?? defaultDbPath();
+  return resolve(candidate);
+}
+
+function notInitializedError(dbPath: string): TossError {
+  return new TossError("NOT_INITIALIZED", `Database is not initialized: ${dbPath}. Run \`toss init --force-new\`.`);
+}
+
+function ensureDatabaseDirectory(dbPath: string): void {
+  mkdirSync(dirname(dbPath), { recursive: true });
+}
+
+function assertDatabaseFileExists(dbPath: string): void {
+  if (!existsSync(dbPath)) {
+    throw notInitializedError(dbPath);
+  }
 }
 
 function applyPragmas(db: Database): void {
@@ -37,6 +65,7 @@ function applyPragmas(db: Database): void {
 
 function openDatabase(pathFromArg?: string): DatabaseContext {
   const dbPath = resolveDbPath(pathFromArg);
+  ensureDatabaseDirectory(dbPath);
   const db = new Database(dbPath);
   applyPragmas(db);
   return { db, dbPath };
@@ -72,7 +101,9 @@ export async function withDatabaseAsync<T>(
 }
 
 export function withInitializedDatabase<T>(options: DatabaseOptions | undefined, run: (ctx: DatabaseContext) => T): T {
-  return withDatabase(options, (ctx) => {
+  const dbPath = resolveDbPath(options?.dbPath);
+  assertDatabaseFileExists(dbPath);
+  return withDatabase({ dbPath }, (ctx) => {
     assertInitialized(ctx.db, ctx.dbPath);
     return run(ctx);
   });
@@ -82,7 +113,9 @@ export async function withInitializedDatabaseAsync<T>(
   options: DatabaseOptions | undefined,
   run: (ctx: DatabaseContext) => Promise<T>,
 ): Promise<T> {
-  return withDatabaseAsync(options, (ctx) => {
+  const dbPath = resolveDbPath(options?.dbPath);
+  assertDatabaseFileExists(dbPath);
+  return withDatabaseAsync({ dbPath }, (ctx) => {
     assertInitialized(ctx.db, ctx.dbPath);
     return run(ctx);
   });
@@ -241,7 +274,7 @@ export function isInitialized(db: Database): boolean {
 
 export function assertInitialized(db: Database, dbPath: string): void {
   if (!isInitialized(db)) {
-    throw new TossError("NOT_INITIALIZED", `Database is not initialized: ${dbPath}. Run \`toss init --force-new\`.`);
+    throw notInitializedError(dbPath);
   }
 }
 

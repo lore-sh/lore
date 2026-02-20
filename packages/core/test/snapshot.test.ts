@@ -133,7 +133,7 @@ describe("snapshot / recover", () => {
     });
     await applyPlan(create, { dbPath });
 
-    const snapshotDir = `${dir}/.toss/snapshots`;
+    const snapshotDir = `${dir}/snapshots`;
     const names: string[] = [];
     for await (const name of new Bun.Glob("*").scan({ cwd: snapshotDir })) {
       names.push(name);
