@@ -23,19 +23,16 @@ interface ManagedBlock {
 interface SkillPaths {
   sharedSkillDir: string;
   sharedSkillPath: string;
-  sharedContextPath: string;
   sharedContractsPath: string;
   codexAgentsPath: string;
   opencodeAgentsPath: string;
   cursorRulePath: string;
   claudeSkillDir: string;
   claudeSkillPath: string;
-  claudeContextPath: string;
   claudeContractsPath: string;
   claudeDocPath: string;
   openclawSkillDir: string;
   openclawSkillPath: string;
-  openclawContextPath: string;
   openclawContractsPath: string;
   openclawAgentsPath: string;
 }
@@ -97,19 +94,16 @@ function resolveSkillPaths(): SkillPaths {
   return {
     sharedSkillDir,
     sharedSkillPath: resolve(sharedSkillDir, "SKILL.md"),
-    sharedContextPath: resolve(sharedReferencesDir, "context.md"),
     sharedContractsPath: resolve(sharedReferencesDir, "contracts.md"),
     codexAgentsPath: resolve(codexHome, "AGENTS.md"),
     opencodeAgentsPath: resolve(opencodeHome, "AGENTS.md"),
     cursorRulePath: resolve(home, ".cursor", "rules", "toss.mdc"),
     claudeSkillDir,
     claudeSkillPath: resolve(claudeSkillDir, "SKILL.md"),
-    claudeContextPath: resolve(claudeReferencesDir, "context.md"),
     claudeContractsPath: resolve(claudeReferencesDir, "contracts.md"),
     claudeDocPath: resolve(home, ".claude", "CLAUDE.md"),
     openclawSkillDir,
     openclawSkillPath: resolve(openclawSkillDir, "SKILL.md"),
-    openclawContextPath: resolve(openclawReferencesDir, "context.md"),
     openclawContractsPath: resolve(openclawReferencesDir, "contracts.md"),
     openclawAgentsPath: resolve(openclawWorkspace, "AGENTS.md"),
   };
@@ -132,168 +126,417 @@ function normalizePlatforms(platforms?: SkillPlatform[] | undefined): SkillPlatf
 function tossSkillContent(): string {
   return `---
 name: toss
-description: Use toss CLI to store durable memory, evolve schema safely, and run read-side analysis with schema -> plan -> apply.
+description: Detects information worth remembering from conversation — schedules, tasks, expenses, decisions, learnings, thoughts — and stores it in a personal database proactively. Also recalls and analyzes stored data. Activate whenever user mentions dates, plans, purchases, reflections, or asks about past data.
 ---
 
 # toss
 
-Use this skill for toss workflows that need durable writes, schema changes, and read-side analysis.
+A personal database that AI manages on behalf of humans. You design the schema, evolve it, and store data proactively — users never think about tables or migrations.
 
-## Command surface
-- Schema path: \`bun run --cwd "$PWD" toss schema\`
-- Plan path (dry-run): \`bun run --cwd "$PWD" toss plan -\`
-- Apply path (write): \`bun run --cwd "$PWD" toss apply -\`
-- Read path: \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\`
-- History path: \`bun run --cwd "$PWD" toss history --verbose\`
-- Verify path: \`bun run --cwd "$PWD" toss verify\`
+## Core Behavior
 
-## Remember Flow (schema -> plan -> apply)
-1. Read schema first:
+1. **Proactive storage**: When conversation contains information worth remembering, store it immediately. Do not ask for permission. Briefly mention what you stored after the fact.
+2. **Schema ownership**: You own the schema. Read current schema, decide if it fits the data, create or alter tables as needed. Continuously optimize naming and structure.
+3. **Autonomous evolution**: When new attributes appear, add columns. When names are unclear, rename. When tables grow unwieldy, split them. Schema changes and data mutations go in the same apply.
+4. **Recall on demand**: When users ask about their data, query it with SQL and present results clearly.
+
+## What to Store
+
+Store anything that would be useful to remember later. If you think "this person might want to recall this," store it.
+
+**Store immediately (high confidence):**
+- Schedules and appointments: "dentist next Tuesday", "meeting at 3pm"
+- Tasks and todos: "need to buy groceries", "renew passport before June"
+- Expenses and purchases: "spent 850 yen on ramen", "bought a keyboard"
+- Deadlines: "report due March 15", "visa expires June"
+- Goals and plans: "want to read 20 books this year", "planning to move in April"
+- Life events: "started new job", "signed lease for new apartment"
+- Decisions and reasons: "chose Next.js over Remix because of file-based routing"
+- Learnings and insights: "TIL: SQLite WAL mode improves read concurrency"
+- Health and habits: "ran 5km", "started intermittent fasting"
+- People and context: "met Tanaka from the Sales team at Acme Corp"
+
+**Store when relevant to ongoing work:**
+- Reasoning and thought process during coding or debugging
+- Architecture decisions and trade-offs considered
+- Problem-solving context that would help future sessions
+- Research findings and comparisons
+
+**Never store:**
+- Secrets, passwords, API keys, tokens, credentials
+- Transient conversational noise with no informational value
+
+## Schema Design
+
+You design all tables. Follow these conventions:
+
+**Naming:**
+- Tables: English, plural, snake_case (\`expenses\`, \`schedules\`, \`reading_list\`)
+- Columns: English, descriptive, snake_case (\`due_date\`, \`amount\`, \`completed_at\`)
+- Every table MUST have \`id INTEGER PRIMARY KEY\`
+
+**Types:**
+- Text: \`TEXT\` (strings, notes, descriptions)
+- Numbers: \`INTEGER\` (counts, IDs) or \`REAL\` (decimals, amounts)
+- Dates/times: \`TEXT\` in ISO 8601 (\`2026-02-20\`, \`2026-02-20T15:00:00\`)
+- Booleans: \`INTEGER\` (0 or 1)
+- Categories: \`TEXT\` (descriptive strings like \`"food"\`, \`"transport"\`)
+
+**Structure decisions:**
+- Start simple. One table per domain (\`expenses\`, \`schedules\`, \`tasks\`).
+- Add columns when new attributes appear — do not create columns speculatively.
+- Split into separate tables only when data has clearly different lifecycles or needs many-to-many relationships.
+- When schema grows unclear, refactor: rename for clarity, split bloated tables, merge redundant ones.
+
+**Before creating a new table, check for semantic overlap:**
+- Read the current schema and examine existing tables. If a table covering a similar domain already exists, query its rows with \`toss read\` to understand how it is actually used.
+- If the existing table serves the same purpose under a different name (e.g., \`events\` already stores what would go in \`schedules\`), reuse it — or rename it via migration if the new name is clearly better.
+- If the existing table serves a genuinely different purpose despite a similar name, keep both and create the new table.
+- If the overlap is ambiguous, ask the user which direction to take before writing.
+
+## Remember Flow
+
+\`\`\`
+schema -> plan -> apply
+\`\`\`
+
+1. Read current schema:
 \`\`\`bash
 bun run --cwd "$PWD" toss schema
 \`\`\`
-2. Classify user intent as one of: \`store\` / \`confirm\` / \`ignore\`.
-3. Auto-store only high-confidence facts (clear schedule, deadline, purchase, task). Ask confirmation when ambiguous.
-4. Build OperationPlan from schema + intent.
-5. Dry-run check via stdin:
-\`\`\`bash
-cat <<'JSON' | bun run --cwd "$PWD" toss plan -
-{"message":"<what this apply does>","operations":[...]}
-JSON
-\`\`\`
-6. Apply only if dry-run has no errors:
-\`\`\`bash
-cat <<'JSON' | bun run --cwd "$PWD" toss apply -
-{"message":"<what this apply does>","operations":[...]}
-JSON
-\`\`\`
-7. If apply fails due to schema mismatch, re-read schema and retry once.
 
-## Recall Flow
-1. Convert request to read-only SQL (\`SELECT\` or \`WITH ... SELECT\`).
-2. Run:
-\`\`\`bash
-bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json
-\`\`\`
-3. Return structured results with a short interpretation.
-
-## Hard Rules
-- Keep one semantic unit per apply.
-- Always include a non-empty \`message\`.
-- Never run \`update\` or \`delete\` without explicit \`where\`.
-- Never store secrets, credentials, access tokens, or private keys.
-- Prefer staged migrations: additive -> backfill -> verify -> cleanup.
-
-## References
-- Product background and use cases: [references/context.md](references/context.md)
-- Operation contracts and examples: [references/contracts.md](references/contracts.md)
-`;
-}
-
-function contextReferenceContent(): string {
-  return `# toss Context
-
-## Background
-toss is a personal database for the AI era. It separates:
-- Planner: natural language -> structured plan/query
-- Executor (toss CLI): validate + apply + log + revert
-
-This keeps execution deterministic and auditable.
-
-## Philosophy
-1. Humans should not need to design schema/migrations manually.
-2. Data is owned by individuals (local-first SQLite).
-3. Be bold with safety: append-only history + revert.
-4. Schema should evolve continuously with data migration.
-
-## 2-layer model
-- Commit Log: immutable source of truth (\`_toss_commit\`, \`_toss_op\`, \`_toss_effect_*\`)
-- HEAD State: materialized current tables, always rebuildable
-
-## Typical use cases
-1. Life log input:
-   - User: "Lunch ramen 850 yen"
-   - Skill: build OperationPlan and apply
-2. Recall/analysis:
-   - User: "This month's food expense"
-   - Skill: build read-only SQL and summarize
-3. Dashboard:
-   - Apps read \`toss.db\` directly for visualization
-`;
-}
-
-function contractsReferenceContent(): string {
-  return `# toss Contracts
-
-## apply contract
-\`toss apply <file|->\` accepts OperationPlan envelope JSON:
-
+2. Build OperationPlan. Include schema changes and data mutations together:
 \`\`\`json
 {
-  "message": "2026-02-18 dinner expense added",
+  "message": "track lunch expense 850 yen",
   "operations": [
+    {
+      "type": "create_table",
+      "table": "expenses",
+      "columns": [
+        {"name": "id", "type": "INTEGER", "primaryKey": true},
+        {"name": "date", "type": "TEXT", "notNull": true},
+        {"name": "item", "type": "TEXT", "notNull": true},
+        {"name": "amount", "type": "REAL", "notNull": true},
+        {"name": "category", "type": "TEXT"},
+        {"name": "note", "type": "TEXT"}
+      ]
+    },
     {
       "type": "insert",
       "table": "expenses",
-      "values": { "date": "2026-02-18", "item": "dinner", "amount": 1200 }
+      "values": {"date": "2026-02-20", "item": "ramen lunch", "amount": 850, "category": "food"}
     }
   ]
 }
 \`\`\`
 
-## plan contract
-\`toss plan <file|->\`
-- Validates JSON and operation constraints
-- Runs dry-run in savepoint and rolls back
-- Returns JSON with \`errors\`, \`warnings\`, \`risk\`, and predicted effects
+3. Dry-run (recommended for schema changes, optional for simple inserts):
+\`\`\`bash
+cat <<'JSON' | bun run --cwd "$PWD" toss plan -
+<plan JSON>
+JSON
+\`\`\`
 
-Allowed operation types:
-- \`create_table\`
-- \`add_column\`
-- \`insert\`
-- \`update\` (requires non-empty \`where\`)
-- \`delete\` (requires non-empty \`where\`)
-- \`drop_table\`
-- \`drop_column\`
-- \`alter_column_type\`
+4. Apply:
+\`\`\`bash
+cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+<plan JSON>
+JSON
+\`\`\`
 
-## schema contract
-\`toss schema [--table <name>]\`
-- Returns detailed schema JSON for planner input
-- Includes table/column/FK/index/trigger/check metadata and row counts
+5. If apply fails with schema mismatch, re-read schema and retry once.
 
-## read contract
-\`toss read --sql "<query>" [--json]\`
-- Only \`SELECT\` / \`WITH ... SELECT\`
-- Single statement only
+## Recall Flow
 
-## history / verify / revert
-- \`toss history --verbose\`: includes parent ids, state hash, inverse readiness
-- \`toss verify\` / \`toss verify --full\`: chain hash + SQLite integrity checks
-- \`toss revert <commit_id>\`: returns row/schema conflict details
+Convert request to SQL and query:
+\`\`\`bash
+bun run --cwd "$PWD" toss read --sql "SELECT date, item, amount FROM expenses WHERE category = 'food' AND date >= '2026-02-01' ORDER BY date" --json
+\`\`\`
+
+Present results with a short interpretation.
+
+## Hard Rules
+
+- MUST read schema before every write.
+- MUST include a descriptive, non-empty \`message\` in every apply.
+- MUST use \`where\` for \`update\` and \`delete\` — never omit it.
+- MUST NOT store secrets, credentials, or tokens.
+- MUST NOT ask permission before storing — store and report afterward.
+- MUST keep one semantic unit per apply.
+- For destructive operations (\`drop_table\`, \`drop_column\`): prefer staged migration — add new -> migrate data -> verify -> drop old.
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| \`toss schema [--table <name>]\` | Read current schema |
+| \`toss plan <file\\|->\` | Dry-run validation |
+| \`toss apply <file\\|->\` | Execute and commit |
+| \`toss read --sql "<SELECT>" --json\` | Read-only query |
+| \`toss status\` | Database overview |
+| \`toss history [--verbose]\` | Commit log |
+| \`toss verify [--full]\` | Integrity check |
+| \`toss revert <commit_id>\` | Reverse a commit |
+
+All commands: \`bun run --cwd "$PWD" toss <command>\`
+
+## Examples
+
+### Proactive storage from conversation
+
+User says: "I booked a dentist appointment tomorrow at 2pm"
+
+\`\`\`bash
+# 1. Read schema -> schedules table does not exist yet
+
+# 2. Apply with table creation + insert
+cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+{
+  "message": "dentist appointment 2026-02-21 14:00",
+  "operations": [
+    {
+      "type": "create_table",
+      "table": "schedules",
+      "columns": [
+        {"name": "id", "type": "INTEGER", "primaryKey": true},
+        {"name": "title", "type": "TEXT", "notNull": true},
+        {"name": "date", "type": "TEXT", "notNull": true},
+        {"name": "time", "type": "TEXT"},
+        {"name": "location", "type": "TEXT"},
+        {"name": "note", "type": "TEXT"}
+      ]
+    },
+    {
+      "type": "insert",
+      "table": "schedules",
+      "values": {"title": "dentist appointment", "date": "2026-02-21", "time": "14:00"}
+    }
+  ]
+}
+JSON
+\`\`\`
+
+Response: "Saved your dentist appointment for tomorrow at 2pm."
+
+### Schema evolution
+
+User says: "Had lunch at Ichiran in Shibuya, 1200 yen"
+
+Schema already has \`expenses(id, date, item, amount, category, note)\` — location is new.
+
+\`\`\`bash
+cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+{
+  "message": "lunch expense with location tracking",
+  "operations": [
+    {
+      "type": "add_column",
+      "table": "expenses",
+      "column": {"name": "location", "type": "TEXT"}
+    },
+    {
+      "type": "insert",
+      "table": "expenses",
+      "values": {
+        "date": "2026-02-20", "item": "ichiran ramen", "amount": 1200,
+        "category": "food", "location": "shibuya"
+      }
+    }
+  ]
+}
+JSON
+\`\`\`
+
+### Storing reasoning context
+
+During debugging, user resolves a tricky issue:
+
+\`\`\`bash
+cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+{
+  "message": "debug insight: SQLite WAL mode lock contention",
+  "operations": [
+    {
+      "type": "insert",
+      "table": "learnings",
+      "values": {
+        "date": "2026-02-20",
+        "topic": "sqlite",
+        "insight": "WAL mode with PRAGMA busy_timeout=5000 resolves intermittent SQLITE_BUSY in concurrent reads",
+        "context": "toss CLI failing under parallel test runs",
+        "tags": "sqlite,debugging,concurrency"
+      }
+    }
+  ]
+}
+JSON
+\`\`\`
+
+### Recall and analysis
+
+User asks: "How much did I spend on food this month?"
+
+\`\`\`bash
+bun run --cwd "$PWD" toss read --sql "SELECT SUM(amount) as total, COUNT(*) as count FROM expenses WHERE category = 'food' AND date >= '2026-02-01'" --json
+\`\`\`
+
+Response: "You spent a total of 12,450 yen on food this month across 14 meals."
+
+## References
+
+- Operation type contracts and specifications: [references/contracts.md](references/contracts.md)
+`;
+}
+
+function contractsReferenceContent(): string {
+  return `# toss Operation Contracts
+
+## OperationPlan Envelope
+
+Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss apply -\`:
+
+\`\`\`json
+{
+  "message": "descriptive commit message",
+  "operations": [...]
+}
+\`\`\`
+
+- \`message\`: Required, non-empty. Describes what this commit does.
+- \`operations\`: Required, at least one operation.
+
+## Schema Operations
+
+### create_table
+\`\`\`json
+{
+  "type": "create_table",
+  "table": "table_name",
+  "columns": [
+    {"name": "id", "type": "INTEGER", "primaryKey": true},
+    {"name": "title", "type": "TEXT", "notNull": true},
+    {"name": "count", "type": "INTEGER", "default": 0}
+  ]
+}
+\`\`\`
+- Exactly one column MUST have \`"primaryKey": true\`.
+- Optional column fields: \`notNull\`, \`unique\`, \`default\`.
+- Table/column names: letters, digits, underscore. No \`_toss_\` or \`sqlite_\` prefix.
+
+### add_column
+\`\`\`json
+{
+  "type": "add_column",
+  "table": "existing_table",
+  "column": {"name": "new_col", "type": "TEXT", "default": "value"}
+}
+\`\`\`
+- Cannot add PRIMARY KEY or UNIQUE columns.
+- If \`notNull: true\`, must provide \`default\`.
+
+### drop_table
+\`\`\`json
+{"type": "drop_table", "table": "table_name"}
+\`\`\`
+
+### drop_column
+\`\`\`json
+{"type": "drop_column", "table": "table_name", "column": "col_name"}
+\`\`\`
+
+### alter_column_type
+\`\`\`json
+{"type": "alter_column_type", "table": "table_name", "column": "col_name", "newType": "INTEGER"}
+\`\`\`
+
+## Data Operations
+
+### insert
+\`\`\`json
+{
+  "type": "insert",
+  "table": "table_name",
+  "values": {"col1": "text", "col2": 42, "col3": true, "col4": null}
+}
+\`\`\`
+- Values: string, number, boolean, or null only.
+
+### update
+\`\`\`json
+{
+  "type": "update",
+  "table": "table_name",
+  "values": {"col1": "new_value"},
+  "where": {"id": 1}
+}
+\`\`\`
+- \`where\` is required and MUST be non-empty.
+
+### delete
+\`\`\`json
+{
+  "type": "delete",
+  "table": "table_name",
+  "where": {"id": 1}
+}
+\`\`\`
+- \`where\` is required and MUST be non-empty.
+
+## Read Operations
+
+### schema
+\`\`\`bash
+toss schema [--table <name>]
+\`\`\`
+Returns JSON with tables, columns, indexes, foreign keys, triggers, checks, and row counts.
+
+### read
+\`\`\`bash
+toss read --sql "<SELECT | WITH...SELECT>" [--json]
+\`\`\`
+Single statement, read-only. Use \`--json\` for structured output.
+
+### plan (dry-run)
+\`\`\`bash
+toss plan <file|->
+\`\`\`
+Returns: \`ok\`, \`errors\`, \`warnings\`, \`risk\` (low/medium/high), predicted effects.
+
+## Other Commands
+
+- \`toss history [--verbose]\`: Commit log with optional detail.
+- \`toss verify [--full]\`: Chain hash validation + optional SQLite integrity check.
+- \`toss revert <commit_id>\`: Inverse commit. Returns conflict details if revert is blocked.
+- \`toss status\`: Database path, table count, HEAD commit info.
+- \`toss recover --from-snapshot <commit_id>\`: Disaster recovery from snapshot.
 `;
 }
 
 function cursorRuleContent(): string {
   return `---
-description: toss workflow for durable storage and query
+description: toss personal database — detects storable info (schedules, tasks, expenses, decisions, learnings) from conversation and manages schema evolution proactively
 alwaysApply: false
 ---
 
-Use toss for memory/storage requests and analytical reads.
+Activate when conversation contains information worth remembering or user asks about past data.
 
-Commands:
-- \`bun run --cwd "$PWD" toss schema\`
-- \`bun run --cwd "$PWD" toss plan -\`
-- \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\`
-- \`bun run --cwd "$PWD" toss apply -\`
+## Behavior
+- Store proactively. Do not ask permission — briefly report what you stored.
+- Design and evolve schema autonomously (English, plural snake_case table names).
+- Read schema before every write. Use schema -> plan -> apply flow.
 
-Rules:
-- Use schema -> plan -> apply for every write.
-- Auto-store only high-confidence facts. Ask when ambiguous.
-- Keep one semantic unit per apply.
-- Never run update/delete without explicit where.
-- For destructive migration, verify before and after.
+## Commands
+- \`bun run --cwd "$PWD" toss schema\` — read current schema
+- \`bun run --cwd "$PWD" toss plan -\` — dry-run validation
+- \`bun run --cwd "$PWD" toss apply -\` — execute and commit
+- \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\` — query data
+
+## Rules
+- One semantic unit per apply.
+- Never update/delete without explicit where.
+- Never store secrets or credentials.
+- Include a descriptive message in every apply.
 `;
 }
 
@@ -301,12 +544,12 @@ function agentsBlock(skillPath: string): string {
   return `${AGENTS_BLOCK_START}
 ## Skills
 ### Available skills
-- toss: Unified toss workflow for remember/store, schema evolution + data migration, and recall/query with read-before-apply safety. (file: ${skillPath})
+- toss: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
 ### How to use skills
-- Trigger: use \`toss\` whenever user intent touches toss memory, storage, query, or analysis.
-- For writes: always run schema -> plan -> apply.
-- For reads: generate read-only SQL only.
-- For destructive changes: run \`toss history --verbose\` and \`toss verify --full\` before apply.
+- Activate \`toss\` whenever conversation contains information worth remembering or user asks about past data.
+- Store proactively — do not ask permission. Briefly report what was stored afterward.
+- For writes: read schema first, then schema -> plan -> apply.
+- For reads: generate read-only SQL with \`toss read\`.
 ${AGENTS_BLOCK_END}
 `;
 }
@@ -314,10 +557,11 @@ ${AGENTS_BLOCK_END}
 function claudeBlock(skillPath: string): string {
   return `${CLAUDE_BLOCK_START}
 ## Skills
-- toss: Unified toss workflow for remember/store, schema evolution + data migration, and recall/query with read-before-apply safety. (file: ${skillPath})
+- toss: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
 ## How to use skills
-- Use \`toss\` whenever a request needs durable write/query on toss data.
-- Read schema before apply, and keep destructive changes staged.
+- Use \`toss\` whenever conversation contains dates, plans, expenses, tasks, decisions, learnings, or user asks about past data.
+- Store proactively — do not ask permission, briefly report after storing.
+- Read schema before every write. Schema -> plan -> apply.
 ${CLAUDE_BLOCK_END}
 `;
 }
@@ -410,10 +654,9 @@ async function removeFileIfExists(path: string): Promise<boolean> {
   return true;
 }
 
-async function writeSkillBundle(skillPath: string, contextPath: string, contractsPath: string): Promise<void> {
+async function writeSkillBundle(skillPath: string, contractsPath: string): Promise<void> {
   await Promise.all([
     writeText(skillPath, tossSkillContent()),
-    writeText(contextPath, contextReferenceContent()),
     writeText(contractsPath, contractsReferenceContent()),
   ]);
 }
@@ -431,8 +674,8 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
   const files: GeneratedSkillFile[] = [];
 
   if (selected.length > 0) {
-    await writeSkillBundle(paths.sharedSkillPath, paths.sharedContextPath, paths.sharedContractsPath);
-    addGeneratedFiles(files, "shared", paths.sharedSkillPath, paths.sharedContextPath, paths.sharedContractsPath);
+    await writeSkillBundle(paths.sharedSkillPath, paths.sharedContractsPath);
+    addGeneratedFiles(files, "shared", paths.sharedSkillPath, paths.sharedContractsPath);
   } else {
     await removeDirIfExists(paths.sharedSkillDir);
   }
@@ -469,7 +712,7 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
   }
 
   if (selectedSet.has("claude")) {
-    await writeSkillBundle(paths.claudeSkillPath, paths.claudeContextPath, paths.claudeContractsPath);
+    await writeSkillBundle(paths.claudeSkillPath, paths.claudeContractsPath);
     await upsertManagedBlock(
       paths.claudeDocPath,
       claudeBlock(paths.claudeSkillPath),
@@ -480,7 +723,6 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
       files,
       "claude",
       paths.claudeSkillPath,
-      paths.claudeContextPath,
       paths.claudeContractsPath,
       paths.claudeDocPath,
     );
@@ -490,7 +732,7 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
   }
 
   if (selectedSet.has("openclaw")) {
-    await writeSkillBundle(paths.openclawSkillPath, paths.openclawContextPath, paths.openclawContractsPath);
+    await writeSkillBundle(paths.openclawSkillPath, paths.openclawContractsPath);
     await upsertManagedBlock(
       paths.openclawAgentsPath,
       agentsBlock(paths.openclawSkillPath),
@@ -501,7 +743,6 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
       files,
       "openclaw",
       paths.openclawSkillPath,
-      paths.openclawContextPath,
       paths.openclawContractsPath,
       paths.openclawAgentsPath,
     );
