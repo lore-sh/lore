@@ -60,7 +60,14 @@ function buildColumnSql(column: ColumnDefinition, forAddColumn = false): string 
     tokens.push("NOT NULL");
   }
   if (Object.hasOwn(column, "default")) {
-    tokens.push("DEFAULT", serializeLiteral(column.default ?? null));
+    const defaultValue = column.default;
+    if (!defaultValue) {
+      tokens.push("DEFAULT", "NULL");
+    } else if (defaultValue.kind === "literal") {
+      tokens.push("DEFAULT", serializeLiteral(defaultValue.value));
+    } else {
+      tokens.push("DEFAULT", defaultValue.expr);
+    }
   }
 
   return tokens.join(" ");
@@ -72,6 +79,15 @@ function executeCreateTable(db: Database, operation: CreateTableOperation): void
 }
 
 function executeAddColumn(db: Database, operation: AddColumnOperation): void {
+  if (operation.column.default?.kind === "sql") {
+    const row = getRow<{ found: number }>(db, `SELECT 1 AS found FROM ${quoteIdentifier(operation.table)} LIMIT 1`);
+    if (row) {
+      throw new TossError(
+        "INVALID_OPERATION",
+        "add_column with SQL default is only allowed on empty tables; use staged table rebuild for non-empty tables",
+      );
+    }
+  }
   const column = buildColumnSql(operation.column, true);
   db.run(`ALTER TABLE ${quoteIdentifier(operation.table)} ADD COLUMN ${column}`);
 }

@@ -4,6 +4,20 @@ import { COLUMN_TYPE_PATTERN, IDENTIFIER_PATTERN, createScanner } from "../sql";
 import type { OperationPlan } from "../types";
 
 const scalarValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const columnDefaultSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("literal"),
+      value: scalarValueSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("sql"),
+      expr: z.enum(["CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"]),
+    })
+    .strict(),
+]);
 
 const columnSchema = z
   .object({
@@ -12,7 +26,7 @@ const columnSchema = z
     notNull: z.boolean().optional(),
     primaryKey: z.boolean().optional(),
     unique: z.boolean().optional(),
-    default: scalarValueSchema.optional(),
+    default: columnDefaultSchema.optional(),
   })
   .strict();
 

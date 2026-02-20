@@ -99,6 +99,55 @@ describe("planCheck", () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 
+  testWithTmp("rejects legacy scalar column default payload", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const legacyDefault = await writePlanFile(dir, "legacy-default-shape.json", {
+      message: "legacy default shape",
+      operations: [
+        {
+          type: "create_table",
+          table: "legacy_defaults",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "count", type: "INTEGER", default: 0 },
+          ],
+        },
+      ],
+    });
+    const result = await planCheck(legacyDefault);
+    expect(result.ok).toBe(false);
+    expect(result.errors.some((error) => error.code === "INVALID_PLAN")).toBe(true);
+  });
+
+  testWithTmp("accepts SQL default object payload", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const sqlDefault = await writePlanFile(dir, "sql-default-shape.json", {
+      message: "sql default shape",
+      operations: [
+        {
+          type: "create_table",
+          table: "events",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            {
+              name: "recorded_at",
+              type: "TEXT",
+              notNull: true,
+              default: { kind: "sql", expr: "CURRENT_TIMESTAMP" },
+            },
+          ],
+        },
+      ],
+    });
+    const result = await planCheck(sqlDefault);
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
   testWithTmp("returns error result when plan file is missing", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });

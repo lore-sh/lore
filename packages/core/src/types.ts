@@ -27,7 +27,16 @@ export interface ColumnDefinition {
   notNull?: boolean | undefined;
   primaryKey?: boolean | undefined;
   unique?: boolean | undefined;
-  default?: JsonPrimitive | undefined;
+  default?:
+    | {
+        kind: "literal";
+        value: JsonPrimitive;
+      }
+    | {
+        kind: "sql";
+        expr: "CURRENT_TIMESTAMP" | "CURRENT_DATE" | "CURRENT_TIME";
+      }
+    | undefined;
 }
 
 export interface CreateTableOperation {

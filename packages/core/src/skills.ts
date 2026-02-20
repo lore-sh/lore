@@ -130,8 +130,9 @@ A personal database that AI manages on behalf of humans. You design the schema, 
 1. **Proactive storage**: When conversation contains information worth remembering, store it immediately. Do not ask for permission. Briefly mention what you stored after the fact.
 2. **Schema ownership**: You own the schema. Read current schema, decide if it fits the data, create or alter tables as needed. Continuously optimize naming and structure.
 3. **Autonomous evolution**: When new attributes appear, add columns. When names are unclear, rename. When tables grow unwieldy, split them. Schema changes and data mutations go in the same apply.
-4. **Recall on demand**: When users ask about their data, query it with SQL and present results clearly.
-5. **Language fidelity for stored content**: Keep user-facing values (for example \`title\`, \`detail\`, \`note\`, \`item\`, \`insight\`) in the language explicitly requested by the user. If no explicit instruction exists, follow the language used in the current user message. Do not translate unless asked.
+4. **State-first writes**: Prefer current-state tables over append-only logs. Use \`update\` when an existing entity changes, \`insert\` for genuinely new entities, and \`update + insert\` only when you intentionally need both current state and event history.
+5. **Recall on demand**: When users ask about their data, query it with SQL and present results clearly.
+6. **Language fidelity for stored content**: Keep user-facing values (for example \`title\`, \`detail\`, \`note\`, \`item\`, \`insight\`) in the language explicitly requested by the user. If no explicit instruction exists, follow the language used in the current user message. Do not translate unless asked.
 
 ## What to Store
 
@@ -174,6 +175,7 @@ You design all tables. Follow these conventions:
 - Dates/times: \`TEXT\` in ISO 8601 (\`2026-02-20\`, \`2026-02-20T15:00:00\`)
 - Booleans: \`INTEGER\` (0 or 1)
 - Categories: \`TEXT\` + named \`CHECK\` constraint when values are finite
+- System timestamps: prefer SQLite defaults (\`{"kind":"sql","expr":"CURRENT_TIMESTAMP"}\`) over planner-generated "now" values
 
 **Structure decisions:**
 - Start simple. One table per domain (\`expenses\`, \`schedules\`, \`tasks\`).
@@ -186,6 +188,12 @@ You design all tables. Follow these conventions:
 - If the existing table serves the same purpose under a different name (e.g., \`events\` already stores what would go in \`schedules\`), reuse it — or rename it via migration if the new name is clearly better.
 - If the existing table serves a genuinely different purpose despite a similar name, keep both and create the new table.
 - If the overlap is ambiguous, ask the user which direction to take before writing.
+
+**Write strategy (state-first):**
+- If a fact changes an existing entity, prefer \`update\` over adding a new row.
+- If a fact introduces a new entity, use \`insert\`.
+- If both current state and event trail are needed, do \`update\` for state and \`insert\` for event in one apply.
+- Use append-only tables only when temporal analysis/audit is an explicit requirement.
 
 ## Remember Flow
 
@@ -254,10 +262,12 @@ Present results with a short interpretation.
 - MUST read schema before every write.
 - MUST include a descriptive, non-empty \`message\` in every apply.
 - MUST use \`where\` for \`update\` and \`delete\` — never omit it.
+- MUST choose write mode deliberately: update current state unless append-only intent is explicit.
 - MUST NOT store secrets, credentials, or tokens.
 - MUST NOT ask permission before storing — store and report afterward.
 - MUST keep stored content fields in the user-requested language (or current user message language when unspecified).
 - MUST keep one semantic unit per apply.
+- MUST prefer SQLite-generated timestamps for system fields (via SQL defaults) instead of injecting current time in values.
 - For finite category/status fields, define and maintain explicit \`CHECK\` constraints.
 - For destructive operations (\`drop_table\`, \`drop_column\`): prefer staged migration — add new -> migrate data -> verify -> drop old.
 
@@ -343,6 +353,29 @@ cat <<'JSON' | toss apply -
 JSON
 \`\`\`
 
+### State-first decision update
+
+User says: "We changed the auth decision from session to JWT."
+
+\`\`\`bash
+cat <<'JSON' | toss apply -
+{
+  "message": "update auth decision to JWT",
+  "operations": [
+    {
+      "type": "update",
+      "table": "decisions",
+      "values": {
+        "decision": "use JWT",
+        "reason": "mobile clients and stateless API gateway requirements"
+      },
+      "where": {"topic": "auth strategy"}
+    }
+  ]
+}
+JSON
+\`\`\`
+
 ### Storing reasoning context
 
 During debugging, user resolves a tricky issue:
@@ -411,12 +444,16 @@ Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss a
   "columns": [
     {"name": "id", "type": "INTEGER", "primaryKey": true},
     {"name": "title", "type": "TEXT", "notNull": true},
-    {"name": "count", "type": "INTEGER", "default": 0}
+    {"name": "count", "type": "INTEGER", "default": {"kind": "literal", "value": 0}},
+    {"name": "created_at", "type": "TEXT", "default": {"kind": "sql", "expr": "CURRENT_TIMESTAMP"}}
   ]
 }
 \`\`\`
 - Exactly one column MUST have \`"primaryKey": true\`.
 - Optional column fields: \`notNull\`, \`unique\`, \`default\`.
+- \`default\` supports:
+  - \`{"kind":"literal","value":<string|number|boolean|null>}\`
+  - \`{"kind":"sql","expr":"CURRENT_TIMESTAMP"|"CURRENT_DATE"|"CURRENT_TIME"}\`
 - Table/column names: letters, digits, underscore. No \`_toss_\` or \`sqlite_\` prefix.
 
 ### add_column
@@ -424,11 +461,12 @@ Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss a
 {
   "type": "add_column",
   "table": "existing_table",
-  "column": {"name": "new_col", "type": "TEXT", "default": "value"}
+  "column": {"name": "new_col", "type": "TEXT", "default": {"kind": "literal", "value": "value"}}
 }
 \`\`\`
 - Cannot add PRIMARY KEY or UNIQUE columns.
 - If \`notNull: true\`, must provide \`default\`.
+- SQL defaults in \`add_column\` are only allowed when the target table is empty.
 
 ### drop_table
 \`\`\`json
@@ -542,7 +580,7 @@ Activate when conversation contains information worth remembering or user asks a
 - Store proactively. Do not ask permission — briefly report what you stored.
 - Design and evolve schema autonomously (English, plural snake_case table names).
 - Read schema before every write. Use schema -> plan -> apply flow.
-- Keep inserted content values in the user-requested language; default to the current user message language when unspecified.
+- Keep written content values in the user-requested language; default to the current user message language when unspecified.
 
 ## Commands
 - \`toss schema\` — read current schema

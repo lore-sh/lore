@@ -6,6 +6,7 @@ import {
   getStatus,
   initDatabase,
   isTossError,
+  readQuery,
 } from "../src";
 import { executeOperation } from "../src/executors/apply";
 import type { RestoreTableOperation } from "../src/types";
@@ -109,6 +110,88 @@ describe("applyPlan", () => {
         expect(error.code).toBe("NULL_PRIMARY_KEY_VALUE");
       }
     }
+  });
+
+  testWithTmp("create_table supports SQL timestamp defaults without planner-provided now values", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const createPlanPath = await writePlanFile(dir, "create-events.sql-default.json", {
+      message: "create events with sql default timestamp",
+      operations: [
+        {
+          type: "create_table",
+          table: "events",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+            {
+              name: "recorded_at",
+              type: "TEXT",
+              notNull: true,
+              default: { kind: "sql", expr: "CURRENT_TIMESTAMP" },
+            },
+          ],
+        },
+      ],
+    });
+    await applyPlan(createPlanPath);
+
+    const insertPlanPath = await writePlanFile(dir, "insert-events.sql-default.json", {
+      message: "insert event without recorded_at",
+      operations: [{ type: "insert", table: "events", values: { id: 1, title: "release" } }],
+    });
+    await applyPlan(insertPlanPath);
+
+    const rows = readQuery("SELECT id, title, recorded_at FROM events");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: 1, title: "release" });
+    expect(typeof rows[0]?.recorded_at).toBe("string");
+    expect((rows[0]?.recorded_at as string).length).toBeGreaterThan(0);
+  });
+
+  testWithTmp("add_column with SQL default is rejected for non-empty tables", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const setup = await writePlanFile(dir, "add-column-sql-default-setup.json", {
+      message: "setup tasks with one row",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+        {
+          type: "insert",
+          table: "tasks",
+          values: { id: 1, title: "first" },
+        },
+      ],
+    });
+    await applyPlan(setup);
+
+    const addColumnPlan = await writePlanFile(dir, "add-column-sql-default-fail.json", {
+      message: "try to add created_at with sql default",
+      operations: [
+        {
+          type: "add_column",
+          table: "tasks",
+          column: {
+            name: "created_at",
+            type: "TEXT",
+            default: { kind: "sql", expr: "CURRENT_TIMESTAMP" },
+          },
+        },
+      ],
+    });
+
+    await expect(applyPlan(addColumnPlan)).rejects.toThrow(
+      /add_column with SQL default is only allowed on empty tables/i,
+    );
   });
 
   testWithTmp("restore_table malformed row value fails with INVALID_OPERATION instead of TypeError", () => {
