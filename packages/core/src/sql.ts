@@ -140,3 +140,144 @@ export function splitTopLevelCommaList(sql: string): string[] {
   if (tail.trim().length > 0) parts.push(tail);
   return parts;
 }
+
+export function normalizeSql(sql: string, options: { tight?: boolean } = {}): string {
+  const tight = options.tight ?? false;
+  let i = 0;
+  let pendingSpace = false;
+  let out = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  const flushSpace = (nextChar: string | undefined): void => {
+    if (!pendingSpace || out.length === 0) {
+      pendingSpace = false;
+      return;
+    }
+    const prev = out[out.length - 1];
+    if (
+      prev === " " ||
+      prev === "(" ||
+      (tight && prev === ",") ||
+      (tight && nextChar === "(") ||
+      nextChar === ")" ||
+      nextChar === "," ||
+      nextChar === ";"
+    ) {
+      pendingSpace = false;
+      return;
+    }
+    out += " ";
+    pendingSpace = false;
+  };
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+        pendingSpace = true;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        pendingSpace = true;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inSingle) {
+      out += ch;
+      if (ch === "'" && next === "'") {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inDouble) {
+      out += ch;
+      if (ch === '"' && next === '"') {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBacktick) {
+      out += ch;
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBracket) {
+      out += ch;
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      pendingSpace = true;
+      i += 2;
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      pendingSpace = true;
+      i += 2;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      pendingSpace = true;
+      i += 1;
+      continue;
+    }
+
+    flushSpace(ch);
+    out += ch >= "a" && ch <= "z" ? ch.toUpperCase() : ch;
+    if (ch === "'") {
+      inSingle = true;
+    } else if (ch === '"') {
+      inDouble = true;
+    } else if (ch === "`") {
+      inBacktick = true;
+    } else if (ch === "[") {
+      inBracket = true;
+    }
+    i += 1;
+  }
+
+  return out.trim();
+}

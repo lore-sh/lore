@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables } from "./db";
 import { TossError } from "./errors";
-import { createScanner, findMatchingParen, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "./sql";
+import { createScanner, findMatchingParen, isWordBoundary, normalizeSql, quoteIdentifier, splitTopLevelCommaList } from "./sql";
 import type { JsonObject, JsonPrimitive } from "./types";
 
 export interface TableInfoRow {
@@ -250,140 +250,11 @@ function pragmaLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function normalizeSql(sql: string | null): string | null {
+function normalizeSqlNullable(sql: string | null): string | null {
   if (sql === null) {
     return null;
   }
-
-  let i = 0;
-  let pendingSpace = false;
-  let out = "";
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-
-  const flushSpace = (nextChar: string | undefined): void => {
-    if (!pendingSpace || out.length === 0) {
-      pendingSpace = false;
-      return;
-    }
-    const prev = out[out.length - 1];
-    if (prev === " " || prev === "(" || nextChar === ")" || nextChar === "," || nextChar === ";") {
-      pendingSpace = false;
-      return;
-    }
-    out += " ";
-    pendingSpace = false;
-  };
-
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-        pendingSpace = true;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        pendingSpace = true;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inSingle) {
-      out += ch;
-      if (ch === "'" && next === "'") {
-        out += next;
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inDouble) {
-      out += ch;
-      if (ch === '"' && next === '"') {
-        out += next;
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBacktick) {
-      out += ch;
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBracket) {
-      out += ch;
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      pendingSpace = true;
-      i += 2;
-      continue;
-    }
-
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      pendingSpace = true;
-      i += 2;
-      continue;
-    }
-
-    if (/\s/.test(ch)) {
-      pendingSpace = true;
-      i += 1;
-      continue;
-    }
-
-    flushSpace(ch);
-    out += ch >= "a" && ch <= "z" ? ch.toUpperCase() : ch;
-    if (ch === "'") {
-      inSingle = true;
-    } else if (ch === '"') {
-      inDouble = true;
-    } else if (ch === "`") {
-      inBacktick = true;
-    } else if (ch === "[") {
-      inBracket = true;
-    }
-    i += 1;
-  }
-
-  return out.trim();
+  return normalizeSql(sql);
 }
 
 function readQuotedIdentifier(segment: string, start: number): { raw: string; next: number } | null {
@@ -534,7 +405,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
     const columnDefs = parseColumnDefinitionsFromCreateTable(tableDdl);
     const checks = extractCheckConstraints(tableDdl);
     return {
-      tableSql: normalizeSql(tableDdl),
+      tableSql: normalizeSqlNullable(tableDdl),
       table,
       options: tableOpts.get(table) ?? { withoutRowid: false, strict: false },
       columns: getRows<TableXInfoRow>(db, `PRAGMA table_xinfo(${pragmaLiteral(table)})`)
@@ -606,7 +477,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
             unique: index.unique === 1,
             origin: index.origin,
             partial: index.partial === 1,
-            sql: normalizeSql(indexSqlRow?.sql ?? null),
+            sql: normalizeSqlNullable(indexSqlRow?.sql ?? null),
             columns: indexColumns,
           };
         })
@@ -620,7 +491,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
         )
       ).map((trigger) => ({
         name: trigger.name,
-        sql: normalizeSql(trigger.sql),
+        sql: normalizeSqlNullable(trigger.sql),
       })),
     };
   });

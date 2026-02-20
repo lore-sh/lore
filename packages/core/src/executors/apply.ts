@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { getRow, getRows, runInSavepoint, tableExists } from "../db";
 import { TossError } from "../errors";
 import { type TableInfoRow, whereClauseFromRecord } from "../rows";
-import { COLUMN_TYPE_PATTERN, createScanner, findMatchingParen, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "../sql";
+import { COLUMN_TYPE_PATTERN, createScanner, findMatchingParen, isWordBoundary, normalizeSql, quoteIdentifier, splitTopLevelCommaList } from "../sql";
 import type {
   AddCheckOperation,
   AddColumnOperation,
@@ -445,146 +445,6 @@ function findCreateTablePayloadRange(ddlSql: string): { start: number; end: numb
   throw new TossError("INVALID_OPERATION", "Malformed CREATE TABLE statement: column list not found");
 }
 
-function normalizeSqlFragment(sql: string): string {
-  let i = 0;
-  let pendingSpace = false;
-  let out = "";
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-
-  const flushSpace = (nextChar: string | undefined): void => {
-    if (!pendingSpace || out.length === 0) {
-      pendingSpace = false;
-      return;
-    }
-    const prev = out[out.length - 1];
-    if (
-      prev === " " ||
-      prev === "(" ||
-      prev === "," ||
-      nextChar === "(" ||
-      nextChar === ")" ||
-      nextChar === "," ||
-      nextChar === ";"
-    ) {
-      pendingSpace = false;
-      return;
-    }
-    out += " ";
-    pendingSpace = false;
-  };
-
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-        pendingSpace = true;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        pendingSpace = true;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inSingle) {
-      out += ch;
-      if (ch === "'" && next === "'") {
-        out += next;
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inDouble) {
-      out += ch;
-      if (ch === '"' && next === '"') {
-        out += next;
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBacktick) {
-      out += ch;
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBracket) {
-      out += ch;
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      pendingSpace = true;
-      i += 2;
-      continue;
-    }
-
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      pendingSpace = true;
-      i += 2;
-      continue;
-    }
-
-    if (/\s/.test(ch)) {
-      pendingSpace = true;
-      i += 1;
-      continue;
-    }
-
-    flushSpace(ch);
-    out += ch >= "a" && ch <= "z" ? ch.toUpperCase() : ch;
-    if (ch === "'") {
-      inSingle = true;
-    } else if (ch === '"') {
-      inDouble = true;
-    } else if (ch === "`") {
-      inBacktick = true;
-    } else if (ch === "[") {
-      inBracket = true;
-    }
-    i += 1;
-  }
-
-  return out.trim();
-}
-
 function findConstraintStart(segment: string, from: number): number {
   const constraintKeywords = new Set([
     "CONSTRAINT",
@@ -824,14 +684,14 @@ function extractTableCheckExpression(segment: string): string | null {
   }
 
   const expression = segment.slice(i + 1, close);
-  return normalizeSqlFragment(expression);
+  return normalizeSql(expression, { tight: true });
 }
 
 function rewriteAddCheckInCreateTable(ddlSql: string, expression: string): string {
   const payloadRange = findCreateTablePayloadRange(ddlSql);
   const payload = ddlSql.slice(payloadRange.start, payloadRange.end);
   const segments = splitTopLevelCommaList(payload);
-  const normalizedExpression = normalizeSqlFragment(expression);
+  const normalizedExpression = normalizeSql(expression, { tight: true });
 
   for (const segment of segments) {
     const existing = extractTableCheckExpression(segment);
@@ -848,7 +708,7 @@ function rewriteDropCheckInCreateTable(ddlSql: string, expression: string): stri
   const payloadRange = findCreateTablePayloadRange(ddlSql);
   const payload = ddlSql.slice(payloadRange.start, payloadRange.end);
   const segments = splitTopLevelCommaList(payload);
-  const normalizedExpression = normalizeSqlFragment(expression);
+  const normalizedExpression = normalizeSql(expression, { tight: true });
 
   let removed = 0;
   const rewrittenSegments = segments.filter((segment) => {
