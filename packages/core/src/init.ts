@@ -18,6 +18,8 @@ export async function initDatabase(
     initializeStorage(db);
   });
 
-  const generatedSkills = options.generateSkills ? await generateSkills(options.workspacePath) : null;
+  const generatedSkills = options.generateSkills
+    ? await generateSkills(options.skillPlatforms ? { platforms: options.skillPlatforms } : {})
+    : null;
   return { dbPath, generatedSkills };
 }

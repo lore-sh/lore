@@ -192,8 +192,10 @@ export interface DatabaseOptions {
   dbPath?: string;
 }
 
+export type SkillPlatform = "claude" | "cursor" | "codex" | "opencode" | "openclaw";
+
 export interface InitDatabaseOptions extends DatabaseOptions {
   generateSkills?: boolean;
-  workspacePath?: string;
+  skillPlatforms?: SkillPlatform[] | undefined;
   forceNew?: boolean;
 }

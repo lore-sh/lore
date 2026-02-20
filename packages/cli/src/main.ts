@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import {
   applyPlan,
+  cleanSkills,
   getHistory,
   getStatus,
   initDatabase,
@@ -11,14 +12,25 @@ import {
   verifyDatabase,
 } from "@toss/core";
 import type { CommitEntry } from "@toss/core";
+import { createInterface } from "node:readline/promises";
+import { stdin, stdout } from "node:process";
 import { printTable, toJson } from "./format";
+import {
+  canUseInteractivePrompt,
+  parseInitArgs,
+  promptPlatformSelection,
+  renderCleanResult,
+  renderInitResult,
+  resolveInitSelection,
+} from "./init-ui";
 
 function usage(): string {
   return [
     "toss CLI",
     "",
     "Commands:",
-    "  toss init [--no-skills] [--force-new]",
+    "  toss init [--no-skills] [--force-new] [--platforms <list>] [--yes]",
+    "  toss clean [--yes]",
     "  toss apply --plan <file|->",
     "  toss read --sql \"<SELECT...>\" [--json]",
     "  toss status",
@@ -29,6 +41,9 @@ function usage(): string {
     "",
     "Environment:",
     "  TOSS_DB_PATH   Override default database path (default: ./toss.db)",
+    "",
+    "Init Platforms:",
+    "  claude,cursor,codex,opencode,openclaw",
   ].join("\n");
 }
 
@@ -60,24 +75,70 @@ function summarizeCommit(entry: CommitEntry): Record<string, unknown> {
 }
 
 async function runInit(args: string[]): Promise<void> {
-  const noSkills = hasFlag(args, "--no-skills");
-  const forceNew = hasFlag(args, "--force-new");
-  const invalidArgs = args.filter((arg) => arg !== "--no-skills" && arg !== "--force-new");
-  if (invalidArgs.length > 0) {
-    throw new Error("init accepts only --no-skills and --force-new");
-  }
+  const parsed = parseInitArgs(args);
+  const isInteractiveTty = canUseInteractivePrompt(stdin.isTTY === true, stdout.isTTY === true);
+  const resolved = resolveInitSelection(parsed, isInteractiveTty);
+  const skillPlatforms = resolved.interactive ? await promptPlatformSelection() : resolved.platforms;
+  const result = await initDatabase({
+    generateSkills: !parsed.noSkills,
+    forceNew: parsed.forceNew,
+    skillPlatforms,
+  });
+  console.log(
+    renderInitResult({
+      dbPath: result.dbPath,
+      forceNew: parsed.forceNew,
+      selectedPlatforms: skillPlatforms,
+      generatedSkills: result.generatedSkills,
+      noSkills: parsed.noSkills,
+      useColor: stdout.isTTY === true,
+    }),
+  );
+}
 
-  const result = await initDatabase({ generateSkills: !noSkills, forceNew });
-  console.log(`Initialized toss database at ${result.dbPath}`);
-  if (forceNew) {
-    console.log("Reinitialized database with clean-break history format.");
+function parseCleanArgs(args: string[]): { yes: boolean } {
+  let yes = false;
+  for (const arg of args) {
+    if (arg === "--yes") {
+      yes = true;
+      continue;
+    }
+    throw new Error(`clean does not accept argument: ${arg}`);
   }
-  if (result.generatedSkills) {
-    console.log(`Generated skills at ${result.generatedSkills.skillsRoot}`);
-    console.log(`Updated agents file at ${result.generatedSkills.agentsPath}`);
-  } else {
-    console.log("Skipped skill generation (--no-skills)");
+  return { yes };
+}
+
+async function confirmClean(): Promise<boolean> {
+  const prompt = createInterface({ input: stdin, output: stdout });
+  try {
+    const answer = await prompt.question("This will remove global toss integrations. Continue? [y/N] ");
+    const normalized = answer.trim().toLowerCase();
+    return normalized === "y" || normalized === "yes";
+  } finally {
+    prompt.close();
   }
+}
+
+async function runClean(args: string[]): Promise<void> {
+  const parsed = parseCleanArgs(args);
+  const isInteractiveTty = canUseInteractivePrompt(stdin.isTTY === true, stdout.isTTY === true);
+  if (!isInteractiveTty && !parsed.yes) {
+    throw new Error("clean requires --yes in non-interactive mode.");
+  }
+  if (!parsed.yes) {
+    const confirmed = await confirmClean();
+    if (!confirmed) {
+      console.log("clean cancelled");
+      return;
+    }
+  }
+  const result = await cleanSkills();
+  console.log(
+    renderCleanResult({
+      files: result.files,
+      useColor: stdout.isTTY === true,
+    }),
+  );
 }
 
 async function runApply(args: string[]): Promise<void> {
@@ -202,6 +263,9 @@ async function main(): Promise<void> {
   switch (command) {
     case "init":
       await runInit(rest);
+      return;
+    case "clean":
+      await runClean(rest);
       return;
     case "apply":
       await runApply(rest);

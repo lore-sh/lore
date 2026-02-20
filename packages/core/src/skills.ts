@@ -1,17 +1,147 @@
+import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { deleteIfExists } from "./fsx";
+import type { SkillPlatform } from "./types";
 
-const AGENTS_BLOCK_START = "<!-- toss:init:skills:start -->";
-const AGENTS_BLOCK_END = "<!-- toss:init:skills:end -->";
+const ALL_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "codex", "opencode", "openclaw"];
+const PLATFORM_SET = new Set<SkillPlatform>(ALL_PLATFORMS);
 
-export interface GeneratedSkills {
-  skillsRoot: string;
-  skillDir: string;
-  skillPath: string;
-  referencesDir: string;
-  agentsPath: string;
+const AGENTS_BLOCK_START = "<!-- toss:init:agents:start -->";
+const AGENTS_BLOCK_END = "<!-- toss:init:agents:end -->";
+const CLAUDE_BLOCK_START = "<!-- toss:init:claude:start -->";
+const CLAUDE_BLOCK_END = "<!-- toss:init:claude:end -->";
+const AGENTS_BLOCKS: ManagedBlock[] = [{ start: AGENTS_BLOCK_START, end: AGENTS_BLOCK_END }];
+const CLAUDE_BLOCKS: ManagedBlock[] = [{ start: CLAUDE_BLOCK_START, end: CLAUDE_BLOCK_END }];
+
+type GeneratedPlatform = SkillPlatform | "shared";
+
+interface ManagedBlock {
+  start: string;
+  end: string;
 }
 
-function tossSkillContent(workspacePath: string): string {
+interface SkillPaths {
+  sharedSkillDir: string;
+  sharedSkillPath: string;
+  sharedContextPath: string;
+  sharedContractsPath: string;
+  codexAgentsPath: string;
+  opencodeAgentsPath: string;
+  cursorRulePath: string;
+  claudeSkillDir: string;
+  claudeSkillPath: string;
+  claudeContextPath: string;
+  claudeContractsPath: string;
+  claudeDocPath: string;
+  openclawSkillDir: string;
+  openclawSkillPath: string;
+  openclawContextPath: string;
+  openclawContractsPath: string;
+  openclawAgentsPath: string;
+}
+
+export interface GeneratedSkillFile {
+  platform: GeneratedPlatform;
+  path: string;
+}
+
+export interface GeneratedSkills {
+  canonicalSkillPath: string;
+  files: GeneratedSkillFile[];
+}
+
+export interface CleanSkillFile {
+  platform: GeneratedPlatform;
+  path: string;
+  removed: boolean;
+}
+
+export interface CleanSkillsResult {
+  files: CleanSkillFile[];
+}
+
+export interface GenerateSkillsOptions {
+  platforms?: SkillPlatform[] | undefined;
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
+
+function resolveHomeDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    throw new Error("HOME (or USERPROFILE) is required for global skill installation");
+  }
+  return resolve(home);
+}
+
+function envPath(name: string): string | undefined {
+  const value = process.env[name];
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  return resolve(trimmed);
+}
+
+function resolveSkillPaths(): SkillPaths {
+  const home = resolveHomeDir();
+  const codexHome = envPath("CODEX_HOME") ?? resolve(home, ".codex");
+  const configHome = envPath("XDG_CONFIG_HOME") ?? resolve(home, ".config");
+  const opencodeHome = resolve(configHome, "opencode");
+  const openclawWorkspace = resolve(home, ".openclaw", "workspace");
+
+  const sharedSkillDir = resolve(home, ".agents", "skills", "toss");
+  const sharedReferencesDir = resolve(sharedSkillDir, "references");
+  const claudeSkillDir = resolve(home, ".claude", "skills", "toss");
+  const claudeReferencesDir = resolve(claudeSkillDir, "references");
+  const openclawSkillDir = resolve(openclawWorkspace, "skills", "toss");
+  const openclawReferencesDir = resolve(openclawSkillDir, "references");
+
+  return {
+    sharedSkillDir,
+    sharedSkillPath: resolve(sharedSkillDir, "SKILL.md"),
+    sharedContextPath: resolve(sharedReferencesDir, "context.md"),
+    sharedContractsPath: resolve(sharedReferencesDir, "contracts.md"),
+    codexAgentsPath: resolve(codexHome, "AGENTS.md"),
+    opencodeAgentsPath: resolve(opencodeHome, "AGENTS.md"),
+    cursorRulePath: resolve(home, ".cursor", "rules", "toss.mdc"),
+    claudeSkillDir,
+    claudeSkillPath: resolve(claudeSkillDir, "SKILL.md"),
+    claudeContextPath: resolve(claudeReferencesDir, "context.md"),
+    claudeContractsPath: resolve(claudeReferencesDir, "contracts.md"),
+    claudeDocPath: resolve(home, ".claude", "CLAUDE.md"),
+    openclawSkillDir,
+    openclawSkillPath: resolve(openclawSkillDir, "SKILL.md"),
+    openclawContextPath: resolve(openclawReferencesDir, "context.md"),
+    openclawContractsPath: resolve(openclawReferencesDir, "contracts.md"),
+    openclawAgentsPath: resolve(openclawWorkspace, "AGENTS.md"),
+  };
+}
+
+function normalizePlatforms(platforms?: SkillPlatform[] | undefined): SkillPlatform[] {
+  if (platforms === undefined) {
+    return [...ALL_PLATFORMS];
+  }
+  const seen = new Set<SkillPlatform>();
+  const normalized: SkillPlatform[] = [];
+  for (const platform of platforms) {
+    if (!PLATFORM_SET.has(platform)) {
+      continue;
+    }
+    if (!seen.has(platform)) {
+      seen.add(platform);
+      normalized.push(platform);
+    }
+  }
+  return normalized;
+}
+
+function tossSkillContent(): string {
   return `---
 name: toss
 description: Use toss CLI to remember/store data, evolve schemas with migrations, and recall/query safely via read-before-apply workflows.
@@ -19,65 +149,41 @@ description: Use toss CLI to remember/store data, evolve schemas with migrations
 
 # toss
 
-Use this skill for all toss operations in Claude Code style workflows.
-
-## When to use
-- The user asks to remember/save/store life logs or structured personal data.
-- The user asks to search/analyze/summarize data already stored in toss.
+Use this skill for toss workflows that need durable writes, schema changes, and read-side analysis.
 
 ## Command surface
-- Write path: \`bun run --cwd "${workspacePath}" toss apply --plan -\`
-- Read path: \`bun run --cwd "${workspacePath}" toss read --sql "<SELECT ...>" --json\`
-- History path: \`bun run --cwd "${workspacePath}" toss history --verbose\`
-- Verify path: \`bun run --cwd "${workspacePath}" toss verify --full\`
-
-## Workflow Router
-1. If request is store/remember:
-   - Follow **Remember Flow** below.
-2. If request is query/recall/analyze:
-   - Follow **Recall Flow** below.
+- Write path: \`bun run --cwd "$PWD" toss apply --plan -\`
+- Read path: \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\`
+- History path: \`bun run --cwd "$PWD" toss history --verbose\`
+- Verify path: \`bun run --cwd "$PWD" toss verify --full\`
 
 ## Remember Flow (read-before-apply)
-1. Read current schema snapshot:
+1. Read schema snapshot first:
 \`\`\`bash
-bun run --cwd "${workspacePath}" toss read --sql "SELECT m.name AS table_name, p.name AS column_name, p.type, p.notnull FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name NOT LIKE '_toss_%' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.cid" --json
+bun run --cwd "$PWD" toss read --sql "SELECT m.name AS table_name, p.name AS column_name, p.type, p.notnull FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name NOT LIKE '_toss_%' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.cid" --json
 \`\`\`
-2. Build OperationPlan from schema + user intent:
-   - Missing table -> include \`create_table\`
-   - Missing column -> include \`add_column\`
-   - New record -> include \`insert\`
-   - Data correction/backfill -> include \`update\` with explicit \`where\`
-   - Data cleanup -> include \`delete\` with explicit \`where\`
-   - Schema cleanup -> include \`drop_column\` / \`drop_table\` if explicitly requested
-   - Type migration -> include \`alter_column_type\` when the user asks to change storage type
-3. Apply plan:
+2. Build an OperationPlan from current schema plus user intent.
+3. Apply via stdin:
 \`\`\`bash
-cat <<'JSON' | bun run --cwd "${workspacePath}" toss apply --plan -
-{"message":"<what this apply does>","operations":[...],"source":{"planner":"claude-code-skill","skill":"toss"}}
+cat <<'JSON' | bun run --cwd "$PWD" toss apply --plan -
+{"message":"<what this apply does>","operations":[...],"source":{"planner":"agent-skill","skill":"toss"}}
 JSON
 \`\`\`
-4. If apply fails due to schema mismatch, re-read schema and retry once with corrected plan.
-5. For schema migration tasks, run a verification read query and summarize before/after impact.
-6. Before destructive schema changes, run \`toss history --verbose\` and \`toss verify --quick\`.
+4. If apply fails due to schema mismatch, re-read schema and retry once.
 
 ## Recall Flow
-1. Convert intent to read-only SQL (\`SELECT\` or \`WITH ... SELECT\` only).
+1. Convert request to read-only SQL (\`SELECT\` or \`WITH ... SELECT\`).
 2. Run:
 \`\`\`bash
-bun run --cwd "${workspacePath}" toss read --sql "<SELECT ...>" --json
+bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json
 \`\`\`
-3. Return structured results and short interpretation.
+3. Return structured results with a short interpretation.
 
 ## Hard Rules
 - Keep one semantic unit per apply.
-- Always include non-empty \`message\`.
-- Prefer stdin for apply (\`--plan -\`).
+- Always include a non-empty \`message\`.
 - Never run \`update\` or \`delete\` without explicit \`where\`.
-- Prefer staged migrations:
-  1) additive change (\`add_column\` / new table),
-  2) data backfill (\`update\`),
-  3) verification read,
-  4) cleanup (\`drop_column\` / \`drop_table\`).
+- Prefer staged migrations: additive -> backfill -> verify -> cleanup.
 
 ## References
 - Product background and use cases: [references/context.md](references/context.md)
@@ -93,19 +199,19 @@ toss is a personal database for the AI era. It separates:
 - Planner: natural language -> structured plan/query
 - Executor (toss CLI): validate + apply + log + revert
 
-This separation keeps the execution layer deterministic and safe.
+This keeps execution deterministic and auditable.
 
 ## Philosophy
-1. Humans should not need schema/migration design.
+1. Humans should not need to design schema/migrations manually.
 2. Data is owned by individuals (local-first SQLite).
 3. Be bold with safety: append-only history + revert.
-4. Schema should evolve continuously with data migration, not stay fixed forever.
+4. Schema should evolve continuously with data migration.
 
 ## 2-layer model
 - Commit Log: immutable source of truth (\`_toss_commit\`, \`_toss_op\`, \`_toss_effect_*\`)
 - HEAD State: materialized current tables, always rebuildable
 
-## Use cases
+## Typical use cases
 1. Life log input:
    - User: "Lunch ramen 850 yen"
    - Skill: build OperationPlan and apply
@@ -117,7 +223,7 @@ This separation keeps the execution layer deterministic and safe.
 `;
 }
 
-function contractsReferenceContent(workspacePath: string): string {
+function contractsReferenceContent(): string {
   return `# toss Contracts
 
 ## apply contract
@@ -133,7 +239,7 @@ function contractsReferenceContent(workspacePath: string): string {
       "values": { "date": "2026-02-18", "item": "dinner", "amount": 1200 }
     }
   ],
-  "source": { "planner": "claude-code-skill", "skill": "toss" }
+  "source": { "planner": "agent-skill", "skill": "toss" }
 }
 \`\`\`
 
@@ -147,102 +253,287 @@ Allowed operation types:
 - \`drop_column\`
 - \`alter_column_type\`
 
-Schema evolution best practice:
-1. Read schema snapshot first.
-2. Additive migration first (\`create_table\`, \`add_column\`).
-3. Backfill/correct data (\`update\`).
-4. Verify with read query.
-5. Cleanup old structures (\`drop_column\`, \`drop_table\`) only after verification.
-
 ## read contract
 \`toss read --sql "<query>" [--json]\`
 - Only \`SELECT\` / \`WITH ... SELECT\`
 - Single statement only
 
 ## history / verify / revert
-- \`toss history --verbose\`: includes parent ids, state hash, inverse readiness.
-- \`toss verify\` / \`toss verify --full\`: checks commit chain hash + SQLite integrity checks.
-- \`toss revert <commit_id>\`: returns conflict details for row/schema collisions.
-
-## schema introspection query (for remember flow)
-\`\`\`sql
-SELECT m.name AS table_name, p.name AS column_name, p.type, p.notnull
-FROM sqlite_master m
-JOIN pragma_table_info(m.name) p
-WHERE m.type='table'
-  AND m.name NOT LIKE '_toss_%'
-  AND m.name NOT LIKE 'sqlite_%'
-ORDER BY m.name, p.cid;
-\`\`\`
-
-## Recommended execution snippets
-\`\`\`bash
-# Read schema snapshot
-bun run --cwd "${workspacePath}" toss read --sql "SELECT m.name AS table_name, p.name AS column_name, p.type, p.notnull FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name NOT LIKE '_toss_%' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.cid" --json
-
-# Apply via stdin
-cat <<'JSON' | bun run --cwd "${workspacePath}" toss apply --plan -
-{"message":"<summary>","operations":[...],"source":{"planner":"claude-code-skill","skill":"toss"}}
-JSON
-\`\`\`
+- \`toss history --verbose\`: includes parent ids, state hash, inverse readiness
+- \`toss verify\` / \`toss verify --full\`: chain hash + SQLite integrity checks
+- \`toss revert <commit_id>\`: returns row/schema conflict details
 `;
 }
 
-function agentsBlock(skills: GeneratedSkills): string {
+function cursorRuleContent(): string {
+  return `---
+description: toss workflow for durable storage and query
+alwaysApply: false
+---
+
+Use toss for memory/storage requests and analytical reads.
+
+Commands:
+- \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\`
+- \`bun run --cwd "$PWD" toss apply --plan -\`
+
+Rules:
+- Read schema before write plans.
+- Keep one semantic unit per apply.
+- Never run update/delete without explicit where.
+- For destructive migration, verify before and after.
+`;
+}
+
+function agentsBlock(skillPath: string): string {
   return `${AGENTS_BLOCK_START}
 ## Skills
 ### Available skills
-- toss: Unified toss workflow for remember/store, schema evolution + data migration, and recall/query with read-before-apply safety. (file: ${skills.skillPath})
+- toss: Unified toss workflow for remember/store, schema evolution + data migration, and recall/query with read-before-apply safety. (file: ${skillPath})
 ### How to use skills
-- Trigger rules: Use \`toss\` whenever user intent touches toss memory, storage, query, or analysis.
-- For writes: always run schema introspection first, then build OperationPlan with explicit migration intent.
+- Trigger: use \`toss\` whenever user intent touches toss memory, storage, query, or analysis.
+- For writes: read schema first, then build OperationPlan with explicit migration intent.
 - For reads: generate read-only SQL only.
 - For destructive changes: run \`toss history --verbose\` and \`toss verify --quick\` before apply.
-- If \`toss revert\` returns conflicts, present conflict details and propose a staged migration plan.
-- Execution: Skills should call toss through \`bun run --cwd "${dirname(skills.agentsPath)}" toss ...\`.
 ${AGENTS_BLOCK_END}
 `;
 }
 
-async function upsertAgentsFile(path: string, block: string): Promise<void> {
-  let current = "# AGENTS.md\n\n";
-  const file = Bun.file(path);
-  if (await file.exists()) {
-    current = await file.text();
-  }
-
-  const hasStart = current.includes(AGENTS_BLOCK_START);
-  const hasEnd = current.includes(AGENTS_BLOCK_END);
-  let next: string;
-  if (hasStart && hasEnd) {
-    const start = current.indexOf(AGENTS_BLOCK_START);
-    const end = current.indexOf(AGENTS_BLOCK_END) + AGENTS_BLOCK_END.length;
-    next = `${current.slice(0, start)}${block}${current.slice(end)}`;
-  } else {
-    const suffix = current.endsWith("\n") ? "" : "\n";
-    next = `${current}${suffix}\n${block}`;
-  }
-
-  await Bun.write(path, next);
+function claudeBlock(skillPath: string): string {
+  return `${CLAUDE_BLOCK_START}
+## Skills
+- toss: Unified toss workflow for remember/store, schema evolution + data migration, and recall/query with read-before-apply safety. (file: ${skillPath})
+## How to use skills
+- Use \`toss\` whenever a request needs durable write/query on toss data.
+- Read schema before apply, and keep destructive changes staged.
+${CLAUDE_BLOCK_END}
+`;
 }
 
-export async function generateSkills(workspacePathInput?: string): Promise<GeneratedSkills> {
-  const workspacePath = resolve(process.cwd(), workspacePathInput ?? ".");
-  const skillsRoot = resolve(workspacePath, ".toss", "skills");
-  const skillDir = resolve(skillsRoot, "toss");
-  const referencesDir = resolve(skillDir, "references");
-  const skillPath = resolve(skillDir, "SKILL.md");
-  const contextPath = resolve(referencesDir, "context.md");
-  const contractsPath = resolve(referencesDir, "contracts.md");
-  const agentsPath = resolve(workspacePath, "AGENTS.md");
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "ENOENT")) {
+      return false;
+    }
+    throw error;
+  }
+}
 
+async function writeText(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await Bun.write(path, content);
+}
+
+function stripManagedBlock(text: string, block: ManagedBlock, path: string): string {
+  let next = text;
+  while (true) {
+    const start = next.indexOf(block.start);
+    const end = next.indexOf(block.end);
+    if (start < 0 && end < 0) {
+      return next;
+    }
+    if (start < 0 || end < 0 || end < start) {
+      throw new Error(
+        `Malformed managed block in ${path}. Expected paired markers: ${block.start} ... ${block.end}`,
+      );
+    }
+    next = `${next.slice(0, start)}${next.slice(end + block.end.length)}`;
+  }
+}
+
+function stripManagedBlocks(text: string, blocks: ManagedBlock[], path: string): string {
+  let next = text;
+  for (const block of blocks) {
+    next = stripManagedBlock(next, block, path);
+  }
+  return next;
+}
+
+async function removeManagedBlocks(path: string, blocks: ManagedBlock[]): Promise<boolean> {
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return false;
+  }
+  const current = await file.text();
+  const stripped = stripManagedBlocks(current, blocks, path);
+  if (stripped === current) {
+    return false;
+  }
+
+  const trimmed = stripped.trim();
+  if (trimmed.length === 0) {
+    await deleteIfExists(path);
+    return true;
+  }
+  await writeText(path, `${trimmed}\n`);
+  return true;
+}
+
+async function upsertManagedBlock(path: string, block: string, blocks: ManagedBlock[], initial: string): Promise<void> {
+  const file = Bun.file(path);
+  const current = (await file.exists()) ? await file.text() : initial;
+  const stripped = stripManagedBlocks(current, blocks, path).trimEnd();
+  const next = stripped.length === 0 ? `${block}\n` : `${stripped}\n\n${block}\n`;
+  await writeText(path, next);
+}
+
+async function removeDirIfExists(path: string): Promise<boolean> {
+  if (!(await exists(path))) {
+    return false;
+  }
+  await rm(path, { recursive: true, force: true });
+  return true;
+}
+
+async function removeFileIfExists(path: string): Promise<boolean> {
+  if (!(await exists(path))) {
+    return false;
+  }
+  await deleteIfExists(path);
+  return true;
+}
+
+async function writeSkillBundle(skillPath: string, contextPath: string, contractsPath: string): Promise<void> {
   await Promise.all([
-    Bun.write(skillPath, tossSkillContent(workspacePath)),
-    Bun.write(contextPath, contextReferenceContent()),
-    Bun.write(contractsPath, contractsReferenceContent(workspacePath)),
+    writeText(skillPath, tossSkillContent()),
+    writeText(contextPath, contextReferenceContent()),
+    writeText(contractsPath, contractsReferenceContent()),
   ]);
+}
 
-  const generated = { skillsRoot, skillDir, skillPath, referencesDir, agentsPath };
-  await upsertAgentsFile(agentsPath, agentsBlock(generated));
-  return generated;
+function addGeneratedFiles(files: GeneratedSkillFile[], platform: GeneratedPlatform, ...paths: string[]): void {
+  for (const path of paths) {
+    files.push({ platform, path });
+  }
+}
+
+export async function generateSkills(options: GenerateSkillsOptions = {}): Promise<GeneratedSkills> {
+  const paths = resolveSkillPaths();
+  const selected = normalizePlatforms(options.platforms);
+  const selectedSet = new Set(selected);
+  const files: GeneratedSkillFile[] = [];
+
+  if (selected.length > 0) {
+    await writeSkillBundle(paths.sharedSkillPath, paths.sharedContextPath, paths.sharedContractsPath);
+    addGeneratedFiles(files, "shared", paths.sharedSkillPath, paths.sharedContextPath, paths.sharedContractsPath);
+  } else {
+    await removeDirIfExists(paths.sharedSkillDir);
+  }
+
+  if (selectedSet.has("codex")) {
+    await upsertManagedBlock(
+      paths.codexAgentsPath,
+      agentsBlock(paths.sharedSkillPath),
+      AGENTS_BLOCKS,
+      "# AGENTS.md\n",
+    );
+    addGeneratedFiles(files, "codex", paths.codexAgentsPath);
+  } else {
+    await removeManagedBlocks(paths.codexAgentsPath, AGENTS_BLOCKS);
+  }
+
+  if (selectedSet.has("opencode")) {
+    await upsertManagedBlock(
+      paths.opencodeAgentsPath,
+      agentsBlock(paths.sharedSkillPath),
+      AGENTS_BLOCKS,
+      "# AGENTS.md\n",
+    );
+    addGeneratedFiles(files, "opencode", paths.opencodeAgentsPath);
+  } else {
+    await removeManagedBlocks(paths.opencodeAgentsPath, AGENTS_BLOCKS);
+  }
+
+  if (selectedSet.has("cursor")) {
+    await writeText(paths.cursorRulePath, cursorRuleContent());
+    addGeneratedFiles(files, "cursor", paths.cursorRulePath);
+  } else {
+    await removeFileIfExists(paths.cursorRulePath);
+  }
+
+  if (selectedSet.has("claude")) {
+    await writeSkillBundle(paths.claudeSkillPath, paths.claudeContextPath, paths.claudeContractsPath);
+    await upsertManagedBlock(
+      paths.claudeDocPath,
+      claudeBlock(paths.claudeSkillPath),
+      CLAUDE_BLOCKS,
+      "# CLAUDE.md\n",
+    );
+    addGeneratedFiles(
+      files,
+      "claude",
+      paths.claudeSkillPath,
+      paths.claudeContextPath,
+      paths.claudeContractsPath,
+      paths.claudeDocPath,
+    );
+  } else {
+    await removeDirIfExists(paths.claudeSkillDir);
+    await removeManagedBlocks(paths.claudeDocPath, CLAUDE_BLOCKS);
+  }
+
+  if (selectedSet.has("openclaw")) {
+    await writeSkillBundle(paths.openclawSkillPath, paths.openclawContextPath, paths.openclawContractsPath);
+    await upsertManagedBlock(
+      paths.openclawAgentsPath,
+      agentsBlock(paths.openclawSkillPath),
+      AGENTS_BLOCKS,
+      "# AGENTS.md\n",
+    );
+    addGeneratedFiles(
+      files,
+      "openclaw",
+      paths.openclawSkillPath,
+      paths.openclawContextPath,
+      paths.openclawContractsPath,
+      paths.openclawAgentsPath,
+    );
+  } else {
+    await removeDirIfExists(paths.openclawSkillDir);
+    await removeManagedBlocks(paths.openclawAgentsPath, AGENTS_BLOCKS);
+  }
+
+  return {
+    canonicalSkillPath: paths.sharedSkillPath,
+    files,
+  };
+}
+
+export async function cleanSkills(): Promise<CleanSkillsResult> {
+  const paths = resolveSkillPaths();
+
+  const files: CleanSkillFile[] = [];
+  files.push({ platform: "shared", path: paths.sharedSkillDir, removed: await removeDirIfExists(paths.sharedSkillDir) });
+  files.push({
+    platform: "codex",
+    path: paths.codexAgentsPath,
+    removed: await removeManagedBlocks(paths.codexAgentsPath, AGENTS_BLOCKS),
+  });
+  files.push({
+    platform: "opencode",
+    path: paths.opencodeAgentsPath,
+    removed: await removeManagedBlocks(paths.opencodeAgentsPath, AGENTS_BLOCKS),
+  });
+  files.push({ platform: "cursor", path: paths.cursorRulePath, removed: await removeFileIfExists(paths.cursorRulePath) });
+  files.push({ platform: "claude", path: paths.claudeSkillDir, removed: await removeDirIfExists(paths.claudeSkillDir) });
+  files.push({
+    platform: "claude",
+    path: paths.claudeDocPath,
+    removed: await removeManagedBlocks(paths.claudeDocPath, CLAUDE_BLOCKS),
+  });
+  files.push({
+    platform: "openclaw",
+    path: paths.openclawSkillDir,
+    removed: await removeDirIfExists(paths.openclawSkillDir),
+  });
+  files.push({
+    platform: "openclaw",
+    path: paths.openclawAgentsPath,
+    removed: await removeManagedBlocks(paths.openclawAgentsPath, AGENTS_BLOCKS),
+  });
+
+  return { files };
 }
