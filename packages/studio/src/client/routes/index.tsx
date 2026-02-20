@@ -4,9 +4,9 @@ import { statusQueryOptions, tablesQueryOptions } from "../lib/queries";
 
 function StatCard(props: { label: string; value: string }) {
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-      <p className="text-xs uppercase tracking-[0.12em] text-slate-500">{props.label}</p>
-      <p className="mt-2 text-2xl font-semibold text-slate-900">{props.value}</p>
+    <article className="ui-surface-soft">
+      <p className="text-xs uppercase tracking-[0.12em] text-fg-soft">{props.label}</p>
+      <p className="mt-2 text-2xl font-semibold text-fg">{props.value}</p>
     </article>
   );
 }
@@ -25,16 +25,16 @@ export function DashboardPage() {
         <StatCard label="Last verified" value={status.lastVerifiedOkAt ?? "never"} />
       </div>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-5 py-4">
+      <section className="ui-surface">
+        <div className="ui-section-head">
           <h2 className="text-lg font-semibold">Tables</h2>
-          <p className="text-sm text-slate-500">Click a table to inspect rows and query with URL state.</p>
+          <p className="text-sm text-fg-soft">Click a table to inspect rows and query with URL state.</p>
         </div>
         {tableRows.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-500">No user tables yet.</p>
+          <p className="px-5 py-6 text-sm text-fg-soft">No user tables yet.</p>
         ) : (
           <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-[0.08em] text-slate-500">
+            <thead className="ui-table-head">
               <tr>
                 <th className="px-5 py-3">Name</th>
                 <th className="px-5 py-3">Rows</th>
@@ -44,20 +44,20 @@ export function DashboardPage() {
             </thead>
             <tbody>
               {tableRows.map((table) => (
-                <tr key={table.name} className="border-t border-slate-100">
+                <tr key={table.name} className="ui-table-row">
                   <td className="px-5 py-3">
                     <Link
                       to="/tables/$name"
                       params={{ name: table.name }}
                       search={{ page: 1, pageSize: 50, sortDir: "asc", filters: {} }}
-                      className="font-medium text-slate-900 underline-offset-2 hover:underline"
+                      className="ui-link"
                     >
                       {table.name}
                     </Link>
                   </td>
-                  <td className="px-5 py-3 text-slate-700">{table.rowCount}</td>
-                  <td className="px-5 py-3 text-slate-700">{table.columnCount}</td>
-                  <td className="px-5 py-3 text-slate-500">{table.lastUpdatedAt ?? "n/a"}</td>
+                  <td className="px-5 py-3 text-fg-muted">{table.rowCount}</td>
+                  <td className="px-5 py-3 text-fg-muted">{table.columnCount}</td>
+                  <td className="px-5 py-3 text-fg-soft">{table.lastUpdatedAt ?? "n/a"}</td>
                 </tr>
               ))}
             </tbody>

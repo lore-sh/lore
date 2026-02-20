@@ -30,9 +30,9 @@ const queryClient = new QueryClient({
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: AppLayout,
-  pendingComponent: () => <p className="text-sm text-slate-600">Loading...</p>,
+  pendingComponent: () => <p className="text-sm text-fg-muted">Loading...</p>,
   errorComponent: ({ error }) => (
-    <p className="text-sm text-red-700">{error instanceof Error ? error.message : String(error)}</p>
+    <p className="text-sm text-danger">{error instanceof Error ? error.message : String(error)}</p>
   ),
 });
 
@@ -96,6 +96,10 @@ declare module "@tanstack/react-router" {
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("Root element #root not found");
+}
+
+if (!document.documentElement.dataset.theme) {
+  document.documentElement.dataset.theme = "light";
 }
 
 createRoot(root).render(

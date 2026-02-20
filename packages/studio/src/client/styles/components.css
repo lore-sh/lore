@@ -1,0 +1,89 @@
+@layer components {
+  .ui-shell {
+    @apply min-h-screen text-fg;
+    background-color: var(--studio-bg);
+    background-image:
+      radial-gradient(1200px 500px at 10% -10%, var(--studio-glow-warm), transparent),
+      radial-gradient(1000px 600px at 100% 0%, var(--studio-glow-cool), transparent);
+  }
+
+  .ui-header {
+    @apply border-b border-border/80 bg-bg-elevated/80 backdrop-blur;
+  }
+
+  .ui-container {
+    @apply mx-auto w-full max-w-6xl;
+  }
+
+  .ui-nav {
+    @apply flex items-center gap-1 rounded-full bg-bg-elevated p-1 shadow-sm ring-1 ring-border;
+  }
+
+  .ui-nav-link {
+    @apply rounded-full px-4 py-2 text-sm font-medium text-fg-muted hover:bg-brand-soft;
+  }
+
+  .ui-nav-link-active {
+    @apply bg-brand font-semibold text-brand-contrast;
+  }
+
+  .ui-surface {
+    @apply overflow-hidden rounded-2xl border border-border bg-bg-elevated shadow-sm;
+  }
+
+  .ui-surface-soft {
+    @apply rounded-2xl border border-border bg-bg-elevated/90 p-4 shadow-sm;
+  }
+
+  .ui-section-head {
+    @apply border-b border-border-soft px-5 py-4;
+  }
+
+  .ui-surface-detail {
+    @apply border-t border-border-soft bg-bg-subtle/50 px-5 py-4;
+  }
+
+  .ui-table-head {
+    @apply bg-bg-subtle text-left text-xs uppercase tracking-[0.08em] text-fg-soft;
+  }
+
+  .ui-table-row {
+    @apply border-t border-border-soft;
+  }
+
+  .ui-label {
+    @apply text-xs uppercase tracking-[0.08em] text-fg-soft;
+  }
+
+  .ui-link {
+    @apply font-medium text-fg underline-offset-2 hover:underline;
+  }
+
+  .ui-code-block {
+    @apply overflow-x-auto rounded-xl bg-code-bg p-4 text-xs text-code-fg;
+  }
+
+  .ui-btn-primary {
+    @apply rounded-full bg-brand px-4 py-2 text-sm font-medium text-brand-contrast hover:opacity-90;
+  }
+
+  .ui-btn-outline {
+    @apply rounded-lg border border-border px-3 py-1 text-sm text-fg-muted disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-badge {
+    @apply rounded-full bg-bg-subtle px-3 py-1 text-xs font-medium text-fg-muted;
+  }
+
+  .ui-input {
+    @apply w-full rounded-lg border border-border px-2 py-1 text-xs text-fg focus:border-fg-soft focus:outline-none;
+  }
+
+  .ui-select {
+    @apply rounded-lg border border-border bg-bg-elevated px-2 py-1 text-sm text-fg;
+  }
+
+  .ui-sort-button {
+    @apply w-full rounded-lg border border-border bg-bg-elevated px-2 py-1 text-left hover:border-fg-soft;
+  }
+}

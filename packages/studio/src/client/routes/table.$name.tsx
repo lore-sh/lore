@@ -83,12 +83,12 @@ export function TablePage() {
             onClick={() => {
               toggleSort(column.name);
             }}
-            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-left hover:border-slate-300"
+            className="ui-sort-button"
           >
-            <p className="font-semibold text-slate-900">{column.name}</p>
-            <p className="text-xs text-slate-500">{column.type || "ANY"}</p>
+            <p className="font-semibold text-fg">{column.name}</p>
+            <p className="text-xs text-fg-soft">{column.type || "ANY"}</p>
             {tableData.sortBy === column.name ? (
-              <p className="mt-1 text-[10px] uppercase tracking-[0.08em] text-amber-700">{tableData.sortDir}</p>
+              <p className="mt-1 text-[10px] uppercase tracking-[0.08em] text-fg-muted">{tableData.sortDir}</p>
             ) : null}
           </button>
           <input
@@ -97,11 +97,11 @@ export function TablePage() {
               setFilter(column.name, event.target.value);
             }}
             placeholder="filter..."
-            className="w-full rounded-lg border border-slate-200 px-2 py-1 text-xs focus:border-slate-400 focus:outline-none"
+            className="ui-input"
           />
         </div>
       ),
-      cell: (context) => <span className="font-mono text-xs text-slate-700">{formatCell(context.getValue())}</span>,
+      cell: (context) => <span className="font-mono text-xs text-fg-muted">{formatCell(context.getValue())}</span>,
     }));
   }, [search.filters, tableData.columns, tableData.sortBy, tableData.sortDir]);
 
@@ -117,21 +117,21 @@ export function TablePage() {
     <section className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.08em] text-slate-500">Table</p>
-          <h1 className="text-2xl font-semibold text-slate-900">{name}</h1>
+          <p className="ui-label">Table</p>
+          <h1 className="text-2xl font-semibold text-fg">{name}</h1>
         </div>
-        <Link to="/" className="rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+        <Link to="/" className="ui-btn-primary">
           Back
         </Link>
       </div>
 
-      <div className="overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="ui-surface overflow-auto">
         <table className="min-w-full text-sm">
           <thead className="align-top">
             {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="border-b border-slate-100 bg-slate-50/70">
+              <tr key={headerGroup.id} className="border-b border-border-soft bg-bg-subtle/70">
                 {headerGroup.headers.map((header) => (
-                  <th key={header.id} className="min-w-40 px-3 py-3 text-left text-xs font-medium text-slate-700">
+                  <th key={header.id} className="min-w-40 px-3 py-3 text-left text-xs font-medium text-fg-muted">
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
                 ))}
@@ -141,13 +141,13 @@ export function TablePage() {
           <tbody>
             {table.getRowModel().rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-6 text-sm text-slate-500" colSpan={Math.max(columns.length, 1)}>
+                <td className="px-4 py-6 text-sm text-fg-soft" colSpan={Math.max(columns.length, 1)}>
                   No rows matched this query.
                 </td>
               </tr>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-t border-slate-100">
+                <tr key={row.id} className="ui-table-row">
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className="px-3 py-2 align-top">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -160,8 +160,8 @@ export function TablePage() {
         </table>
       </div>
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm text-slate-600">
+      <footer className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm">
+        <p className="text-sm text-fg-muted">
           {tableData.totalRows} rows · page {tableData.page} / {tableData.totalPages}
         </p>
         <div className="flex items-center gap-2">
@@ -170,7 +170,7 @@ export function TablePage() {
             onChange={(event) => {
               setPageSize(Number.parseInt(event.target.value, 10));
             }}
-            className="rounded-lg border border-slate-200 px-2 py-1 text-sm"
+            className="ui-select"
           >
             <option value={25}>25</option>
             <option value={50}>50</option>
@@ -182,7 +182,7 @@ export function TablePage() {
             onClick={() => {
               setPage(tableData.page - 1);
             }}
-            className="rounded-lg border border-slate-200 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className="ui-btn-outline"
           >
             Prev
           </button>
@@ -192,7 +192,7 @@ export function TablePage() {
             onClick={() => {
               setPage(tableData.page + 1);
             }}
-            className="rounded-lg border border-slate-200 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className="ui-btn-outline"
           >
             Next
           </button>

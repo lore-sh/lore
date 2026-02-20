@@ -10,11 +10,11 @@ function HistoryDetail(props: { commitId: string }) {
   const detail = useQuery(commitDetailQueryOptions(props.commitId));
 
   if (detail.isPending) {
-    return <p className="text-sm text-slate-600">Loading detail...</p>;
+    return <p className="text-sm text-fg-muted">Loading detail...</p>;
   }
   if (detail.isError) {
     const message = detail.error instanceof Error ? detail.error.message : String(detail.error);
-    return <p className="text-sm text-red-700">{message}</p>;
+    return <p className="text-sm text-danger">{message}</p>;
   }
   if (!detail.data) {
     return null;
@@ -23,14 +23,14 @@ function HistoryDetail(props: { commitId: string }) {
   return (
     <div className="space-y-4">
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">Operations</h3>
-        <pre className="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">Operations</h3>
+        <pre className="ui-code-block">
           {formatJson(detail.data.commit.operations)}
         </pre>
       </section>
       <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">Effects</h3>
-        <pre className="overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-fg-muted">Effects</h3>
+        <pre className="ui-code-block">
           {formatJson({
             row: detail.data.rowEffects,
             schema: detail.data.schemaEffects,
@@ -45,7 +45,7 @@ export function HistoryPage() {
   const { data: history } = useSuspenseQuery(historyQueryOptions(200));
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
   if (history.length === 0) {
-    return <p className="text-sm text-slate-500">No commits found.</p>;
+    return <p className="text-sm text-fg-soft">No commits found.</p>;
   }
 
   function toggle(commitId: string): void {
@@ -57,27 +57,27 @@ export function HistoryPage() {
       {history.map((commit) => {
         const opened = openIds[commit.commitId] === true;
         return (
-          <article key={commit.commitId} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <article key={commit.commitId} className="ui-surface">
             <button
               type="button"
               onClick={() => {
                 toggle(commit.commitId);
               }}
-              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50"
+              className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-bg-subtle"
             >
               <div>
-                <p className="font-mono text-xs text-slate-500">{commit.shortId}</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{commit.message}</p>
-                <p className="text-xs text-slate-500">
+                <p className="font-mono text-xs text-fg-soft">{commit.shortId}</p>
+                <p className="mt-1 text-sm font-semibold text-fg">{commit.message}</p>
+                <p className="text-xs text-fg-soft">
                   {commit.createdAt} · {commit.kind}
                 </p>
               </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <span className="ui-badge">
                 {opened ? "Hide" : "Show"}
               </span>
             </button>
             {opened ? (
-              <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-4">
+              <div className="ui-surface-detail">
                 <HistoryDetail commitId={commit.commitId} />
               </div>
             ) : null}
