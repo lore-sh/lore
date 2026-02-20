@@ -78,22 +78,22 @@ export function getRows<T>(db: Database, sql: string, ...bindings: SQLQueryBindi
   return db.query<T, SQLQueryBindings[]>(sql).all(...bindings);
 }
 
-export function withInitializedDatabase<T>(run: (ctx: DatabaseContext) => T): T {
+function openInitializedDatabase(): DatabaseContext {
   const resolvedPath = runtimeDbPath();
   assertDatabaseFileExists(resolvedPath);
   const ctx = openDatabase(resolvedPath);
   assertInitialized(ctx.db, ctx.dbPath);
-  return run(ctx);
+  return ctx;
+}
+
+export function withInitializedDatabase<T>(run: (ctx: DatabaseContext) => T): T {
+  return run(openInitializedDatabase());
 }
 
 export async function withInitializedDatabaseAsync<T>(
   run: (ctx: DatabaseContext) => Promise<T>,
 ): Promise<T> {
-  const resolvedPath = runtimeDbPath();
-  assertDatabaseFileExists(resolvedPath);
-  const ctx = openDatabase(resolvedPath);
-  assertInitialized(ctx.db, ctx.dbPath);
-  return await run(ctx);
+  return await run(openInitializedDatabase());
 }
 
 export function initializeStorage(): void {
@@ -102,25 +102,18 @@ export function initializeStorage(): void {
   }
   withClient((db) => {
     migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
-    db.insert(EngineMetaTable)
-      .values({ key: "snapshot_interval", value: String(DEFAULT_SNAPSHOT_INTERVAL) })
-      .onConflictDoUpdate({
-        target: EngineMetaTable.key,
-        set: { value: String(DEFAULT_SNAPSHOT_INTERVAL) },
-      })
-      .run();
-    db.insert(EngineMetaTable)
-      .values({ key: "snapshot_retain", value: String(DEFAULT_SNAPSHOT_RETAIN) })
-      .onConflictDoUpdate({
-        target: EngineMetaTable.key,
-        set: { value: String(DEFAULT_SNAPSHOT_RETAIN) },
-      })
-      .run();
+    for (const [key, value] of [
+      ["snapshot_interval", DEFAULT_SNAPSHOT_INTERVAL],
+      ["snapshot_retain", DEFAULT_SNAPSHOT_RETAIN],
+    ] as const) {
+      db.insert(EngineMetaTable)
+        .values({ key, value: String(value) })
+        .onConflictDoUpdate({ target: EngineMetaTable.key, set: { value: String(value) } })
+        .run();
+    }
     db.insert(RefTable)
       .values({ name: MAIN_REF_NAME, commitId: null, updatedAt: Date.now() })
-      .onConflictDoNothing({
-        target: RefTable.name,
-      })
+      .onConflictDoNothing({ target: RefTable.name })
       .run();
   });
 }
@@ -132,27 +125,18 @@ export function tableExists(db: Database, name: string): boolean {
 
 export function isInitialized(db: Database): boolean {
   const requiredTables = [
-    ENGINE_META_TABLE,
-    COMMIT_TABLE,
-    COMMIT_PARENT_TABLE,
-    REF_TABLE,
-    REFLOG_TABLE,
-    OP_TABLE,
-    EFFECT_ROW_TABLE,
-    EFFECT_SCHEMA_TABLE,
-    SNAPSHOT_TABLE,
+    ENGINE_META_TABLE, COMMIT_TABLE, COMMIT_PARENT_TABLE, REF_TABLE,
+    REFLOG_TABLE, OP_TABLE, EFFECT_ROW_TABLE, EFFECT_SCHEMA_TABLE, SNAPSHOT_TABLE,
   ];
   if (requiredTables.some((table) => !tableExists(db, table))) {
     return false;
   }
-  const hasMainRef = getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${REF_TABLE} WHERE name=? LIMIT 1`, MAIN_REF_NAME);
-  if (hasMainRef?.ok !== 1) {
-    return false;
+  function hasRow(table: string, column: string, value: string): boolean {
+    return getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${table} WHERE ${column}=? LIMIT 1`, value)?.ok === 1;
   }
-  return ["snapshot_interval", "snapshot_retain"].every((key) => {
-    const meta = getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${ENGINE_META_TABLE} WHERE key=? LIMIT 1`, key);
-    return meta?.ok === 1;
-  });
+  return hasRow(REF_TABLE, "name", MAIN_REF_NAME)
+    && hasRow(ENGINE_META_TABLE, "key", "snapshot_interval")
+    && hasRow(ENGINE_META_TABLE, "key", "snapshot_retain");
 }
 
 export function assertInitialized(db: Database, dbPath: string): void {

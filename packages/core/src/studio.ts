@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
@@ -13,6 +14,10 @@ import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } fr
 import { describeSchema, normalizeRowObject, type SchemaDescriptor, type SchemaTableDescriptor } from "./rows";
 import { asciiCaseFold, quoteName } from "./sql";
 import type { CommitEntry, CommitKind, JsonObject } from "./types";
+
+function countTableRows(db: Database, tableName: string): number {
+  return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(tableName)}`)?.c ?? 0;
+}
 
 export type StudioSortDirection = "asc" | "desc";
 
@@ -153,21 +158,15 @@ function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
   const names = new Set<string>();
   const primaryKeyColumns = table.columns.filter((column) => column.pk > 0);
   if (primaryKeyColumns.length === 1) {
-    const column = primaryKeyColumns[0];
-    if (column) {
-      names.add(column.name);
-    }
+    names.add(primaryKeyColumns[0]!.name);
   }
   for (const index of table.indexes) {
     if (!index.unique || index.partial) {
       continue;
     }
     const keyTerms = index.columns.filter((column) => column.key === 1);
-    if (keyTerms.length === 1) {
-      const name = keyTerms[0]?.name;
-      if (name) {
-        names.add(name);
-      }
+    if (keyTerms.length === 1 && keyTerms[0]!.name) {
+      names.add(keyTerms[0]!.name);
     }
   }
   return names;
@@ -273,7 +272,6 @@ export function listStudioTables(): StudioTablesView {
   return withInitializedDatabase(({ db, dbPath }) => {
     const tableNames = listUserTables(db);
     const tables = tableNames.map((name) => {
-      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(name)}`);
       const column = getRow<{ c: number }>(
         db,
         `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteName(name)}) WHERE hidden IN (0, 2, 3)`,
@@ -297,7 +295,7 @@ export function listStudioTables(): StudioTablesView {
       );
       return {
         name,
-        rowCount: row?.c ?? 0,
+        rowCount: countTableRows(db, name),
         columnCount: column?.c ?? 0,
         lastUpdatedAt: updated?.created_at ?? null,
       };
@@ -395,11 +393,10 @@ function mapSchemaTable(table: SchemaTableDescriptor): StudioSchemaTable {
 export function getStudioSchema(): StudioSchemaView {
   return withInitializedDatabase(({ db, dbPath }) => {
     const descriptor = describeSchema(db);
-    const tables = descriptor.tables.map((table) => {
-      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(table.table)}`);
-      const mapped = mapSchemaTable(table);
-      return { ...mapped, rowCount: row?.c ?? 0 };
-    });
+    const tables = descriptor.tables.map((table) => ({
+      ...mapSchemaTable(table),
+      rowCount: countTableRows(db, table.table),
+    }));
     return {
       dbPath,
       generatedAt: new Date().toISOString(),
@@ -413,8 +410,7 @@ export function getStudioTableSchema(table: string): StudioSchemaTable {
     const tableName = resolveTableName(listUserTables(db), table);
     const descriptor = describeSchema(db);
     const target = findTableFromSchema(descriptor, tableName);
-    const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(tableName)}`);
-    return { ...mapSchemaTable(target), rowCount: row?.c ?? 0 };
+    return { ...mapSchemaTable(target), rowCount: countTableRows(db, tableName) };
   });
 }
 

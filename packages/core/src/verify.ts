@@ -23,27 +23,17 @@ export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {
 
     const commits = listCommits(db, false);
     for (const commit of commits) {
+      const { commitId, parentCount, ...fields } = commit;
       const expected = computeCommitId({
-        seq: commit.seq,
-        kind: commit.kind,
-        message: commit.message,
-        createdAt: commit.createdAt,
-        parentIds: commit.parentIds,
-        schemaHashBefore: commit.schemaHashBefore,
-        schemaHashAfter: commit.schemaHashAfter,
-        stateHashAfter: commit.stateHashAfter,
-        planHash: commit.planHash,
-        inverseReady: commit.inverseReady,
-        revertedTargetId: commit.revertedTargetId,
-        operations: commit.operations,
-        rowEffects: getRowEffectsByCommitId(db, commit.commitId),
-        schemaEffects: getSchemaEffectsByCommitId(db, commit.commitId),
+        ...fields,
+        rowEffects: getRowEffectsByCommitId(db, commitId),
+        schemaEffects: getSchemaEffectsByCommitId(db, commitId),
       });
-      if (expected !== commit.commitId) {
-        issues.push(`Commit hash mismatch: ${commit.commitId}`);
+      if (expected !== commitId) {
+        issues.push(`Commit hash mismatch: ${commitId}`);
       }
-      if (commit.parentCount !== commit.parentIds.length) {
-        issues.push(`Parent count mismatch: ${commit.commitId}`);
+      if (parentCount !== commit.parentIds.length) {
+        issues.push(`Parent count mismatch: ${commitId}`);
       }
     }
 

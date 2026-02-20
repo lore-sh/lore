@@ -78,12 +78,12 @@ export function getSqlite(): Database {
   return getClient().sqlite;
 }
 
-export function closeClient(options: { resetPath?: boolean } = {}): void {
+export function closeClient({ resetPath = true }: { resetPath?: boolean } = {}): void {
   if (client) {
     client.close();
     client = null;
   }
-  if (options.resetPath ?? true) {
+  if (resetPath) {
     configuredPath = null;
   }
 }

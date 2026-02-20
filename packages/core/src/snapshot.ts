@@ -162,14 +162,7 @@ export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
 
 export function listSnapshots(): SnapshotEntry[] {
   return withInitializedDatabase(({ db }) => {
-    const rows = createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
-    return rows.map((row) => ({
-      commitId: row.commitId,
-      filePath: row.filePath,
-      fileSha256: row.fileSha256,
-      createdAt: row.createdAt,
-      rowCountHint: row.rowCountHint,
-    }));
+    return createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
   });
 }
 
@@ -180,20 +173,18 @@ function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitR
     .where(gt(CommitTable.seq, fromSeqExclusive))
     .orderBy(asc(CommitTable.seq))
     .all();
-  const replayCommits: CommitReplayInput[] = [];
-  for (const row of commitRows) {
+  return commitRows.map((row) => {
     const commit = getCommitById(db, row.commitId);
     if (!commit) {
       throw new TossError("RECOVER_FAILED", `Replay commit not found: ${row.commitId}`);
     }
-    const { parentCount: _, ...base } = commit;
-    replayCommits.push({
+    const { parentCount: _unused, ...base } = commit;
+    return {
       ...base,
       rowEffects: getRowEffectsByCommitId(db, commit.commitId),
       schemaEffects: getSchemaEffectsByCommitId(db, commit.commitId),
-    });
-  }
-  return replayCommits;
+    };
+  });
 }
 
 export async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
