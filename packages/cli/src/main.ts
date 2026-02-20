@@ -3,9 +3,11 @@ import {
   applyPlan,
   cleanSkills,
   getHistory,
+  getSchema,
   getStatus,
   initDatabase,
   isTossError,
+  planCheck,
   readQuery,
   recoverFromSnapshot,
   revertCommit,
@@ -31,7 +33,9 @@ function usage(): string {
     "Commands:",
     "  toss init [--no-skills] [--force-new] [--platforms <list>] [--yes]",
     "  toss clean [--yes]",
-    "  toss apply --plan <file|->",
+    "  toss schema [--table <name>]",
+    "  toss plan <file|->",
+    "  toss apply <file|->",
     "  toss read --sql \"<SELECT...>\" [--json]",
     "  toss status",
     "  toss history [--verbose]",
@@ -141,13 +145,68 @@ async function runClean(args: string[]): Promise<void> {
   );
 }
 
-async function runApply(args: string[]): Promise<void> {
-  const plan = getOptionValue(args, "--plan");
-  if (!plan) {
-    throw new Error("apply requires --plan <file|->");
+function parseSinglePlanRef(command: "plan" | "apply", args: string[]): string {
+  if (args.length === 0) {
+    throw new Error(`${command} requires <file|->`);
   }
+  if (args.length > 1) {
+    throw new Error(`${command} accepts exactly one <file|-> argument`);
+  }
+  const planRef = args[0]!;
+  if (planRef.startsWith("--")) {
+    throw new Error(`${command} does not accept option arguments. Use: toss ${command} <file|->`);
+  }
+  return planRef;
+}
+
+async function runApply(args: string[]): Promise<void> {
+  const plan = parseSinglePlanRef("apply", args);
   const commit = await applyPlan(plan);
   console.log(toJson({ status: "ok", commit: summarizeCommit(commit), operations: commit.operations.length }));
+}
+
+interface ParsedSchemaArgs {
+  table?: string | undefined;
+}
+
+function parseSchemaArgs(args: string[]): ParsedSchemaArgs {
+  const parsed: ParsedSchemaArgs = {};
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] ?? "";
+    if (arg === "--table") {
+      const value = args[i + 1];
+      if (!value) {
+        throw new Error("schema requires a value for --table");
+      }
+      parsed.table = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--table=")) {
+      parsed.table = arg.slice("--table=".length);
+      if (!parsed.table) {
+        throw new Error("schema requires a non-empty value for --table");
+      }
+      continue;
+    }
+    throw new Error(`schema does not accept argument: ${arg}`);
+  }
+  return parsed;
+}
+
+function runSchema(args: string[]): void {
+  const parsed = parseSchemaArgs(args);
+  const schema = getSchema({ table: parsed.table });
+  console.log(toJson(schema));
+}
+
+async function runPlan(args: string[]): Promise<never | void> {
+  const planRef = parseSinglePlanRef("plan", args);
+  const result = await planCheck(planRef);
+  console.log(toJson(result));
+  if (!result.ok) {
+    process.exit(1);
+  }
 }
 
 function runRead(args: string[]): void {
@@ -266,6 +325,12 @@ async function main(): Promise<void> {
       return;
     case "clean":
       await runClean(rest);
+      return;
+    case "schema":
+      runSchema(rest);
+      return;
+    case "plan":
+      await runPlan(rest);
       return;
     case "apply":
       await runApply(rest);

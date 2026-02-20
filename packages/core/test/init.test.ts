@@ -220,8 +220,10 @@ describe("initDatabase", () => {
       expect(await Bun.file(openclawSkillPath).exists()).toBe(true);
       expect(await Bun.file(openclawAgentsPath).exists()).toBe(true);
       const skillText = await Bun.file(openclawSkillPath).text();
-      expect(skillText.includes('bun run --cwd "$PWD" toss apply --plan -')).toBe(true);
-      expect(skillText.includes(`bun run --cwd "${dir}" toss apply --plan -`)).toBe(false);
+      expect(skillText.includes('bun run --cwd "$PWD" toss schema')).toBe(true);
+      expect(skillText.includes('bun run --cwd "$PWD" toss plan -')).toBe(true);
+      expect(skillText.includes('bun run --cwd "$PWD" toss apply -')).toBe(true);
+      expect(skillText.includes(`bun run --cwd "${dir}" toss apply -`)).toBe(false);
     });
   });
 

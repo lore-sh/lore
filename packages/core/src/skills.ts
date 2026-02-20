@@ -132,7 +132,7 @@ function normalizePlatforms(platforms?: SkillPlatform[] | undefined): SkillPlatf
 function tossSkillContent(): string {
   return `---
 name: toss
-description: Use toss CLI to remember/store data, evolve schemas with migrations, and recall/query safely via read-before-apply workflows.
+description: Use toss CLI to store durable memory, evolve schema safely, and run read-side analysis with schema -> plan -> apply.
 ---
 
 # toss
@@ -140,24 +140,34 @@ description: Use toss CLI to remember/store data, evolve schemas with migrations
 Use this skill for toss workflows that need durable writes, schema changes, and read-side analysis.
 
 ## Command surface
-- Write path: \`bun run --cwd "$PWD" toss apply --plan -\`
+- Schema path: \`bun run --cwd "$PWD" toss schema\`
+- Plan path (dry-run): \`bun run --cwd "$PWD" toss plan -\`
+- Apply path (write): \`bun run --cwd "$PWD" toss apply -\`
 - Read path: \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\`
 - History path: \`bun run --cwd "$PWD" toss history --verbose\`
-- Verify path: \`bun run --cwd "$PWD" toss verify --full\`
+- Verify path: \`bun run --cwd "$PWD" toss verify\`
 
-## Remember Flow (read-before-apply)
-1. Read schema snapshot first:
+## Remember Flow (schema -> plan -> apply)
+1. Read schema first:
 \`\`\`bash
-bun run --cwd "$PWD" toss read --sql "SELECT m.name AS table_name, p.name AS column_name, p.type, p.notnull FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' AND m.name NOT LIKE '_toss_%' AND m.name NOT LIKE 'sqlite_%' ORDER BY m.name, p.cid" --json
+bun run --cwd "$PWD" toss schema
 \`\`\`
-2. Build an OperationPlan from current schema plus user intent.
-3. Apply via stdin:
+2. Classify user intent as one of: \`store\` / \`confirm\` / \`ignore\`.
+3. Auto-store only high-confidence facts (clear schedule, deadline, purchase, task). Ask confirmation when ambiguous.
+4. Build OperationPlan from schema + intent.
+5. Dry-run check via stdin:
 \`\`\`bash
-cat <<'JSON' | bun run --cwd "$PWD" toss apply --plan -
-{"message":"<what this apply does>","operations":[...],"source":{"planner":"agent-skill","skill":"toss"}}
+cat <<'JSON' | bun run --cwd "$PWD" toss plan -
+{"message":"<what this apply does>","operations":[...]}
 JSON
 \`\`\`
-4. If apply fails due to schema mismatch, re-read schema and retry once.
+6. Apply only if dry-run has no errors:
+\`\`\`bash
+cat <<'JSON' | bun run --cwd "$PWD" toss apply -
+{"message":"<what this apply does>","operations":[...]}
+JSON
+\`\`\`
+7. If apply fails due to schema mismatch, re-read schema and retry once.
 
 ## Recall Flow
 1. Convert request to read-only SQL (\`SELECT\` or \`WITH ... SELECT\`).
@@ -171,6 +181,7 @@ bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json
 - Keep one semantic unit per apply.
 - Always include a non-empty \`message\`.
 - Never run \`update\` or \`delete\` without explicit \`where\`.
+- Never store secrets, credentials, access tokens, or private keys.
 - Prefer staged migrations: additive -> backfill -> verify -> cleanup.
 
 ## References
@@ -215,7 +226,7 @@ function contractsReferenceContent(): string {
   return `# toss Contracts
 
 ## apply contract
-\`toss apply --plan <file|->\` accepts OperationPlan envelope JSON:
+\`toss apply <file|->\` accepts OperationPlan envelope JSON:
 
 \`\`\`json
 {
@@ -226,10 +237,15 @@ function contractsReferenceContent(): string {
       "table": "expenses",
       "values": { "date": "2026-02-18", "item": "dinner", "amount": 1200 }
     }
-  ],
-  "source": { "planner": "agent-skill", "skill": "toss" }
+  ]
 }
 \`\`\`
+
+## plan contract
+\`toss plan <file|->\`
+- Validates JSON and operation constraints
+- Runs dry-run in savepoint and rolls back
+- Returns JSON with \`errors\`, \`warnings\`, \`risk\`, and predicted effects
 
 Allowed operation types:
 - \`create_table\`
@@ -240,6 +256,11 @@ Allowed operation types:
 - \`drop_table\`
 - \`drop_column\`
 - \`alter_column_type\`
+
+## schema contract
+\`toss schema [--table <name>]\`
+- Returns detailed schema JSON for planner input
+- Includes table/column/FK/index/trigger/check metadata and row counts
 
 ## read contract
 \`toss read --sql "<query>" [--json]\`
@@ -262,11 +283,14 @@ alwaysApply: false
 Use toss for memory/storage requests and analytical reads.
 
 Commands:
+- \`bun run --cwd "$PWD" toss schema\`
+- \`bun run --cwd "$PWD" toss plan -\`
 - \`bun run --cwd "$PWD" toss read --sql "<SELECT ...>" --json\`
-- \`bun run --cwd "$PWD" toss apply --plan -\`
+- \`bun run --cwd "$PWD" toss apply -\`
 
 Rules:
-- Read schema before write plans.
+- Use schema -> plan -> apply for every write.
+- Auto-store only high-confidence facts. Ask when ambiguous.
 - Keep one semantic unit per apply.
 - Never run update/delete without explicit where.
 - For destructive migration, verify before and after.
@@ -280,9 +304,9 @@ function agentsBlock(skillPath: string): string {
 - toss: Unified toss workflow for remember/store, schema evolution + data migration, and recall/query with read-before-apply safety. (file: ${skillPath})
 ### How to use skills
 - Trigger: use \`toss\` whenever user intent touches toss memory, storage, query, or analysis.
-- For writes: read schema first, then build OperationPlan with explicit migration intent.
+- For writes: always run schema -> plan -> apply.
 - For reads: generate read-only SQL only.
-- For destructive changes: run \`toss history --verbose\` and \`toss verify --quick\` before apply.
+- For destructive changes: run \`toss history --verbose\` and \`toss verify --full\` before apply.
 ${AGENTS_BLOCK_END}
 `;
 }

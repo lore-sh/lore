@@ -183,6 +183,69 @@ interface IndexXInfoRow {
   key: number;
 }
 
+export interface SchemaColumnDescriptor {
+  definitionSql: string | null;
+  cid: number;
+  name: string;
+  type: string;
+  notnull: number;
+  dfltValue: string | null;
+  pk: number;
+  hidden: number;
+}
+
+export interface SchemaForeignKeyDescriptor {
+  id: number;
+  refTable: string;
+  onUpdate: string;
+  onDelete: string;
+  match: string;
+  mappings: Array<{ seq: number; from: string; to: string | null }>;
+}
+
+export interface SchemaIndexDescriptor {
+  name: string;
+  unique: boolean;
+  origin: "c" | "u" | "pk";
+  partial: boolean;
+  sql: string | null;
+  columns: Array<{
+    seqno: number;
+    cid: number;
+    name: string | null;
+    desc: number;
+    coll: string | null;
+    key: number;
+  }>;
+}
+
+export interface SchemaTriggerDescriptor {
+  name: string;
+  sql: string | null;
+}
+
+export interface SchemaTableDescriptor {
+  tableSql: string | null;
+  table: string;
+  options: {
+    withoutRowid: boolean;
+    strict: boolean;
+  };
+  columns: SchemaColumnDescriptor[];
+  foreignKeys: SchemaForeignKeyDescriptor[];
+  indexes: SchemaIndexDescriptor[];
+  checks: string[];
+  triggers: SchemaTriggerDescriptor[];
+}
+
+export interface SchemaDescriptor {
+  tables: SchemaTableDescriptor[];
+}
+
+export function schemaHashFromDescriptor(descriptor: SchemaDescriptor): string {
+  return sha256Hex(descriptor.tables);
+}
+
 function findMatchingParen(sql: string, openIndex: number): number {
   let i = openIndex;
   let depth = 0;
@@ -604,7 +667,7 @@ function extractCheckConstraints(tableSql: string | null): string[] {
   return checks.sort((a, b) => a.localeCompare(b));
 }
 
-export function schemaHash(db: Database): string {
+export function describeSchema(db: Database): SchemaDescriptor {
   const tables = listUserTables(db);
   const tableList = getRows<TableListRow>(db, "PRAGMA table_list");
   const tableOpts = new Map(
@@ -613,7 +676,7 @@ export function schemaHash(db: Database): string {
       .map((row) => [row.name, { withoutRowid: row.wr === 1, strict: row.strict === 1 }] as const),
   );
 
-  const descriptor = tables.map((table) => {
+  const tablesDescriptor = tables.map((table) => {
     const tableDdl = tableDDL(db, table);
     const columnDefs = parseColumnDefinitionsFromCreateTable(tableDdl);
     const checks = extractCheckConstraints(tableDdl);
@@ -708,7 +771,11 @@ export function schemaHash(db: Database): string {
       })),
     };
   });
-  return sha256Hex(descriptor);
+  return { tables: tablesDescriptor };
+}
+
+export function schemaHash(db: Database): string {
+  return schemaHashFromDescriptor(describeSchema(db));
 }
 
 export function stateHash(db: Database): string {

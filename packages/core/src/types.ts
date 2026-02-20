@@ -21,11 +21,6 @@ export interface TableSecondaryObject {
   sql: string;
 }
 
-export interface SourceInfo {
-  planner?: string | undefined;
-  skill?: string | undefined;
-}
-
 export interface ColumnDefinition {
   name: string;
   type: string;
@@ -106,7 +101,6 @@ export type Operation =
 export interface OperationPlan {
   message: string;
   operations: Operation[];
-  source?: SourceInfo | undefined;
 }
 
 export type CommitKind = "apply" | "revert" | "system";

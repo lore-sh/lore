@@ -5,13 +5,6 @@ import type { OperationPlan } from "../types";
 
 const scalarValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 
-const sourceSchema = z
-  .object({
-    planner: z.string().trim().min(1).optional(),
-    skill: z.string().trim().min(1).optional(),
-  })
-  .strict();
-
 const columnSchema = z
   .object({
     name: z.string().trim().min(1),
@@ -113,7 +106,6 @@ export const operationPlanSchema = z
         ]),
       )
       .min(1),
-    source: sourceSchema.optional(),
   })
   .strict();
 
