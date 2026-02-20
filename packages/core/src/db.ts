@@ -8,7 +8,6 @@ import { resolveHomeDir } from "./fsx";
 
 export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
-export const SCHEMA_FINGERPRINT = "toss-canonical-observed-2026-02-19";
 export const DEFAULT_SNAPSHOT_INTERVAL = 100;
 export const DEFAULT_SNAPSHOT_RETAIN = 20;
 export const MAIN_REF_NAME = "main";
@@ -118,6 +117,22 @@ export function initializeStorage(): void {
   }
   withClient((db) => {
     migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
+    const sqlite = db.$client;
+    sqlite
+      .query(
+        `INSERT INTO ${ENGINE_META_TABLE}(key, value) VALUES(?, ?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+      )
+      .run("snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL));
+    sqlite
+      .query(
+        `INSERT INTO ${ENGINE_META_TABLE}(key, value) VALUES(?, ?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+      )
+      .run("snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN));
+    sqlite
+      .query(`INSERT INTO ${REF_TABLE}(name, commit_id, updated_at) VALUES(?, NULL, ?) ON CONFLICT(name) DO NOTHING`)
+      .run(MAIN_REF_NAME, Date.now());
   });
 }
 
@@ -141,8 +156,17 @@ export function isInitialized(db: Database): boolean {
   if (requiredTables.some((table) => !tableExists(db, table))) {
     return false;
   }
-  const fingerprint = getRow<{ value?: string }>(db, `SELECT value FROM ${ENGINE_META_TABLE} WHERE key='schema_fingerprint'`);
-  return fingerprint?.value === SCHEMA_FINGERPRINT;
+  const hasMainRef = getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${REF_TABLE} WHERE name=? LIMIT 1`, MAIN_REF_NAME);
+  if (hasMainRef?.ok !== 1) {
+    return false;
+  }
+  for (const key of ["snapshot_interval", "snapshot_retain"]) {
+    const meta = getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${ENGINE_META_TABLE} WHERE key=? LIMIT 1`, key);
+    if (meta?.ok !== 1) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function assertInitialized(db: Database, dbPath: string): void {

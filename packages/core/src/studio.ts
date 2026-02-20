@@ -20,7 +20,7 @@ export interface StudioTableSummary {
   name: string;
   rowCount: number;
   columnCount: number;
-  lastUpdatedAt: string | null;
+  lastUpdatedAt: number | null;
 }
 
 export interface StudioTablesView {
@@ -91,7 +91,7 @@ export interface StudioHistoryEntry {
   seq: number;
   kind: CommitKind;
   message: string;
-  createdAt: string;
+  createdAt: number;
   parentIds: string[];
 }
 
@@ -278,7 +278,7 @@ export function listStudioTables(): StudioTablesView {
         db,
         `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteName(name)}) WHERE hidden IN (0, 2, 3)`,
       );
-      const updated = getRow<{ created_at: string }>(
+      const updated = getRow<{ created_at: number }>(
         db,
         `
           SELECT c.created_at
@@ -430,7 +430,7 @@ export function listStudioHistory(
       seq: number;
       kind: CommitKind;
       message: string;
-      created_at: string;
+      created_at: number;
     }>(
       db,
       `SELECT commit_id, seq, kind, message, created_at

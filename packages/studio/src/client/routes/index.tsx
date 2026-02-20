@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { formatTimestamp } from "../lib/time";
 import { statusQueryOptions, tablesQueryOptions } from "../lib/queries";
 
 function StatCard(props: { label: string; value: string }) {
@@ -57,7 +58,7 @@ export function DashboardPage() {
                   </td>
                   <td className="px-5 py-3 text-fg-muted">{table.rowCount}</td>
                   <td className="px-5 py-3 text-fg-muted">{table.columnCount}</td>
-                  <td className="px-5 py-3 text-fg-soft">{table.lastUpdatedAt ?? "n/a"}</td>
+                  <td className="px-5 py-3 text-fg-soft">{formatTimestamp(table.lastUpdatedAt)}</td>
                 </tr>
               ))}
             </tbody>

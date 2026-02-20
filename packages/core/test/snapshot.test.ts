@@ -93,9 +93,11 @@ describe("snapshot / recover", () => {
     const latest = await applyPlan(insertB);
 
     const tamper = new Database(dbPath);
+    tamper.run("PRAGMA ignore_check_constraints=ON");
     tamper
       .query(`UPDATE ${COMMIT_TABLE} SET state_hash_after='broken-state-hash' WHERE commit_id=?`)
       .run(latest.commitId);
+    tamper.run("PRAGMA ignore_check_constraints=OFF");
     tamper.close(false);
 
     try {

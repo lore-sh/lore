@@ -110,7 +110,7 @@ export interface CommitEntry {
   seq: number;
   kind: CommitKind;
   message: string;
-  createdAt: string;
+  createdAt: number;
   parentIds: string[];
   parentCount: number;
   schemaHashBefore: string;
@@ -136,7 +136,7 @@ export interface TossStatus {
     seq: number;
     kind: CommitKind;
     message: string;
-    createdAt: string;
+    createdAt: number;
   } | null;
   snapshotCount: number;
   lastVerifiedAt: string | null;
@@ -178,7 +178,7 @@ export interface SnapshotEntry {
   commitId: string;
   filePath: string;
   fileSha256: string;
-  createdAt: string;
+  createdAt: number;
   rowCountHint: number;
 }
 

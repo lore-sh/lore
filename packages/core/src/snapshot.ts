@@ -119,7 +119,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
       .query(
         `INSERT OR REPLACE INTO ${SNAPSHOT_TABLE}(commit_id, file_path, file_sha256, created_at, row_count_hint) VALUES(?, ?, ?, ?, ?)`,
       )
-      .run(snapshotHead.commitId, snapshotPath, digest, new Date().toISOString(), snapshotHead.rowCountHint);
+      .run(snapshotHead.commitId, snapshotPath, digest, Date.now(), snapshotHead.rowCountHint);
 
     const retain = getSnapshotRetain(writeDb);
     const stale = getRows<{ commit_id: string; file_path: string }>(
@@ -144,7 +144,7 @@ export function listSnapshots(): SnapshotEntry[] {
       commit_id: string;
       file_path: string;
       file_sha256: string;
-      created_at: string;
+      created_at: number;
       row_count_hint: number;
     }>(db, `SELECT commit_id, file_path, file_sha256, created_at, row_count_hint FROM ${SNAPSHOT_TABLE} ORDER BY created_at DESC`);
     return rows.map((row) => ({

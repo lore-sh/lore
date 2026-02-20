@@ -65,11 +65,17 @@ function hasFlag(args: string[], name: string): boolean {
   return args.includes(name);
 }
 
+function formatTimestamp(unixMs: number): string {
+  const date = new Date(unixMs);
+  return Number.isNaN(date.getTime()) ? String(unixMs) : date.toISOString();
+}
+
 function summarizeCommit(entry: CommitEntry): Record<string, unknown> {
   return {
     commit_id: entry.commitId,
     seq: entry.seq,
-    created_at: entry.createdAt,
+    created_at: formatTimestamp(entry.createdAt),
+    created_at_unix_ms: entry.createdAt,
     kind: entry.kind,
     message: entry.message,
     parent_ids: entry.parentIds,
@@ -272,7 +278,8 @@ function runHistory(args: string[]): void {
       ? {
           seq: entry.seq,
           commit_id: entry.commitId,
-          created_at: entry.createdAt,
+          created_at: formatTimestamp(entry.createdAt),
+          created_at_unix_ms: entry.createdAt,
           kind: entry.kind,
           parent: entry.parentIds.join(","),
           reverted_target: entry.revertedTargetId ?? "",
@@ -283,7 +290,8 @@ function runHistory(args: string[]): void {
       : {
           seq: entry.seq,
           commit_id: entry.commitId,
-          created_at: entry.createdAt,
+          created_at: formatTimestamp(entry.createdAt),
+          created_at_unix_ms: entry.createdAt,
           kind: entry.kind,
           message: entry.message.length > 80 ? `${entry.message.slice(0, 77)}...` : entry.message,
         },

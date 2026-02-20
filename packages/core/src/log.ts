@@ -20,7 +20,7 @@ export interface CommitWriteInput {
   seq: number;
   kind: CommitKind;
   message: string;
-  createdAt: string;
+  createdAt: number;
   parentIds: string[];
   schemaHashBefore: string;
   schemaHashAfter: string;
@@ -42,7 +42,7 @@ interface RawCommitRow {
   seq: number;
   kind: CommitKind;
   message: string;
-  created_at: string;
+  created_at: number;
   parent_count: number;
   schema_hash_before: string;
   schema_hash_after: string;

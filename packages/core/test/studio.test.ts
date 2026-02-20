@@ -52,7 +52,7 @@ describe("studio api", () => {
     expect(tables.tables[0]?.name).toBe("expenses");
     expect(tables.tables[0]?.rowCount).toBe(2);
     expect(tables.tables[0]?.columnCount).toBe(3);
-    expect(typeof tables.tables[0]?.lastUpdatedAt).toBe("string");
+    expect(typeof tables.tables[0]?.lastUpdatedAt).toBe("number");
 
     const firstPage = readStudioTable({
       table: "expenses",
@@ -257,11 +257,13 @@ describe("studio api", () => {
     await applyPlan(insertTwoPath);
 
     const direct = new Database(dbPath);
+    direct.run("PRAGMA ignore_check_constraints=ON");
     const oldest = direct
       .query<{ commit_id: string }, []>("SELECT commit_id FROM _toss_commit ORDER BY seq ASC LIMIT 1")
       .get();
     expect(typeof oldest?.commit_id).toBe("string");
     direct.query(`UPDATE ${OP_TABLE} SET op_json = ? WHERE commit_id = ?`).run("{", oldest?.commit_id ?? "");
+    direct.run("PRAGMA ignore_check_constraints=OFF");
     direct.close(false);
 
     const history = listStudioHistory({ limit: 1 });

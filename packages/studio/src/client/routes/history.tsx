@@ -1,6 +1,7 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { commitDetailQueryOptions, historyQueryOptions } from "../lib/queries";
+import { formatTimestamp } from "../lib/time";
 
 function formatJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -69,7 +70,7 @@ export function HistoryPage() {
                 <p className="font-mono text-xs text-fg-soft">{commit.shortId}</p>
                 <p className="mt-1 text-sm font-semibold text-fg">{commit.message}</p>
                 <p className="text-xs text-fg-soft">
-                  {commit.createdAt} · {commit.kind}
+                  {formatTimestamp(commit.createdAt)} · {commit.kind}
                 </p>
               </div>
               <span className="ui-badge">

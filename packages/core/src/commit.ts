@@ -29,7 +29,7 @@ export function appendCommitFromObservedChange(
   const parent = getHeadCommit(db);
   const parentIds = parent ? [parent.commitId] : [];
   const seq = getNextCommitSeq(db);
-  const createdAt = new Date().toISOString();
+  const createdAt = Date.now();
   const afterObservedState = captureObservedState(db);
   const captured = diffObservedState(input.beforeObservedState, afterObservedState);
   const afterSchemaHash = schemaHash(db);
