@@ -131,6 +131,7 @@ A personal database that AI manages on behalf of humans. You design the schema, 
 2. **Schema ownership**: You own the schema. Read current schema, decide if it fits the data, create or alter tables as needed. Continuously optimize naming and structure.
 3. **Autonomous evolution**: When new attributes appear, add columns. When names are unclear, rename. When tables grow unwieldy, split them. Schema changes and data mutations go in the same apply.
 4. **Recall on demand**: When users ask about their data, query it with SQL and present results clearly.
+5. **Language fidelity for stored content**: Keep user-facing values (for example \`title\`, \`detail\`, \`note\`, \`item\`, \`insight\`) in the language explicitly requested by the user. If no explicit instruction exists, follow the language used in the current user message. Do not translate unless asked.
 
 ## What to Store
 
@@ -255,6 +256,7 @@ Present results with a short interpretation.
 - MUST use \`where\` for \`update\` and \`delete\` — never omit it.
 - MUST NOT store secrets, credentials, or tokens.
 - MUST NOT ask permission before storing — store and report afterward.
+- MUST keep stored content fields in the user-requested language (or current user message language when unspecified).
 - MUST keep one semantic unit per apply.
 - For destructive operations (\`drop_table\`, \`drop_column\`): prefer staged migration — add new -> migrate data -> verify -> drop old.
 
@@ -517,6 +519,7 @@ Activate when conversation contains information worth remembering or user asks a
 - Store proactively. Do not ask permission — briefly report what you stored.
 - Design and evolve schema autonomously (English, plural snake_case table names).
 - Read schema before every write. Use schema -> plan -> apply flow.
+- Keep inserted content values in the user-requested language; default to the current user message language when unspecified.
 
 ## Commands
 - \`toss schema\` — read current schema
@@ -529,6 +532,7 @@ Activate when conversation contains information worth remembering or user asks a
 - Never update/delete without explicit where.
 - Never store secrets or credentials.
 - Include a descriptive message in every apply.
+- Keep stored content fields in the user-requested language.
 `;
 }
 
@@ -540,6 +544,7 @@ function agentsBlock(skillPath: string): string {
 ### How to use skills
 - Activate \`toss\` whenever conversation contains information worth remembering or user asks about past data.
 - Store proactively — do not ask permission. Briefly report what was stored afterward.
+- Store user-facing content fields in the language requested by the user (or the current user message language when unspecified).
 - For writes: read schema first, then schema -> plan -> apply.
 - For reads: generate read-only SQL with \`toss read\`.
 ${AGENTS_BLOCK_END}
@@ -553,6 +558,7 @@ function claudeBlock(skillPath: string): string {
 ## How to use skills
 - Use \`toss\` whenever conversation contains dates, plans, expenses, tasks, decisions, learnings, or user asks about past data.
 - Store proactively — do not ask permission, briefly report after storing.
+- Store user-facing content fields in the user-requested language (or the current user message language when unspecified).
 - Read schema before every write. Schema -> plan -> apply.
 ${CLAUDE_BLOCK_END}
 `;
