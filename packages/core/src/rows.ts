@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables } from "./db";
 import { TossError } from "./errors";
-import { isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "./sql";
+import { createScanner, findMatchingParen, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "./sql";
 import type { JsonObject, JsonPrimitive } from "./types";
 
 export interface TableInfoRow {
@@ -246,92 +246,6 @@ export function schemaHashFromDescriptor(descriptor: SchemaDescriptor): string {
   return sha256Hex(descriptor.tables);
 }
 
-function findMatchingParen(sql: string, openIndex: number): number {
-  let i = openIndex;
-  let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "(") {
-      depth += 1;
-      i += 1;
-      continue;
-    }
-    if (ch === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        return i;
-      }
-      i += 1;
-      continue;
-    }
-    i += 1;
-  }
-  return -1;
-}
-
 function pragmaLiteral(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -567,101 +481,40 @@ function extractCheckConstraints(tableSql: string | null): string[] {
     return [];
   }
   const checks: string[] = [];
-  let i = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
+  const scanner = createScanner(tableSql);
 
-  while (i < tableSql.length) {
-    const ch = tableSql[i]!;
-    const next = tableSql[i + 1];
-
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
+  while (scanner.pos < tableSql.length) {
+    if (scanner.skipInterior()) {
       continue;
     }
 
     if (
-      i + 5 <= tableSql.length &&
-      tableSql.slice(i, i + 5).toUpperCase() === "CHECK" &&
-      isWordBoundary(tableSql[i - 1]) &&
-      isWordBoundary(tableSql[i + 5])
+      scanner.pos + 5 <= tableSql.length &&
+      tableSql.slice(scanner.pos, scanner.pos + 5).toUpperCase() === "CHECK" &&
+      isWordBoundary(tableSql[scanner.pos - 1]) &&
+      isWordBoundary(tableSql[scanner.pos + 5])
     ) {
-      let j = i + 5;
+      let j = scanner.pos + 5;
       while (j < tableSql.length && /\s/.test(tableSql[j]!)) {
         j += 1;
       }
       if (tableSql[j] !== "(") {
-        i += 1;
+        scanner.advance();
         continue;
       }
       const closeIndex = findMatchingParen(tableSql, j);
       if (closeIndex < 0) {
-        i += 1;
+        scanner.advance();
         continue;
       }
       const expr = normalizeSql(tableSql.slice(j + 1, closeIndex));
       if (expr) {
         checks.push(expr);
       }
-      i = closeIndex + 1;
+      scanner.pos = closeIndex + 1;
       continue;
     }
-    i += 1;
+    scanner.advance();
   }
 
   return checks.sort((a, b) => a.localeCompare(b));

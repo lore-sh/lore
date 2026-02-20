@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { getRow, getRows, runInSavepoint, tableExists } from "../db";
 import { TossError } from "../errors";
 import { type TableInfoRow, whereClauseFromRecord } from "../rows";
-import { COLUMN_TYPE_PATTERN, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "../sql";
+import { COLUMN_TYPE_PATTERN, createScanner, findMatchingParen, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "../sql";
 import type {
   AddCheckOperation,
   AddColumnOperation,
@@ -215,6 +215,33 @@ function readIdentifierToken(sql: string, start: number): { name: string; end: n
   return { name: parsed.name, end: parsed.end };
 }
 
+function readEscapedQuotedIdentifier(
+  sql: string,
+  start: number,
+  quote: string,
+  label: string,
+): { name: string; end: number; quoted: true } {
+  let i = start + 1;
+  let name = "";
+  while (i < sql.length) {
+    const cur = sql[i]!;
+    if (cur === quote && sql[i + 1] === quote) {
+      name += quote;
+      i += 2;
+      continue;
+    }
+    if (cur === quote) {
+      return { name, end: i + 1, quoted: true };
+    }
+    name += cur;
+    i += 1;
+  }
+  throw new TossError("INVALID_OPERATION", `Malformed ${label} identifier in CREATE TABLE`);
+}
+
+const ID_START = /^(?:[_$]|\p{ID_Start})$/u;
+const ID_CONTINUE = /^(?:[_$]|\p{ID_Continue})$/u;
+
 function parseIdentifierToken(sql: string, start: number): { name: string; end: number; quoted: boolean } | null {
   const ch = sql[start];
   if (!ch) {
@@ -222,65 +249,14 @@ function parseIdentifierToken(sql: string, start: number): { name: string; end: 
   }
 
   if (ch === '"') {
-    let i = start + 1;
-    let name = "";
-    while (i < sql.length) {
-      const cur = sql[i]!;
-      const next = sql[i + 1];
-      if (cur === '"' && next === '"') {
-        name += '"';
-        i += 2;
-        continue;
-      }
-      if (cur === '"') {
-        return { name, end: i + 1, quoted: true };
-      }
-      name += cur;
-      i += 1;
-    }
-    throw new TossError("INVALID_OPERATION", "Malformed quoted identifier in CREATE TABLE");
+    return readEscapedQuotedIdentifier(sql, start, '"', "quoted");
   }
-
   if (ch === "'") {
-    let i = start + 1;
-    let name = "";
-    while (i < sql.length) {
-      const cur = sql[i]!;
-      const next = sql[i + 1];
-      if (cur === "'" && next === "'") {
-        name += "'";
-        i += 2;
-        continue;
-      }
-      if (cur === "'") {
-        return { name, end: i + 1, quoted: true };
-      }
-      name += cur;
-      i += 1;
-    }
-    throw new TossError("INVALID_OPERATION", "Malformed single-quoted identifier in CREATE TABLE");
+    return readEscapedQuotedIdentifier(sql, start, "'", "single-quoted");
   }
-
   if (ch === "`") {
-    let i = start + 1;
-    let name = "";
-    while (i < sql.length) {
-      const cur = sql[i]!;
-      const next = sql[i + 1];
-      if (cur === "`" && next === "`") {
-        name += "`";
-        i += 2;
-        continue;
-      }
-      if (cur === "`") {
-        return { name, end: i + 1, quoted: true };
-      }
-      name += cur;
-      i += 1;
-    }
-    throw new TossError("INVALID_OPERATION", "Malformed backtick identifier in CREATE TABLE");
+    return readEscapedQuotedIdentifier(sql, start, "`", "backtick");
   }
-
   if (ch === "[") {
     const end = sql.indexOf("]", start + 1);
     if (end < 0) {
@@ -289,8 +265,6 @@ function parseIdentifierToken(sql: string, start: number): { name: string; end: 
     return { name: sql.slice(start + 1, end), end: end + 1, quoted: true };
   }
 
-  const isIdentifierStartChar = (ch: string): boolean => /^(?:[_$]|\p{ID_Start})$/u.test(ch);
-  const isIdentifierContinueChar = (ch: string): boolean => /^(?:[_$]|\p{ID_Continue})$/u.test(ch);
   const readCodePoint = (index: number): { value: string; next: number } | null => {
     if (index >= sql.length) {
       return null;
@@ -304,14 +278,14 @@ function parseIdentifierToken(sql: string, start: number): { name: string; end: 
   };
 
   const first = readCodePoint(start);
-  if (!first || !isIdentifierStartChar(first.value)) {
+  if (!first || !ID_START.test(first.value)) {
     return null;
   }
 
   let i = first.next;
   while (i < sql.length) {
     const next = readCodePoint(i);
-    if (!next || !isIdentifierContinueChar(next.value)) {
+    if (!next || !ID_CONTINUE.test(next.value)) {
       break;
     }
     i = next.next;
@@ -358,113 +332,24 @@ function equalsSqliteIdentifier(left: string, right: string): boolean {
 
 function rewriteSelfReferentialForeignKeyTargets(ddlSql: string, sourceTable: string, newTable: string): string {
   const replacements: Array<{ start: number; end: number; value: string }> = [];
-  let i = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
+  const scanner = createScanner(ddlSql);
 
-  while (i < ddlSql.length) {
-    const ch = ddlSql[i]!;
-    const next = ddlSql[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
+  while (scanner.pos < ddlSql.length) {
+    if (scanner.skipInterior()) {
       continue;
     }
 
     if (
-      i + 10 <= ddlSql.length &&
-      ddlSql.slice(i, i + 10).toUpperCase() === "REFERENCES" &&
-      isWordBoundary(ddlSql[i - 1]) &&
-      isWordBoundary(ddlSql[i + 10])
+      scanner.pos + 10 <= ddlSql.length &&
+      ddlSql.slice(scanner.pos, scanner.pos + 10).toUpperCase() === "REFERENCES" &&
+      isWordBoundary(ddlSql[scanner.pos - 1]) &&
+      isWordBoundary(ddlSql[scanner.pos + 10])
     ) {
-      let j = skipLeadingTrivia(ddlSql, i + 10);
+      let j = skipLeadingTrivia(ddlSql, scanner.pos + 10);
       const firstStart = j;
       const first = parseIdentifierToken(ddlSql, firstStart);
       if (!first) {
-        i += 10;
+        scanner.advance(10);
         continue;
       }
 
@@ -497,11 +382,11 @@ function rewriteSelfReferentialForeignKeyTargets(ddlSql: string, sourceTable: st
           value: quoteIdentifier(newTable),
         });
       }
-      i = j;
+      scanner.pos = j;
       continue;
     }
 
-    i += 1;
+    scanner.advance();
   }
 
   if (replacements.length === 0) {
@@ -516,124 +401,29 @@ function rewriteSelfReferentialForeignKeyTargets(ddlSql: string, sourceTable: st
 }
 
 function findCreateTablePayloadRange(ddlSql: string): { start: number; end: number } {
-  let i = 0;
+  const scanner = createScanner(ddlSql);
   let open = -1;
   let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
 
-  while (i < ddlSql.length) {
-    const ch = ddlSql[i]!;
-    const next = ddlSql[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-      }
-      i += 1;
+  while (scanner.pos < ddlSql.length) {
+    if (scanner.skipInterior()) {
       continue;
     }
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-
+    const ch = ddlSql[scanner.pos]!;
     if (ch === "(") {
       if (open < 0) {
-        open = i;
+        open = scanner.pos;
         depth = 1;
       } else {
         depth += 1;
       }
-      i += 1;
-      continue;
-    }
-    if (ch === ")" && open >= 0) {
+    } else if (ch === ")" && open >= 0) {
       depth -= 1;
       if (depth === 0) {
-        return { start: open + 1, end: i };
+        return { start: open + 1, end: scanner.pos };
       }
-      i += 1;
-      continue;
     }
-
-    i += 1;
+    scanner.advance();
   }
 
   throw new TossError("INVALID_OPERATION", "Malformed CREATE TABLE statement: column list not found");
@@ -779,122 +569,6 @@ function normalizeSqlFragment(sql: string): string {
   return out.trim();
 }
 
-function findMatchingParen(sql: string, openIndex: number): number {
-  let i = openIndex;
-  let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "(") {
-      depth += 1;
-      i += 1;
-      continue;
-    }
-    if (ch === ")") {
-      depth -= 1;
-      if (depth === 0) {
-        return i;
-      }
-      i += 1;
-      continue;
-    }
-    i += 1;
-  }
-  return -1;
-}
-
 function findConstraintStart(segment: string, from: number): number {
   const constraintKeywords = new Set([
     "CONSTRAINT",
@@ -908,130 +582,43 @@ function findConstraintStart(segment: string, from: number): number {
     "GENERATED",
     "AS",
   ]);
-  let i = from;
+  const scanner = createScanner(segment);
+  scanner.pos = from;
   let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
 
-  while (i < segment.length) {
-    const ch = segment[i]!;
-    const next = segment[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-      }
-      i += 1;
+  while (scanner.pos < segment.length) {
+    if (scanner.skipInterior()) {
       continue;
     }
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
+    const ch = segment[scanner.pos]!;
 
     if (ch === "(") {
       depth += 1;
-      i += 1;
+      scanner.advance();
       continue;
     }
     if (ch === ")") {
       if (depth > 0) {
         depth -= 1;
       }
-      i += 1;
+      scanner.advance();
       continue;
     }
 
-    if (depth === 0 && /[A-Za-z_]/.test(ch) && isWordBoundary(segment[i - 1])) {
-      let j = i + 1;
+    if (depth === 0 && /[A-Za-z_]/.test(ch) && isWordBoundary(segment[scanner.pos - 1])) {
+      let j = scanner.pos + 1;
       while (j < segment.length && /[A-Za-z_]/.test(segment[j]!)) {
         j += 1;
       }
-      const word = segment.slice(i, j).toUpperCase();
+      const word = segment.slice(scanner.pos, j).toUpperCase();
       if (constraintKeywords.has(word) && isWordBoundary(segment[j])) {
-        return i;
+        return scanner.pos;
       }
-      i = j;
+      scanner.pos = j;
       continue;
     }
 
-    i += 1;
+    scanner.advance();
   }
 
   return segment.length;

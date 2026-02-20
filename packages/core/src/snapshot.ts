@@ -178,7 +178,7 @@ function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitR
     if (!commit) {
       throw new TossError("RECOVER_FAILED", `Replay commit not found: ${row.commitId}`);
     }
-    const { parentCount: _unused, ...base } = commit;
+    const { parentCount: _, ...base } = commit;
     return {
       ...base,
       rowEffects: getRowEffectsByCommitId(db, commit.commitId),

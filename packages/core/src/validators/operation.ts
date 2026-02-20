@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TossError } from "../errors";
-import { COLUMN_TYPE_PATTERN, IDENTIFIER_PATTERN } from "../sql";
+import { COLUMN_TYPE_PATTERN, IDENTIFIER_PATTERN, createScanner } from "../sql";
 import type { OperationPlan } from "../types";
 
 const scalarValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
@@ -160,125 +160,29 @@ function assertColumnType(value: string, label: string): void {
 }
 
 function scanSqlControlTokens(sql: string): { hasCommentToken: boolean; hasSemicolon: boolean } {
-  let i = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
+  const scanner = createScanner(sql);
   let hasCommentToken = false;
   let hasSemicolon = false;
 
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
+  while (scanner.pos < sql.length) {
+    const ch = sql[scanner.pos]!;
+    const next = sql[scanner.pos + 1];
 
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
+    // Detect comment tokens before skipInterior consumes them
+    if (!scanner.insideLiteral) {
+      if ((ch === "-" && next === "-") || (ch === "/" && next === "*") || (ch === "*" && next === "/")) {
+        hasCommentToken = true;
       }
-      i += 1;
-      continue;
     }
 
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
+    if (scanner.skipInterior()) {
       continue;
     }
 
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBacktick) {
-      if (ch === "`" && next === "`") {
-        i += 2;
-        continue;
-      }
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      hasCommentToken = true;
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      hasCommentToken = true;
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-    if (ch === "*" && next === "/") {
-      hasCommentToken = true;
-      i += 2;
-      continue;
-    }
     if (ch === ";") {
       hasSemicolon = true;
     }
-
-    i += 1;
+    scanner.advance();
   }
 
   return { hasCommentToken, hasSemicolon };
@@ -289,111 +193,32 @@ function analyzeSqlExpressionShape(sql: string): {
   hasUnbalancedParen: boolean;
   hasUnterminatedLiteral: boolean;
 } {
-  let i = 0;
+  const scanner = createScanner(sql);
   let depth = 0;
   let hasTopLevelComma = false;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
 
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
-
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
+  while (scanner.pos < sql.length) {
+    if (scanner.skipInterior()) {
       continue;
     }
-
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBacktick) {
-      if (ch === "`" && next === "`") {
-        i += 2;
-        continue;
-      }
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-
+    const ch = sql[scanner.pos]!;
     if (ch === "(") {
       depth += 1;
-      i += 1;
-      continue;
-    }
-    if (ch === ")") {
+    } else if (ch === ")") {
       depth -= 1;
       if (depth < 0) {
-        return {
-          hasTopLevelComma,
-          hasUnbalancedParen: true,
-          hasUnterminatedLiteral: false,
-        };
+        return { hasTopLevelComma, hasUnbalancedParen: true, hasUnterminatedLiteral: false };
       }
-      i += 1;
-      continue;
-    }
-    if (ch === "," && depth === 0) {
+    } else if (ch === "," && depth === 0) {
       hasTopLevelComma = true;
     }
-
-    i += 1;
+    scanner.advance();
   }
 
   return {
     hasTopLevelComma,
     hasUnbalancedParen: depth !== 0,
-    hasUnterminatedLiteral: inSingle || inDouble || inBacktick || inBracket,
+    hasUnterminatedLiteral: scanner.insideLiteral,
   };
 }
 

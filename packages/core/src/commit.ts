@@ -58,8 +58,8 @@ export async function applyPlan(planRef: string): Promise<CommitEntry> {
   const payload = await readPlanInput(planRef);
   const plan = parseAndValidateOperationPlan(payload);
 
-  const commit = await withInitializedDatabaseAsync(async ({ db }) => {
-    const commit = runInTransaction(db, () => {
+  const commit = await withInitializedDatabaseAsync(async ({ db }) =>
+    runInTransaction(db, () => {
       const beforeSchemaHash = schemaHash(db);
       const beforeObservedState = captureObservedState(db);
       for (const operation of plan.operations) {
@@ -73,9 +73,8 @@ export async function applyPlan(planRef: string): Promise<CommitEntry> {
         beforeSchemaHash,
         beforeObservedState,
       });
-    });
-    return commit;
-  });
+    }),
+  );
 
   const { maybeCreateSnapshot } = await import("./snapshot");
   await maybeCreateSnapshot(commit);

@@ -25,137 +25,118 @@ export function asciiCaseFold(value: string): string {
   return value.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
 }
 
+const SINGLE = 1;
+const DOUBLE = 2;
+const BACKTICK = 4;
+const BRACKET = 8;
+const LINE = 16;
+const BLOCK = 32;
+
+export function createScanner(sql: string) {
+  let pos = 0;
+  let state = 0;
+
+  function skipInterior(): boolean {
+    const ch = sql[pos];
+    if (ch === undefined) return false;
+    const next = sql[pos + 1];
+
+    if (state & LINE) {
+      if (ch === "\n") state &= ~LINE;
+      pos += 1;
+      return true;
+    }
+    if (state & BLOCK) {
+      if (ch === "*" && next === "/") {
+        state &= ~BLOCK;
+        pos += 2;
+      } else {
+        pos += 1;
+      }
+      return true;
+    }
+    if (state & SINGLE) {
+      if (ch === "'" && next === "'") pos += 2;
+      else {
+        if (ch === "'") state &= ~SINGLE;
+        pos += 1;
+      }
+      return true;
+    }
+    if (state & DOUBLE) {
+      if (ch === '"' && next === '"') pos += 2;
+      else {
+        if (ch === '"') state &= ~DOUBLE;
+        pos += 1;
+      }
+      return true;
+    }
+    if (state & BACKTICK) {
+      if (ch === "`") state &= ~BACKTICK;
+      pos += 1;
+      return true;
+    }
+    if (state & BRACKET) {
+      if (ch === "]") state &= ~BRACKET;
+      pos += 1;
+      return true;
+    }
+
+    if (ch === "-" && next === "-") { state |= LINE; pos += 2; return true; }
+    if (ch === "/" && next === "*") { state |= BLOCK; pos += 2; return true; }
+    if (ch === "'") { state |= SINGLE; pos += 1; return true; }
+    if (ch === '"') { state |= DOUBLE; pos += 1; return true; }
+    if (ch === "`") { state |= BACKTICK; pos += 1; return true; }
+    if (ch === "[") { state |= BRACKET; pos += 1; return true; }
+
+    return false;
+  }
+
+  return {
+    get pos() { return pos; },
+    set pos(v: number) { pos = v; },
+    get insideLiteral() { return state !== 0; },
+    skipInterior,
+    advance(n = 1) { pos += n; },
+  };
+}
+
+export function findMatchingParen(sql: string, openIndex: number): number {
+  const s = createScanner(sql);
+  s.pos = openIndex;
+  let depth = 0;
+
+  while (s.pos < sql.length) {
+    if (s.skipInterior()) continue;
+    const ch = sql[s.pos];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return s.pos;
+    }
+    s.advance();
+  }
+  return -1;
+}
+
 export function splitTopLevelCommaList(sql: string): string[] {
   const parts: string[] = [];
+  const s = createScanner(sql);
   let start = 0;
-  let i = 0;
   let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inBacktick = false;
-  let inBracket = false;
-  let inLineComment = false;
-  let inBlockComment = false;
 
-  while (i < sql.length) {
-    const ch = sql[i]!;
-    const next = sql[i + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") {
-        inLineComment = false;
-      }
-      i += 1;
-      continue;
+  while (s.pos < sql.length) {
+    if (s.skipInterior()) continue;
+    const ch = sql[s.pos];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") { if (depth > 0) depth -= 1; }
+    else if (ch === "," && depth === 0) {
+      parts.push(sql.slice(start, s.pos));
+      start = s.pos + 1;
     }
-
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inSingle) {
-      if (ch === "'" && next === "'") {
-        i += 2;
-        continue;
-      }
-      if (ch === "'") {
-        inSingle = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inDouble) {
-      if (ch === '"' && next === '"') {
-        i += 2;
-        continue;
-      }
-      if (ch === '"') {
-        inDouble = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBacktick) {
-      if (ch === "`") {
-        inBacktick = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (inBracket) {
-      if (ch === "]") {
-        inBracket = false;
-      }
-      i += 1;
-      continue;
-    }
-
-    if (ch === "-" && next === "-") {
-      inLineComment = true;
-      i += 2;
-      continue;
-    }
-
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      i += 2;
-      continue;
-    }
-
-    if (ch === "'") {
-      inSingle = true;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      inDouble = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "`") {
-      inBacktick = true;
-      i += 1;
-      continue;
-    }
-    if (ch === "[") {
-      inBracket = true;
-      i += 1;
-      continue;
-    }
-
-    if (ch === "(") {
-      depth += 1;
-      i += 1;
-      continue;
-    }
-    if (ch === ")") {
-      if (depth > 0) {
-        depth -= 1;
-      }
-      i += 1;
-      continue;
-    }
-    if (ch === "," && depth === 0) {
-      parts.push(sql.slice(start, i));
-      start = i + 1;
-      i += 1;
-      continue;
-    }
-
-    i += 1;
+    s.advance();
   }
   const tail = sql.slice(start);
-  if (tail.trim().length > 0) {
-    parts.push(tail);
-  }
+  if (tail.trim().length > 0) parts.push(tail);
   return parts;
 }

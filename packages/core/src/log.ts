@@ -168,18 +168,20 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
     })
     .run();
 
-  input.parentIds.forEach((parentCommitId, i) => {
-    engineDb.insert(CommitParentTable).values({ commitId, parentCommitId, ord: i }).run();
-  });
+  for (let i = 0; i < input.parentIds.length; i += 1) {
+    engineDb.insert(CommitParentTable).values({ commitId, parentCommitId: input.parentIds[i]!, ord: i }).run();
+  }
 
-  input.operations.forEach((operation, i) => {
+  for (let i = 0; i < input.operations.length; i += 1) {
+    const operation = input.operations[i]!;
     engineDb
       .insert(OpTable)
       .values({ commitId, opIndex: i, opType: operation.type, opJson: canonicalJson(operation) })
       .run();
-  });
+  }
 
-  input.rowEffects.forEach((effect, i) => {
+  for (let i = 0; i < input.rowEffects.length; i += 1) {
+    const effect = input.rowEffects[i]!;
     const beforeRowJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
     const afterRowJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
     engineDb
@@ -196,9 +198,10 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
         afterHash: afterRowJson ? sha256Hex(afterRowJson) : null,
       })
       .run();
-  });
+  }
 
-  input.schemaEffects.forEach((effect, i) => {
+  for (let i = 0; i < input.schemaEffects.length; i += 1) {
+    const effect = input.schemaEffects[i]!;
     engineDb
       .insert(EffectSchemaTable)
       .values({
@@ -209,7 +212,7 @@ export function appendCommitExact(db: Database, input: CommitReplayInput): Commi
         afterTableJson: effect.afterTable ? canonicalJson(effect.afterTable) : null,
       })
       .run();
-  });
+  }
 
   engineDb
     .update(RefTable)
