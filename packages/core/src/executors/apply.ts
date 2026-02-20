@@ -1,9 +1,10 @@
 import type { Database } from "bun:sqlite";
-import { getRow, getRows, runInSavepoint } from "../db";
+import { getRow, getRows, runInSavepoint, tableExists } from "../db";
 import { TossError } from "../errors";
 import { type TableInfoRow, whereClauseFromRecord } from "../rows";
 import { COLUMN_TYPE_PATTERN, isWordBoundary, quoteIdentifier, splitTopLevelCommaList } from "../sql";
 import type {
+  AddCheckOperation,
   AddColumnOperation,
   AlterColumnTypeOperation,
   EncodedCell,
@@ -11,6 +12,7 @@ import type {
   CreateTableOperation,
   DeleteOperation,
   DropColumnOperation,
+  DropCheckOperation,
   DropTableOperation,
   InsertOperation,
   Operation,
@@ -637,6 +639,262 @@ function findCreateTablePayloadRange(ddlSql: string): { start: number; end: numb
   throw new TossError("INVALID_OPERATION", "Malformed CREATE TABLE statement: column list not found");
 }
 
+function normalizeSqlFragment(sql: string): string {
+  let i = 0;
+  let pendingSpace = false;
+  let out = "";
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  const flushSpace = (nextChar: string | undefined): void => {
+    if (!pendingSpace || out.length === 0) {
+      pendingSpace = false;
+      return;
+    }
+    const prev = out[out.length - 1];
+    if (
+      prev === " " ||
+      prev === "(" ||
+      prev === "," ||
+      nextChar === "(" ||
+      nextChar === ")" ||
+      nextChar === "," ||
+      nextChar === ";"
+    ) {
+      pendingSpace = false;
+      return;
+    }
+    out += " ";
+    pendingSpace = false;
+  };
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+        pendingSpace = true;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        pendingSpace = true;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inSingle) {
+      out += ch;
+      if (ch === "'" && next === "'") {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inDouble) {
+      out += ch;
+      if (ch === '"' && next === '"') {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBacktick) {
+      out += ch;
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBracket) {
+      out += ch;
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      pendingSpace = true;
+      i += 2;
+      continue;
+    }
+
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      pendingSpace = true;
+      i += 2;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      pendingSpace = true;
+      i += 1;
+      continue;
+    }
+
+    flushSpace(ch);
+    out += ch >= "a" && ch <= "z" ? ch.toUpperCase() : ch;
+    if (ch === "'") {
+      inSingle = true;
+    } else if (ch === '"') {
+      inDouble = true;
+    } else if (ch === "`") {
+      inBacktick = true;
+    } else if (ch === "[") {
+      inBracket = true;
+    }
+    i += 1;
+  }
+
+  return out.trim();
+}
+
+function findMatchingParen(sql: string, openIndex: number): number {
+  let i = openIndex;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBacktick) {
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        return i;
+      }
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
 function findConstraintStart(segment: string, from: number): number {
   const constraintKeywords = new Set([
     "CONSTRAINT",
@@ -827,6 +1085,197 @@ function rewriteColumnTypeInCreateTable(ddlSql: string, column: string, newType:
   return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;
 }
 
+interface SecondaryObjectRow {
+  type: "index" | "trigger";
+  name: string;
+  sql: string;
+}
+
+interface MutableTableState {
+  tableInfo: TableInfoRow[];
+  resolvedTableName: string;
+  quotedTableName: string;
+  tableDdlSql: string;
+  secondaryObjects: SecondaryObjectRow[];
+}
+
+interface SqliteSequenceSnapshot {
+  seqLiteral: string;
+}
+
+function resolveMutableTableState(db: Database, table: string): MutableTableState {
+  const requestedTableName = quoteIdentifier(table);
+  const tableInfo = getRows<TableInfoRow>(db, `PRAGMA table_info(${requestedTableName})`);
+  if (tableInfo.length === 0) {
+    throw new TossError("INVALID_OPERATION", `Table does not exist: ${table}`);
+  }
+
+  const tableDdlRow = getRow<{ name: string; sql: string | null }>(
+    db,
+    "SELECT name, sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
+    table,
+  );
+  if (!tableDdlRow?.sql) {
+    throw new TossError("INVALID_OPERATION", `Table DDL is not available: ${table}`);
+  }
+
+  const secondaryObjects = getRows<SecondaryObjectRow>(
+    db,
+    `
+      SELECT type, name, sql
+      FROM sqlite_master
+      WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
+      `,
+    tableDdlRow.name,
+  );
+
+  return {
+    tableInfo,
+    resolvedTableName: tableDdlRow.name,
+    quotedTableName: quoteIdentifier(tableDdlRow.name),
+    tableDdlSql: tableDdlRow.sql,
+    secondaryObjects,
+  };
+}
+
+function captureSqliteSequenceSnapshot(db: Database, tableName: string): SqliteSequenceSnapshot | null {
+  if (!tableExists(db, "sqlite_sequence")) {
+    return null;
+  }
+  const row = getRow<{ seqLiteral: string | null }>(
+    db,
+    "SELECT quote(seq) AS seqLiteral FROM sqlite_sequence WHERE name = ? LIMIT 1",
+    tableName,
+  );
+  if (!row || typeof row.seqLiteral !== "string") {
+    return null;
+  }
+  return { seqLiteral: row.seqLiteral };
+}
+
+function restoreSqliteSequenceSnapshot(db: Database, tableName: string, snapshot: SqliteSequenceSnapshot | null): void {
+  if (!snapshot || !tableExists(db, "sqlite_sequence")) {
+    return;
+  }
+  db.query("DELETE FROM sqlite_sequence WHERE name = ?").run(tableName);
+  db.run(`INSERT INTO sqlite_sequence(name, seq) VALUES (${serializeLiteral(tableName)}, ${snapshot.seqLiteral})`);
+}
+
+function rebuildTableWithRewrittenDdl(
+  db: Database,
+  state: MutableTableState,
+  rewrittenDdl: string,
+  options: { savepointName: string; selectList?: string | undefined },
+): void {
+  const tempTable = `__toss_tmp_${state.resolvedTableName}_${crypto.randomUUID().replaceAll("-", "")}`;
+  const quotedTempTable = quoteIdentifier(tempTable);
+  const columnList = state.tableInfo.map((column) => quoteIdentifier(column.name)).join(", ");
+  const selectList = options.selectList ?? columnList;
+
+  runInSavepoint(db, options.savepointName, () => {
+    const sequenceSnapshot = captureSqliteSequenceSnapshot(db, state.resolvedTableName);
+    db.run(rewriteCreateTableName(rewrittenDdl, tempTable));
+    db.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${state.quotedTableName}`);
+    db.run(`DROP TABLE ${state.quotedTableName}`);
+    db.run(`ALTER TABLE ${quotedTempTable} RENAME TO ${state.quotedTableName}`);
+    restoreSqliteSequenceSnapshot(db, state.resolvedTableName, sequenceSnapshot);
+
+    for (const object of state.secondaryObjects) {
+      db.run(object.sql);
+    }
+  });
+}
+
+function extractTableCheckExpression(segment: string): string | null {
+  let i = skipLeadingTrivia(segment, 0);
+  let keyword = readKeyword(segment, i);
+  if (!keyword) {
+    return null;
+  }
+
+  if (keyword.value === "CONSTRAINT") {
+    i = skipLeadingTrivia(segment, keyword.end);
+    const constraintName = parseIdentifierToken(segment, i);
+    if (!constraintName) {
+      return null;
+    }
+    i = skipLeadingTrivia(segment, constraintName.end);
+    keyword = readKeyword(segment, i);
+    if (!keyword) {
+      return null;
+    }
+  }
+
+  if (keyword.value !== "CHECK") {
+    return null;
+  }
+
+  i = skipLeadingTrivia(segment, keyword.end);
+  if (segment[i] !== "(") {
+    return null;
+  }
+
+  const close = findMatchingParen(segment, i);
+  if (close < 0) {
+    return null;
+  }
+
+  const expression = segment.slice(i + 1, close);
+  return normalizeSqlFragment(expression);
+}
+
+function rewriteAddCheckInCreateTable(ddlSql: string, expression: string): string {
+  const payloadRange = findCreateTablePayloadRange(ddlSql);
+  const payload = ddlSql.slice(payloadRange.start, payloadRange.end);
+  const segments = splitTopLevelCommaList(payload);
+  const normalizedExpression = normalizeSqlFragment(expression);
+
+  for (const segment of segments) {
+    const existing = extractTableCheckExpression(segment);
+    if (existing && existing === normalizedExpression) {
+      throw new TossError("INVALID_OPERATION", "Equivalent CHECK constraint already exists");
+    }
+  }
+
+  const rewrittenSegments = [...segments, ` CHECK (${expression.trim()})`];
+  return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;
+}
+
+function rewriteDropCheckInCreateTable(ddlSql: string, expression: string): string {
+  const payloadRange = findCreateTablePayloadRange(ddlSql);
+  const payload = ddlSql.slice(payloadRange.start, payloadRange.end);
+  const segments = splitTopLevelCommaList(payload);
+  const normalizedExpression = normalizeSqlFragment(expression);
+
+  let removed = 0;
+  const rewrittenSegments = segments.filter((segment) => {
+    const existing = extractTableCheckExpression(segment);
+    if (!existing || existing !== normalizedExpression) {
+      return true;
+    }
+    removed += 1;
+    return false;
+  });
+
+  if (removed === 0) {
+    throw new TossError("INVALID_OPERATION", "CHECK constraint not found");
+  }
+
+  return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;
+}
+
+function executeAddCheck(db: Database, operation: AddCheckOperation): void {
+  const state = resolveMutableTableState(db, operation.table);
+  const rewrittenDdl = rewriteAddCheckInCreateTable(state.tableDdlSql, operation.expression);
+  rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "toss_add_check" });
+}
+
+function executeDropCheck(db: Database, operation: DropCheckOperation): void {
+  const state = resolveMutableTableState(db, operation.table);
+  const rewrittenDdl = rewriteDropCheckInCreateTable(state.tableDdlSql, operation.expression);
+  rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "toss_drop_check" });
+}
+
 function executeRestoreTable(db: Database, operation: RestoreTableOperation): void {
   const tmpTable = `__toss_restore_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTmp = quoteIdentifier(tmpTable);
@@ -856,6 +1305,7 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
   };
 
   runInSavepoint(db, "toss_restore_table", () => {
+    const sequenceSnapshot = captureSqliteSequenceSnapshot(db, operation.table);
     db.run(rewriteCreateTableName(operation.ddlSql, tmpTable));
     const first = operation.rows?.[0];
     if (first) {
@@ -879,6 +1329,7 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
 
     db.run(`DROP TABLE IF EXISTS ${quotedTable}`);
     db.run(`ALTER TABLE ${quotedTmp} RENAME TO ${quotedTable}`);
+    restoreSqliteSequenceSnapshot(db, operation.table, sequenceSnapshot);
     for (const object of operation.secondaryObjects ?? []) {
       db.run(object.sql);
     }
@@ -887,44 +1338,15 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
 
 function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperation): void {
   const newType = normalizeColumnType(operation.newType);
-  const requestedTableName = quoteIdentifier(operation.table);
-  const tableInfo = getRows<TableInfoRow>(db, `PRAGMA table_info(${requestedTableName})`);
-  if (tableInfo.length === 0) {
-    throw new TossError("INVALID_OPERATION", `Table does not exist: ${operation.table}`);
-  }
+  const state = resolveMutableTableState(db, operation.table);
 
-  const target = tableInfo.find((column) => column.name === operation.column);
+  const target = state.tableInfo.find((column) => column.name === operation.column);
   if (!target) {
     throw new TossError("INVALID_OPERATION", `Column does not exist: ${operation.table}.${operation.column}`);
   }
 
-  const tableDdlRow = getRow<{ name: string; sql: string | null }>(
-    db,
-    "SELECT name, sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
-    operation.table,
-  );
-  if (!tableDdlRow?.sql) {
-    throw new TossError("INVALID_OPERATION", `Table DDL is not available: ${operation.table}`);
-  }
-  const resolvedTableName = tableDdlRow.name;
-  const tableName = quoteIdentifier(resolvedTableName);
-  const rewrittenDdl = rewriteColumnTypeInCreateTable(tableDdlRow.sql, operation.column, newType);
-
-  const secondaryObjects = getRows<{ type: "index" | "trigger"; name: string; sql: string }>(
-    db,
-    `
-      SELECT type, name, sql
-      FROM sqlite_master
-      WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
-      `,
-    resolvedTableName,
-  );
-
-  const tempTable = `__toss_tmp_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
-  const quotedTempTable = quoteIdentifier(tempTable);
-
-  const columnList = tableInfo.map((column) => quoteIdentifier(column.name)).join(", ");
-  const selectList = tableInfo
+  const rewrittenDdl = rewriteColumnTypeInCreateTable(state.tableDdlSql, operation.column, newType);
+  const selectList = state.tableInfo
     .map((column) => {
       const quoted = quoteIdentifier(column.name);
       if (column.name === operation.column) {
@@ -934,15 +1356,9 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
     })
     .join(", ");
 
-  runInSavepoint(db, "toss_alter_column_type", () => {
-    db.run(rewriteCreateTableName(rewrittenDdl, tempTable));
-    db.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${tableName}`);
-    db.run(`DROP TABLE ${tableName}`);
-    db.run(`ALTER TABLE ${quotedTempTable} RENAME TO ${tableName}`);
-
-    for (const object of secondaryObjects) {
-      db.run(object.sql);
-    }
+  rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, {
+    savepointName: "toss_alter_column_type",
+    selectList,
   });
 }
 
@@ -971,6 +1387,12 @@ export function executeOperation(db: Database, operation: Operation): void {
       return;
     case "alter_column_type":
       executeAlterColumnType(db, operation);
+      return;
+    case "add_check":
+      executeAddCheck(db, operation);
+      return;
+    case "drop_check":
+      executeDropCheck(db, operation);
       return;
     case "restore_table":
       executeRestoreTable(db, operation);

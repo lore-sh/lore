@@ -285,4 +285,35 @@ describe("alter_column_type", () => {
     const rows = readQuery('SELECT typeof("Ä") AS upper_t, typeof("ä") AS lower_t FROM "unicode_case_cols" WHERE id=1');
     expect(rows).toEqual([{ upper_t: "integer", lower_t: "text" }]);
   });
+
+  testWithTmp("alter_column_type preserves AUTOINCREMENT sqlite_sequence during table rebuild", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const direct = new Database(dbPath);
+    direct.run("CREATE TABLE auto_items (id INTEGER PRIMARY KEY AUTOINCREMENT, amount TEXT NOT NULL)");
+    direct.run("INSERT INTO auto_items(amount) VALUES ('10'), ('20'), ('30')");
+    direct.run("DELETE FROM auto_items WHERE id = 3");
+    direct.close(false);
+
+    const alter = await writePlanFile(dir, "alter-autoincrement-preserve-sequence.json", {
+      message: "alter type and keep sqlite_sequence",
+      operations: [{ type: "alter_column_type", table: "auto_items", column: "amount", newType: "INTEGER" }],
+    });
+    await applyPlan(alter);
+
+    const verifyDb = new Database(dbPath);
+    try {
+      const seq = verifyDb.query("SELECT seq FROM sqlite_sequence WHERE name='auto_items'").get() as { seq: number } | null;
+      expect(seq?.seq).toBe(3);
+      verifyDb.run("INSERT INTO auto_items(amount) VALUES (40)");
+      const inserted = verifyDb.query("SELECT id, typeof(amount) AS t FROM auto_items WHERE amount = 40").get() as
+        | { id: number; t: string }
+        | null;
+      expect(inserted?.id).toBe(4);
+      expect(inserted?.t).toBe("integer");
+    } finally {
+      verifyDb.close(false);
+    }
+  });
 });

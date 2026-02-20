@@ -66,6 +66,18 @@ export interface AlterColumnTypeOperation {
   newType: string;
 }
 
+export interface AddCheckOperation {
+  type: "add_check";
+  table: string;
+  expression: string;
+}
+
+export interface DropCheckOperation {
+  type: "drop_check";
+  table: string;
+  expression: string;
+}
+
 export interface RestoreTableOperation {
   type: "restore_table";
   table: string;
@@ -94,6 +106,8 @@ export type Operation =
   | DropTableOperation
   | DropColumnOperation
   | AlterColumnTypeOperation
+  | AddCheckOperation
+  | DropCheckOperation
   | RestoreTableOperation
   | UpdateOperation
   | DeleteOperation;

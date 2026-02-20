@@ -70,6 +70,22 @@ const alterColumnTypeSchema = z
   })
   .strict();
 
+const addCheckSchema = z
+  .object({
+    type: z.literal("add_check"),
+    table: z.string().trim().min(1),
+    expression: z.string().trim().min(1),
+  })
+  .strict();
+
+const dropCheckSchema = z
+  .object({
+    type: z.literal("drop_check"),
+    table: z.string().trim().min(1),
+    expression: z.string().trim().min(1),
+  })
+  .strict();
+
 const updateSchema = z
   .object({
     type: z.literal("update"),
@@ -101,6 +117,8 @@ export const operationPlanSchema = z
           dropTableSchema,
           dropColumnSchema,
           alterColumnTypeSchema,
+          addCheckSchema,
+          dropCheckSchema,
           updateSchema,
           deleteSchema,
         ]),
@@ -138,6 +156,268 @@ function validateColumn(
 function assertColumnType(value: string, label: string): void {
   if (!COLUMN_TYPE_PATTERN.test(value)) {
     throw new TossError("INVALID_OPERATION", `${label} is invalid: ${value}`);
+  }
+}
+
+function scanSqlControlTokens(sql: string): { hasCommentToken: boolean; hasSemicolon: boolean } {
+  let i = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let hasCommentToken = false;
+  let hasSemicolon = false;
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBacktick) {
+      if (ch === "`" && next === "`") {
+        i += 2;
+        continue;
+      }
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      hasCommentToken = true;
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      hasCommentToken = true;
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "*" && next === "/") {
+      hasCommentToken = true;
+      i += 2;
+      continue;
+    }
+    if (ch === ";") {
+      hasSemicolon = true;
+    }
+
+    i += 1;
+  }
+
+  return { hasCommentToken, hasSemicolon };
+}
+
+function analyzeSqlExpressionShape(sql: string): {
+  hasTopLevelComma: boolean;
+  hasUnbalancedParen: boolean;
+  hasUnterminatedLiteral: boolean;
+} {
+  let i = 0;
+  let depth = 0;
+  let hasTopLevelComma = false;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let inBracket = false;
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '"' && next === '"') {
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        inDouble = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBacktick) {
+      if (ch === "`" && next === "`") {
+        i += 2;
+        continue;
+      }
+      if (ch === "`") {
+        inBacktick = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBracket) {
+      if (ch === "]") {
+        inBracket = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      inBacktick = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "[") {
+      inBracket = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === "(") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth -= 1;
+      if (depth < 0) {
+        return {
+          hasTopLevelComma,
+          hasUnbalancedParen: true,
+          hasUnterminatedLiteral: false,
+        };
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      hasTopLevelComma = true;
+    }
+
+    i += 1;
+  }
+
+  return {
+    hasTopLevelComma,
+    hasUnbalancedParen: depth !== 0,
+    hasUnterminatedLiteral: inSingle || inDouble || inBacktick || inBracket,
+  };
+}
+
+function assertCheckExpression(value: string, label: string): void {
+  const expression = value.trim();
+  if (expression.length === 0) {
+    throw new TossError("INVALID_OPERATION", `${label} must not be empty`);
+  }
+  if (expression.includes("\0")) {
+    throw new TossError("INVALID_OPERATION", `${label} must not contain NUL`);
+  }
+  const scan = scanSqlControlTokens(expression);
+  if (scan.hasCommentToken) {
+    throw new TossError("INVALID_OPERATION", `${label} must not contain SQL comments`);
+  }
+  if (scan.hasSemicolon) {
+    throw new TossError("INVALID_OPERATION", `${label} must be a single SQL expression`);
+  }
+  const shape = analyzeSqlExpressionShape(expression);
+  if (shape.hasTopLevelComma) {
+    throw new TossError("INVALID_OPERATION", `${label} must not contain top-level commas`);
+  }
+  if (shape.hasUnbalancedParen || shape.hasUnterminatedLiteral) {
+    throw new TossError("INVALID_OPERATION", `${label} must be a valid single SQL expression`);
   }
 }
 
@@ -207,6 +487,16 @@ function semanticValidation(plan: OperationPlan): void {
     if (operation.type === "alter_column_type") {
       assertIdentifier(operation.column, "alter_column_type.column");
       assertColumnType(operation.newType, "alter_column_type.newType");
+      continue;
+    }
+
+    if (operation.type === "add_check") {
+      assertCheckExpression(operation.expression, "add_check.expression");
+      continue;
+    }
+
+    if (operation.type === "drop_check") {
+      assertCheckExpression(operation.expression, "drop_check.expression");
       continue;
     }
 

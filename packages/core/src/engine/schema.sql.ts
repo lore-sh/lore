@@ -11,6 +11,8 @@ const opTypeValues = [
   "drop_table",
   "drop_column",
   "alter_column_type",
+  "add_check",
+  "drop_check",
   "restore_table",
   "update",
   "delete",

@@ -173,7 +173,7 @@ You design all tables. Follow these conventions:
 - Numbers: \`INTEGER\` (counts, IDs) or \`REAL\` (decimals, amounts)
 - Dates/times: \`TEXT\` in ISO 8601 (\`2026-02-20\`, \`2026-02-20T15:00:00\`)
 - Booleans: \`INTEGER\` (0 or 1)
-- Categories: \`TEXT\` (descriptive strings like \`"food"\`, \`"transport"\`)
+- Categories: \`TEXT\` + named \`CHECK\` constraint when values are finite
 
 **Structure decisions:**
 - Start simple. One table per domain (\`expenses\`, \`schedules\`, \`tasks\`).
@@ -258,6 +258,7 @@ Present results with a short interpretation.
 - MUST NOT ask permission before storing — store and report afterward.
 - MUST keep stored content fields in the user-requested language (or current user message language when unspecified).
 - MUST keep one semantic unit per apply.
+- For finite category/status fields, define and maintain explicit \`CHECK\` constraints.
 - For destructive operations (\`drop_table\`, \`drop_column\`): prefer staged migration — add new -> migrate data -> verify -> drop old.
 
 ## Commands
@@ -443,6 +444,28 @@ Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss a
 \`\`\`json
 {"type": "alter_column_type", "table": "table_name", "column": "col_name", "newType": "INTEGER"}
 \`\`\`
+
+### add_check
+\`\`\`json
+{
+  "type": "add_check",
+  "table": "table_name",
+  "expression": "status IN ('todo','doing','done')"
+}
+\`\`\`
+- Adds a table-level \`CHECK\` constraint by rebuilding the table internally.
+- Use for finite category/status values that must be enforced at DB level.
+
+### drop_check
+\`\`\`json
+{
+  "type": "drop_check",
+  "table": "table_name",
+  "expression": "status IN ('todo','doing','done')"
+}
+\`\`\`
+- Drops matching table-level \`CHECK\` constraint(s) by rebuilding the table internally.
+- For enum updates, use staged migration: \`drop_check\` old expression -> \`add_check\` new expression.
 
 ## Data Operations
 

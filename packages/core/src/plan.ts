@@ -12,12 +12,15 @@ const SCHEMA_OPERATION_TYPES = new Set<Operation["type"]>([
   "drop_table",
   "drop_column",
   "alter_column_type",
+  "add_check",
+  "drop_check",
 ]);
 
 const DESTRUCTIVE_OPERATION_TYPES = new Set<Operation["type"]>([
   "drop_table",
   "drop_column",
   "alter_column_type",
+  "drop_check",
   "update",
   "delete",
 ]);
