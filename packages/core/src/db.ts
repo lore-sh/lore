@@ -54,19 +54,13 @@ function runtimeDbPath(path?: string): string {
   if (path) {
     return resolveDbPath(path);
   }
-  const currentPath = getClientPath();
-  if (currentPath) {
-    return currentPath;
-  }
-  return resolveDbPath();
+  return getClientPath() ?? resolveDbPath();
 }
 
 function openDatabase(path?: string): DatabaseContext {
   const dbPath = runtimeDbPath(path);
   ensureDatabaseDirectory(dbPath);
-  if (path) {
-    initClient(dbPath);
-  } else if (!hasClient()) {
+  if (path || !hasClient()) {
     initClient(dbPath);
   }
   const db = getSqlite();
@@ -118,18 +112,12 @@ export function initializeStorage(): void {
   withClient((db) => {
     migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
     const sqlite = db.$client;
-    sqlite
-      .query(
-        `INSERT INTO ${ENGINE_META_TABLE}(key, value) VALUES(?, ?)
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-      )
-      .run("snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL));
-    sqlite
-      .query(
-        `INSERT INTO ${ENGINE_META_TABLE}(key, value) VALUES(?, ?)
-         ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
-      )
-      .run("snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN));
+    const upsertMeta = sqlite.query(
+      `INSERT INTO ${ENGINE_META_TABLE}(key, value) VALUES(?, ?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+    );
+    upsertMeta.run("snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL));
+    upsertMeta.run("snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN));
     sqlite
       .query(`INSERT INTO ${REF_TABLE}(name, commit_id, updated_at) VALUES(?, NULL, ?) ON CONFLICT(name) DO NOTHING`)
       .run(MAIN_REF_NAME, Date.now());
@@ -160,13 +148,10 @@ export function isInitialized(db: Database): boolean {
   if (hasMainRef?.ok !== 1) {
     return false;
   }
-  for (const key of ["snapshot_interval", "snapshot_retain"]) {
+  return ["snapshot_interval", "snapshot_retain"].every((key) => {
     const meta = getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${ENGINE_META_TABLE} WHERE key=? LIMIT 1`, key);
-    if (meta?.ok !== 1) {
-      return false;
-    }
-  }
-  return true;
+    return meta?.ok === 1;
+  });
 }
 
 export function assertInitialized(db: Database, dbPath: string): void {

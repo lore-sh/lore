@@ -48,7 +48,7 @@ describe("applyPlan", () => {
     expect(status.lastVerifiedOk).toBeNull();
     expect(status.lastVerifiedOkAt).toBeNull();
 
-    const history = getHistory({ verbose: true });
+    const history = getHistory();
     expect(history).toHaveLength(2);
     expect(history[0]?.commitId).toBe(insertCommit.commitId);
     expect(history[0]?.parentIds).toHaveLength(1);

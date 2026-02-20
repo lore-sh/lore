@@ -51,7 +51,7 @@ const dashboardRoute = createRoute({
 const tableRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tables/$name",
-  validateSearch: (search) => validateTableSearch(search),
+  validateSearch: validateTableSearch,
   loaderDeps: ({ search }) => search,
   loader: async ({ context, params, deps }) => {
     await context.queryClient.ensureQueryData(tableDataQueryOptions(params.name, deps));

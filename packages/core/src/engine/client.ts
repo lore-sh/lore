@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { TossError } from "../errors";
 import * as schema from "./schema.sql";
 
-type EngineSchema = typeof schema;
 function createDrizzle(sqlite: Database) {
   return drizzle({ client: sqlite, schema });
 }

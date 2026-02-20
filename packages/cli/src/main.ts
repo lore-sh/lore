@@ -272,7 +272,7 @@ function runHistory(args: string[]): void {
   if (invalidArgs.length > 0) {
     throw new Error("history accepts only --verbose");
   }
-  const history = getHistory({ verbose });
+  const history = getHistory();
   const rows = history.map((entry) =>
     verbose
       ? {

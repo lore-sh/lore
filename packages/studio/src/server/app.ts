@@ -11,11 +11,8 @@ function statusFromTossCode(code: string): number {
     case "NOT_FOUND":
       return 404;
     case "NOT_INITIALIZED":
-      return 400;
     case "CONFIG_ERROR":
-      return 400;
     case "INVALID_OPERATION":
-      return 400;
     case "INVALID_IDENTIFIER":
       return 400;
     default:
