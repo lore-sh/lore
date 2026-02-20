@@ -42,10 +42,6 @@ function openDatabase(pathFromArg?: string): DatabaseContext {
   return { db, dbPath };
 }
 
-function closeDatabase(db: Database): void {
-  db.close(false);
-}
-
 export function getRow<T>(db: Database, sql: string, ...bindings: SQLQueryBindings[]): T | null {
   return db.query<T, SQLQueryBindings[]>(sql).get(...bindings);
 }
@@ -59,7 +55,7 @@ export function withDatabase<T>(options: DatabaseOptions | undefined, run: (ctx:
   try {
     return run(ctx);
   } finally {
-    closeDatabase(ctx.db);
+    ctx.db.close(false);
   }
 }
 
@@ -71,7 +67,7 @@ export async function withDatabaseAsync<T>(
   try {
     return await run(ctx);
   } finally {
-    closeDatabase(ctx.db);
+    ctx.db.close(false);
   }
 }
 
@@ -235,10 +231,8 @@ export function isInitialized(db: Database): boolean {
     EFFECT_SCHEMA_TABLE,
     SNAPSHOT_TABLE,
   ];
-  for (const table of requiredTables) {
-    if (!tableExists(db, table)) {
-      return false;
-    }
+  if (!requiredTables.every((table) => tableExists(db, table))) {
+    return false;
   }
 
   const fingerprint = getRow<{ value?: string }>(db, `SELECT value FROM ${ENGINE_META_TABLE} WHERE key='schema_fingerprint'`);

@@ -97,10 +97,7 @@ export function getHeadCommit(db: Database): CommitEntry | null {
 
 export function getNextCommitSeq(db: Database): number {
   const row = getRow<{ max_seq: number }>(db, `SELECT COALESCE(MAX(seq), 0) AS max_seq FROM ${COMMIT_TABLE}`);
-  if (!row) {
-    return 1;
-  }
-  return row.max_seq + 1;
+  return (row?.max_seq ?? 0) + 1;
 }
 
 function commitHashPayload(input: CommitWriteInput): Record<string, unknown> {

@@ -158,11 +158,11 @@ export function isSystemSideEffectTable(table: string): boolean {
 }
 
 function observedTableNames(db: Database): string[] {
-  const names = new Set(listUserTables(db));
+  const names = listUserTables(db);
   if (tableExists(db, "sqlite_sequence")) {
-    names.add("sqlite_sequence");
+    names.push("sqlite_sequence");
   }
-  return [...names].sort((a, b) => a.localeCompare(b));
+  return names.sort((a, b) => a.localeCompare(b));
 }
 
 function keyColumnsForObservedTable(db: Database, table: string): string[] {
