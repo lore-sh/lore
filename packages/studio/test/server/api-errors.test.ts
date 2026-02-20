@@ -19,26 +19,43 @@ function createTempPath(prefix: string): string {
   return join(dir, "toss.db");
 }
 
+async function withDbPath<T>(dbPath: string, run: () => Promise<T>): Promise<T> {
+  const previous = process.env.TOSS_DB_PATH;
+  process.env.TOSS_DB_PATH = dbPath;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.TOSS_DB_PATH;
+    } else {
+      process.env.TOSS_DB_PATH = previous;
+    }
+  }
+}
+
 describe("studio api error mapping", () => {
   test("returns NOT_INITIALIZED as 400", async () => {
     const dbPath = createTempPath("studio-api-not-initialized-");
-    const app = createStudioApp({ dbPath });
-    const response = await app.request("/api/status");
-    const body = await response.text();
+    const { status, body } = await withDbPath(dbPath, async () => {
+      const app = createStudioApp();
+      const response = await app.request("/api/status");
+      return { status: response.status, body: await response.text() };
+    });
 
-    expect(response.status).toBe(400);
+    expect(status).toBe(400);
     expect(body).toContain('"error":"NOT_INITIALIZED"');
   });
 
   test("returns NOT_FOUND as 404 for missing table", async () => {
     const dbPath = createTempPath("studio-api-not-found-");
-    await initDatabase({ dbPath, generateSkills: false });
+    const { status, body } = await withDbPath(dbPath, async () => {
+      await initDatabase({ dbPath, generateSkills: false });
+      const app = createStudioApp();
+      const response = await app.request("/api/tables/missing");
+      return { status: response.status, body: await response.text() };
+    });
 
-    const app = createStudioApp({ dbPath });
-    const response = await app.request("/api/tables/missing");
-    const body = await response.text();
-
-    expect(response.status).toBe(404);
+    expect(status).toBe(404);
     expect(body).toContain('"error":"NOT_FOUND"');
   });
 

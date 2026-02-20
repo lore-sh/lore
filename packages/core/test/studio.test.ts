@@ -43,11 +43,11 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "expenses", values: { id: 2, title: "hotel", amount: 2400 } }],
     });
 
-    await applyPlan(createPlanPath, { dbPath });
-    await applyPlan(insertOnePath, { dbPath });
-    await applyPlan(insertTwoPath, { dbPath });
+    await applyPlan(createPlanPath);
+    await applyPlan(insertOnePath);
+    await applyPlan(insertTwoPath);
 
-    const tables = listStudioTables({ dbPath });
+    const tables = listStudioTables();
     expect(tables.tables).toHaveLength(1);
     expect(tables.tables[0]?.name).toBe("expenses");
     expect(tables.tables[0]?.rowCount).toBe(2);
@@ -55,7 +55,6 @@ describe("studio api", () => {
     expect(typeof tables.tables[0]?.lastUpdatedAt).toBe("string");
 
     const firstPage = readStudioTable({
-      dbPath,
       table: "expenses",
       page: 1,
       pageSize: 1,
@@ -67,7 +66,6 @@ describe("studio api", () => {
     expect(firstPage.rows[0]).toMatchObject({ title: "hotel", amount: 2400 });
 
     const filtered = readStudioTable({
-      dbPath,
       table: "expenses",
       filters: { title: "din" },
     });
@@ -92,9 +90,9 @@ describe("studio api", () => {
         },
       ],
     });
-    await applyPlan(createPlanPath, { dbPath });
+    await applyPlan(createPlanPath);
 
-    const schema = getStudioSchema({ dbPath });
+    const schema = getStudioSchema();
     const table = schema.tables.find((entry) => entry.name === "expenses");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -122,7 +120,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema({ dbPath });
+    const schema = getStudioSchema();
     const table = schema.tables.find((entry) => entry.name === "ledger");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "account")).toMatchObject({
@@ -154,7 +152,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema({ dbPath });
+    const schema = getStudioSchema();
     const table = schema.tables.find((entry) => entry.name === "sessions");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -184,7 +182,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema({ dbPath });
+    const schema = getStudioSchema();
     const table = schema.tables.find((entry) => entry.name === "expr_unique");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -214,17 +212,17 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "expenses", values: { id: 1 } }],
     });
 
-    await applyPlan(createPlanPath, { dbPath });
-    await applyPlan(insertPlanPath, { dbPath });
+    await applyPlan(createPlanPath);
+    await applyPlan(insertPlanPath);
 
-    const history = listStudioHistory({ dbPath });
+    const history = listStudioHistory();
     expect(history).toHaveLength(2);
     expect(history[0]?.shortId.length).toBe(12);
     expect(history[0]?.message).toBe("insert 1");
 
     const commitId = history[0]?.commitId;
     expect(typeof commitId).toBe("string");
-    const detail = getStudioCommitDetail(commitId ?? "", { dbPath });
+    const detail = getStudioCommitDetail(commitId ?? "");
     expect(detail.commit.operations).toHaveLength(1);
     expect(detail.rowEffects).toHaveLength(1);
     expect(detail.rowEffects[0]?.tableName).toBe("expenses");
@@ -254,9 +252,9 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "ledger", values: { id: 2 } }],
     });
 
-    await applyPlan(createPlanPath, { dbPath });
-    await applyPlan(insertOnePath, { dbPath });
-    await applyPlan(insertTwoPath, { dbPath });
+    await applyPlan(createPlanPath);
+    await applyPlan(insertOnePath);
+    await applyPlan(insertTwoPath);
 
     const direct = new Database(dbPath);
     const oldest = direct
@@ -266,7 +264,7 @@ describe("studio api", () => {
     direct.query(`UPDATE ${OP_TABLE} SET op_json = ? WHERE commit_id = ?`).run("{", oldest?.commit_id ?? "");
     direct.close(false);
 
-    const history = listStudioHistory({ dbPath, limit: 1 });
+    const history = listStudioHistory({ limit: 1 });
     expect(history).toHaveLength(1);
     expect(history[0]?.message).toBe("insert 2");
   });
@@ -288,13 +286,12 @@ describe("studio api", () => {
     direct.run(`INSERT INTO calc(id, amount) VALUES (2, 2)`);
     direct.close(false);
 
-    const tables = listStudioTables({ dbPath });
+    const tables = listStudioTables();
     const calcSummary = tables.tables.find((table) => table.name === "calc");
     expect(calcSummary).toBeDefined();
     expect(calcSummary?.columnCount).toBe(4);
 
     const sorted = readStudioTable({
-      dbPath,
       table: "calc",
       sortBy: "amount_x3",
       sortDir: "desc",
@@ -304,14 +301,13 @@ describe("studio api", () => {
     expect(sorted.rows[0]).toMatchObject({ id: 2, amount_x2: 4, amount_x3: 6 });
 
     const filtered = readStudioTable({
-      dbPath,
       table: "calc",
       filters: { amount_x2: "4" },
     });
     expect(filtered.totalRows).toBe(1);
     expect(filtered.rows[0]).toMatchObject({ id: 2, amount_x2: 4, amount_x3: 6 });
 
-    const schema = getStudioSchema({ dbPath });
+    const schema = getStudioSchema();
     const calcSchema = schema.tables.find((table) => table.name === "calc");
     expect(calcSchema).toBeDefined();
     expect(calcSchema?.columns.find((column) => column.name === "amount_x2")?.hidden).toBe(false);
@@ -331,10 +327,10 @@ describe("studio api", () => {
         },
       ],
     });
-    await applyPlan(createPlanPath, { dbPath });
+    await applyPlan(createPlanPath);
 
     try {
-      readStudioTable({ dbPath, table: "expenses", filters: { unknown: "1" } });
+      readStudioTable({ table: "expenses", filters: { unknown: "1" } });
       throw new Error("readStudioTable should fail for unknown filter columns");
     } catch (error) {
       expect(isTossError(error)).toBe(true);
@@ -363,7 +359,6 @@ describe("studio api", () => {
     direct.close(false);
 
     const defaultSorted = readStudioTable({
-      dbPath,
       table: "ledger",
       page: 1,
       pageSize: 10,
@@ -372,7 +367,6 @@ describe("studio api", () => {
     expect(defaultSorted.rows.map((row) => row.account)).toEqual(["a", "b", "c"]);
 
     const customSorted = readStudioTable({
-      dbPath,
       table: "ledger",
       sortBy: "amount",
       sortDir: "desc",
@@ -398,7 +392,6 @@ describe("studio api", () => {
     direct.close(false);
 
     const defaultSorted = readStudioTable({
-      dbPath,
       table: "shadowed",
       page: 1,
       pageSize: 10,
@@ -406,7 +399,6 @@ describe("studio api", () => {
     expect(defaultSorted.rows.map((row) => row.name)).toEqual(["first", "second", "third"]);
 
     const sortedByAmount = readStudioTable({
-      dbPath,
       table: "shadowed",
       page: 1,
       pageSize: 10,

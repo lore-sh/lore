@@ -7,10 +7,10 @@ import {
 } from "./db";
 import { getHeadCommit, listCommits } from "./log";
 import { quoteIdentifier } from "./sql";
-import type { CommitEntry, DatabaseOptions, TossStatus } from "./types";
+import type { CommitEntry, TossStatus } from "./types";
 
-export function getStatus(options: DatabaseOptions = {}): TossStatus {
-  return withInitializedDatabase(options, ({ db, dbPath }) => {
+export function getStatus(): TossStatus {
+  return withInitializedDatabase(({ db, dbPath }) => {
     const tables = listUserTables(db).map((table) => {
       const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table)}`);
       return { name: table, count: row?.c ?? 0 };
@@ -42,11 +42,11 @@ export function getStatus(options: DatabaseOptions = {}): TossStatus {
 }
 
 export function getHistory(
-  options: DatabaseOptions & {
+  options: {
     verbose?: boolean;
   } = {},
 ): CommitEntry[] {
-  return withInitializedDatabase(options, ({ db }) => {
+  return withInitializedDatabase(({ db }) => {
     return listCommits(db, true);
   });
 }

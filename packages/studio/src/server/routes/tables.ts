@@ -1,7 +1,6 @@
 import { getStudioTableSchema, listStudioTables, readStudioTable, TossError } from "@toss/core";
 import { Hono } from "hono";
 import { validator } from "hono/validator";
-import type { StudioServerOptions } from "../types";
 import { parsePositiveInt, singleValue } from "./query";
 
 function parseFilters(raw: string | undefined): Record<string, string> {
@@ -35,7 +34,7 @@ function parseFilters(raw: string | undefined): Record<string, string> {
   return filters;
 }
 
-export function createTableRoutes(options: StudioServerOptions) {
+export function createTableRoutes() {
   const tableQuery = validator("query", (query) => {
     const page = parsePositiveInt(singleValue(query.page));
     const pageSize = parsePositiveInt(singleValue(query.pageSize));
@@ -53,13 +52,12 @@ export function createTableRoutes(options: StudioServerOptions) {
 
   return new Hono()
     .get("/api/tables", (c) => {
-      return c.json(listStudioTables(options));
+      return c.json(listStudioTables());
     })
     .get("/api/tables/:name", tableQuery, (c) => {
       const query = c.req.valid("query");
       return c.json(
         readStudioTable({
-          ...options,
           table: c.req.param("name"),
           page: query.page,
           pageSize: query.pageSize,
@@ -70,6 +68,6 @@ export function createTableRoutes(options: StudioServerOptions) {
       );
     })
     .get("/api/tables/:name/schema", (c) => {
-      return c.json(getStudioTableSchema(c.req.param("name"), options));
+      return c.json(getStudioTableSchema(c.req.param("name")));
     });
 }

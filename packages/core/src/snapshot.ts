@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdir, rename } from "fs/promises";
 import { dirname, resolve } from "node:path";
 import { sha256Hex } from "./checksum";
+import { closeClient } from "./engine/client";
 import {
   assertInitialized,
   COMMIT_TABLE,
@@ -12,11 +13,10 @@ import {
   getRows,
   listUserTables,
   MAIN_REF_NAME,
-  resolveDbPath,
   runInTransactionWithDeferredForeignKeys,
   SNAPSHOT_TABLE,
-  withDatabase,
-  withDatabaseAsync,
+  withDatabaseAtPath,
+  withDatabaseAsyncAtPath,
   withInitializedDatabase,
 } from "./db";
 import { TossError } from "./errors";
@@ -35,7 +35,7 @@ import {
 } from "./observed";
 import { schemaHash, stateHash } from "./rows";
 import { quoteIdentifier } from "./sql";
-import type { CommitEntry, DatabaseOptions, SnapshotEntry } from "./types";
+import type { CommitEntry, SnapshotEntry } from "./types";
 
 export async function hashFile(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -92,7 +92,7 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
 }
 
 export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): Promise<void> {
-  const shouldCreate = withDatabase({ dbPath }, ({ db }) => {
+  const shouldCreate = withDatabaseAtPath(dbPath, ({ db }) => {
     const interval = getSnapshotInterval(db);
     return interval > 0 && commit.seq % interval === 0;
   });
@@ -104,7 +104,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   await mkdir(snapshotsDir, { recursive: true });
   const tmpSnapshotPath = resolve(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 
-  withDatabase({ dbPath }, ({ db: snapshotDb }) => {
+  withDatabaseAtPath(dbPath, ({ db: snapshotDb }) => {
     snapshotDb.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
   });
 
@@ -114,7 +114,7 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   await rename(tmpSnapshotPath, snapshotPath);
   const [digest] = await Promise.all([hashFile(snapshotPath), deleteWithSidecars(tmpSnapshotPath)]);
 
-  await withDatabaseAsync({ dbPath }, async ({ db: writeDb }) => {
+  await withDatabaseAsyncAtPath(dbPath, async ({ db: writeDb }) => {
     writeDb
       .query(
         `INSERT OR REPLACE INTO ${SNAPSHOT_TABLE}(commit_id, file_path, file_sha256, created_at, row_count_hint) VALUES(?, ?, ?, ?, ?)`,
@@ -138,8 +138,8 @@ export async function maybeCreateSnapshot(dbPath: string, commit: CommitEntry): 
   });
 }
 
-export function listSnapshots(options: DatabaseOptions = {}): SnapshotEntry[] {
-  return withInitializedDatabase(options, ({ db }) => {
+export function listSnapshots(): SnapshotEntry[] {
+  return withInitializedDatabase(({ db }) => {
     const rows = getRows<{
       commit_id: string;
       file_path: string;
@@ -177,6 +177,7 @@ function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitR
 
 async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
   try {
+    closeClient({ resetPath: false });
     await deleteWalAndShm(dbPath);
     await rename(preparedDbPath, dbPath);
     await deleteWalAndShm(dbPath);
@@ -233,11 +234,8 @@ function replayCommitExactly(db: Database, replay: CommitReplayInput): void {
   appendCommitExact(db, replay);
 }
 
-function resolveSnapshotForRecovery(
-  dbPath: string,
-  commitId: string,
-): { snapshotPath: string; replayCommits: CommitReplayInput[] } {
-  return withInitializedDatabase({ dbPath }, ({ db }) => {
+function resolveSnapshotForRecovery(commitId: string): { dbPath: string; snapshotPath: string; replayCommits: CommitReplayInput[] } {
+  return withInitializedDatabase(({ db, dbPath }) => {
     const snapshot = getRow<{ file_path: string; seq: number }>(
       db,
       `
@@ -253,6 +251,7 @@ function resolveSnapshotForRecovery(
       throw new TossError("NOT_FOUND", `Snapshot not found for commit: ${commitId}`);
     }
     return {
+      dbPath,
       snapshotPath: snapshot.file_path,
       replayCommits: loadCommitReplayInputs(db, snapshot.seq),
     };
@@ -261,10 +260,8 @@ function resolveSnapshotForRecovery(
 
 export async function recoverFromSnapshot(
   commitId: string,
-  options: DatabaseOptions = {},
 ): Promise<{ dbPath: string; restoredCommitId: string; replayedCommits: number }> {
-  const dbPath = resolveDbPath(options.dbPath);
-  const { snapshotPath, replayCommits } = resolveSnapshotForRecovery(dbPath, commitId);
+  const { dbPath, snapshotPath, replayCommits } = resolveSnapshotForRecovery(commitId);
 
   const stagingPath = `${dbPath}.recover-${crypto.randomUUID().replaceAll("-", "")}.staging.db`;
   await deleteWithSidecars(stagingPath);

@@ -29,13 +29,13 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "expenses" }],
     });
 
-    await applyPlan(setup, { dbPath });
-    const dropCommit = await applyPlan(drop, { dbPath });
+    await applyPlan(setup);
+    const dropCommit = await applyPlan(drop);
 
-    const reverted = revertCommit(dropCommit.commitId, { dbPath });
+    const reverted = revertCommit(dropCommit.commitId);
     expect(reverted.ok).toBe(true);
 
-    const rows = readQuery("SELECT id, item FROM expenses", { dbPath });
+    const rows = readQuery("SELECT id, item FROM expenses");
     expect(rows).toEqual([{ id: 1, item: "dinner" }]);
   });
 
@@ -53,14 +53,14 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "auto_drop" }],
     });
 
-    const dropped = await applyPlan(drop, { dbPath });
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const dropped = await applyPlan(drop);
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for AUTOINCREMENT drop_table");
     }
 
-    const rows = readQuery("SELECT id, body FROM auto_drop ORDER BY id", { dbPath });
+    const rows = readQuery("SELECT id, body FROM auto_drop ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "a" }]);
   });
 
@@ -90,9 +90,9 @@ describe("revertCommit", () => {
         { type: "drop_table", table: "a_parent" },
       ],
     });
-    const dropped = await applyPlan(dropBoth, { dbPath });
+    const dropped = await applyPlan(dropBoth);
 
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for multi-table drop with FK dependencies");
@@ -135,13 +135,13 @@ describe("revertCommit", () => {
       message: "delete parent 1",
       operations: [{ type: "delete", table: "a_parent", where: { id: 1 } }],
     });
-    const deleted = await applyPlan(deleteParent, { dbPath });
+    const deleted = await applyPlan(deleteParent);
 
-    const reverted = revertCommit(deleted.commitId, { dbPath });
+    const reverted = revertCommit(deleted.commitId);
     expect(reverted.ok).toBe(true);
 
-    const parentRows = readQuery("SELECT id, name FROM a_parent ORDER BY id", { dbPath });
-    const childRows = readQuery("SELECT id, parent_id, body FROM z_child ORDER BY id", { dbPath });
+    const parentRows = readQuery("SELECT id, name FROM a_parent ORDER BY id");
+    const childRows = readQuery("SELECT id, parent_id, body FROM z_child ORDER BY id");
     expect(parentRows).toEqual([{ id: 1, name: "p1" }]);
     expect(childRows).toEqual([
       { id: 1, parent_id: 1, body: "c1" },
@@ -170,12 +170,12 @@ describe("revertCommit", () => {
       message: "insert ledger row",
       operations: [{ type: "insert", table: "ledger", values: { id: 1, account_id: 1, amount: 7 } }],
     });
-    const committed = await applyPlan(insertLedger, { dbPath });
-    const reverted = revertCommit(committed.commitId, { dbPath });
+    const committed = await applyPlan(insertLedger);
+    const reverted = revertCommit(committed.commitId);
     expect(reverted.ok).toBe(true);
 
-    const accountRows = readQuery("SELECT id, balance FROM account", { dbPath });
-    const ledgerRows = readQuery("SELECT id, account_id, amount FROM ledger", { dbPath });
+    const accountRows = readQuery("SELECT id, balance FROM account");
+    const ledgerRows = readQuery("SELECT id, account_id, amount FROM ledger");
     expect(accountRows).toEqual([{ id: 1, balance: 0 }]);
     expect(ledgerRows).toEqual([]);
   });
@@ -206,9 +206,9 @@ describe("revertCommit", () => {
         { type: "drop_table", table: "parent_nodes" },
       ],
     });
-    const committed = await applyPlan(destructive, { dbPath });
+    const committed = await applyPlan(destructive);
 
-    const reverted = revertCommit(committed.commitId, { dbPath });
+    const reverted = revertCommit(committed.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for delete-child+drop-parent commit");
@@ -254,11 +254,11 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "users", values: { id: 2, email: "a@example.com" } }],
     });
 
-    await applyPlan(setup, { dbPath });
-    const deleted = await applyPlan(deleteUser, { dbPath });
-    await applyPlan(insertConflicting, { dbPath });
+    await applyPlan(setup);
+    const deleted = await applyPlan(deleteUser);
+    await applyPlan(insertConflicting);
 
-    const result = revertCommit(deleted.commitId, { dbPath });
+    const result = revertCommit(deleted.commitId);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.conflicts.length).toBeGreaterThan(0);
@@ -300,8 +300,8 @@ describe("revertCommit", () => {
       message: "drop note",
       operations: [{ type: "drop_column", table: "constrained_items", column: "note" }],
     });
-    const dropped = await applyPlan(dropNote, { dbPath });
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const dropped = await applyPlan(dropNote);
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
 
     const verify = new Database(dbPath);
@@ -348,9 +348,9 @@ describe("revertCommit", () => {
       message: "drop note from self fk table",
       operations: [{ type: "drop_column", table: "self_fk_nodes", column: "note" }],
     });
-    const dropped = await applyPlan(dropNote, { dbPath });
+    const dropped = await applyPlan(dropNote);
 
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected self-referential FK revert success");
@@ -398,11 +398,11 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "conflict_items", values: { id: 2 } }],
     });
 
-    await applyPlan(setup, { dbPath });
-    const dropped = await applyPlan(dropColumn, { dbPath });
-    await applyPlan(laterInsert, { dbPath });
+    await applyPlan(setup);
+    const dropped = await applyPlan(dropColumn);
+    await applyPlan(laterInsert);
 
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(reverted.conflicts.some((conflict) => conflict.kind === "schema" && conflict.table === "conflict_items")).toBe(
@@ -410,7 +410,7 @@ describe("revertCommit", () => {
       );
     }
 
-    const rows = readQuery("SELECT id FROM conflict_items ORDER BY id", { dbPath });
+    const rows = readQuery("SELECT id FROM conflict_items ORDER BY id");
     expect(rows).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
@@ -441,11 +441,11 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "missing_table_conflict" }],
     });
 
-    await applyPlan(setup, { dbPath });
-    const updated = await applyPlan(updatePlan, { dbPath });
-    await applyPlan(dropPlan, { dbPath });
+    await applyPlan(setup);
+    const updated = await applyPlan(updatePlan);
+    await applyPlan(dropPlan);
 
-    const result = revertCommit(updated.commitId, { dbPath });
+    const result = revertCommit(updated.commitId);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(
@@ -472,8 +472,8 @@ describe("revertCommit", () => {
       message: "update blob row tag",
       operations: [{ type: "update", table: "blobs", values: { tag: "b" }, where: { id: 1 } }],
     });
-    const updated = await applyPlan(updateTag, { dbPath });
-    const reverted = revertCommit(updated.commitId, { dbPath });
+    const updated = await applyPlan(updateTag);
+    const reverted = revertCommit(updated.commitId);
     expect(reverted.ok).toBe(true);
 
     const verify = new Database(dbPath);
@@ -504,13 +504,12 @@ describe("revertCommit", () => {
       message: "update tag for nul-text row",
       operations: [{ type: "update", table: "text_nul_items", values: { tag: "b" }, where: { id: 1 } }],
     });
-    const updated = await applyPlan(updateTag, { dbPath });
-    const reverted = revertCommit(updated.commitId, { dbPath });
+    const updated = await applyPlan(updateTag);
+    const reverted = revertCommit(updated.commitId);
     expect(reverted.ok).toBe(true);
 
     const rows = readQuery(
       "SELECT id, hex(CAST(payload AS BLOB)) AS payload_hex, length(CAST(payload AS BLOB)) AS payload_len, tag FROM text_nul_items",
-      { dbPath },
     );
     expect(rows).toEqual([{ id: 1, payload_hex: "410042", payload_len: 3, tag: "a" }]);
   });
@@ -532,12 +531,12 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "auto_items", values: { body: "b" } }],
     });
 
-    const committed = await applyPlan(insertA, { dbPath });
-    const reverted = revertCommit(committed.commitId, { dbPath });
+    const committed = await applyPlan(insertA);
+    const reverted = revertCommit(committed.commitId);
     expect(reverted.ok).toBe(true);
 
-    await applyPlan(insertB, { dbPath });
-    const rows = readQuery("SELECT id, body FROM auto_items ORDER BY id", { dbPath });
+    await applyPlan(insertB);
+    const rows = readQuery("SELECT id, body FROM auto_items ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "b" }]);
   });
 
@@ -558,10 +557,10 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "auto_items_later", values: { body: "b" } }],
     });
 
-    const first = await applyPlan(insertA, { dbPath });
-    await applyPlan(insertB, { dbPath });
+    const first = await applyPlan(insertA);
+    await applyPlan(insertB);
 
-    const reverted = revertCommit(first.commitId, { dbPath });
+    const reverted = revertCommit(first.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(
@@ -590,11 +589,11 @@ describe("revertCommit", () => {
       message: "delete b",
       operations: [{ type: "delete", table: "auto_items_hist", where: { id: 2 } }],
     });
-    const first = await applyPlan(insertA, { dbPath });
-    await applyPlan(insertB, { dbPath });
-    await applyPlan(deleteB, { dbPath });
+    const first = await applyPlan(insertA);
+    await applyPlan(insertB);
+    await applyPlan(deleteB);
 
-    const reverted = revertCommit(first.commitId, { dbPath });
+    const reverted = revertCommit(first.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(
@@ -626,20 +625,20 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "events" }],
     });
 
-    await applyPlan(setup, { dbPath });
-    const dropped = await applyPlan(drop, { dbPath });
-    const first = revertCommit(dropped.commitId, { dbPath });
+    await applyPlan(setup);
+    const dropped = await applyPlan(drop);
+    const first = revertCommit(dropped.commitId);
     expect(first.ok).toBe(true);
     if (!first.ok) {
       throw new Error("expected first revert success");
     }
 
-    const second = revertCommit(first.revertCommit.commitId, { dbPath });
+    const second = revertCommit(first.revertCommit.commitId);
     expect(second.ok).toBe(true);
     if (!second.ok) {
       throw new Error("expected second revert success");
     }
-    const tableCount = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='events'", { dbPath });
+    const tableCount = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='events'");
     expect(tableCount).toEqual([{ c: 0 }]);
   });
 });

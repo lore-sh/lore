@@ -41,21 +41,21 @@ describe("snapshot / recover", () => {
       operations: [{ type: "insert", table: "logs", values: { id: 1, msg: "hello" } }],
     });
 
-    const firstCommit = await applyPlan(create, { dbPath });
-    const secondCommit = await applyPlan(insert, { dbPath });
+    const firstCommit = await applyPlan(create);
+    const secondCommit = await applyPlan(insert);
 
-    const result = await recoverFromSnapshot(firstCommit.commitId, { dbPath });
+    const result = await recoverFromSnapshot(firstCommit.commitId);
     expect(result.replayedCommits).toBeGreaterThanOrEqual(1);
 
-    const rows = readQuery("SELECT id, msg FROM logs", { dbPath });
+    const rows = readQuery("SELECT id, msg FROM logs");
     expect(rows).toEqual([{ id: 1, msg: "hello" }]);
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(secondCommit.commitId);
     expect(history[0]?.kind).toBe(secondCommit.kind);
     expect(history[0]?.createdAt).toBe(secondCommit.createdAt);
 
-    const verify = verifyDatabase({ dbPath });
+    const verify = verifyDatabase();
     expect(verify.ok).toBe(true);
     expect(verify.chainValid).toBe(true);
   });
@@ -88,9 +88,9 @@ describe("snapshot / recover", () => {
       operations: [{ type: "insert", table: "recover_guard", values: { id: 2, value: "b" } }],
     });
 
-    const base = await applyPlan(create, { dbPath });
-    await applyPlan(insertA, { dbPath });
-    const latest = await applyPlan(insertB, { dbPath });
+    const base = await applyPlan(create);
+    await applyPlan(insertA);
+    const latest = await applyPlan(insertB);
 
     const tamper = new Database(dbPath);
     tamper
@@ -99,7 +99,7 @@ describe("snapshot / recover", () => {
     tamper.close(false);
 
     try {
-      await recoverFromSnapshot(base.commitId, { dbPath });
+      await recoverFromSnapshot(base.commitId);
       throw new Error("recoverFromSnapshot should fail due to tampered replay metadata");
     } catch (error) {
       expect(isTossError(error)).toBe(true);
@@ -108,7 +108,7 @@ describe("snapshot / recover", () => {
       }
     }
 
-    const rowsAfterFailure = readQuery("SELECT id, value FROM recover_guard ORDER BY id", { dbPath });
+    const rowsAfterFailure = readQuery("SELECT id, value FROM recover_guard ORDER BY id");
     expect(rowsAfterFailure).toEqual([
       { id: 1, value: "a" },
       { id: 2, value: "b" },
@@ -131,7 +131,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    await applyPlan(create, { dbPath });
+    await applyPlan(create);
 
     const snapshotDir = `${dir}/snapshots`;
     const names: string[] = [];
@@ -174,18 +174,18 @@ describe("snapshot / recover", () => {
       operations: [{ type: "insert", table: "orders", values: { id: 1, item: "book" } }],
     });
 
-    const snapshotBase = await applyPlan(create, { dbPath });
-    const replayed = await applyPlan(insert, { dbPath });
+    const snapshotBase = await applyPlan(create);
+    const replayed = await applyPlan(insert);
 
-    const recovered = await recoverFromSnapshot(snapshotBase.commitId, { dbPath });
+    const recovered = await recoverFromSnapshot(snapshotBase.commitId);
     expect(recovered.replayedCommits).toBe(1);
 
-    const extRows = readQuery("SELECT id, body FROM external_data", { dbPath });
+    const extRows = readQuery("SELECT id, body FROM external_data");
     expect(extRows).toEqual([{ id: 1, body: "stable" }]);
-    const orderRows = readQuery("SELECT id, item FROM orders", { dbPath });
+    const orderRows = readQuery("SELECT id, item FROM orders");
     expect(orderRows).toEqual([{ id: 1, item: "book" }]);
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(replayed.commitId);
   });
 
@@ -216,7 +216,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    await applyPlan(create, { dbPath });
+    await applyPlan(create);
 
     const direct = new Database(dbPath);
     direct.run(`
@@ -239,17 +239,17 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const markerCommit = await applyPlan(marker, { dbPath });
+    const markerCommit = await applyPlan(marker);
 
     const insertLedger = await writePlanFile(dir, "insert-ledger-with-trigger.json", {
       message: "insert ledger with trigger",
       operations: [{ type: "insert", table: "ledger", values: { id: 1, account_id: 1, amount: 7 } }],
     });
-    await applyPlan(insertLedger, { dbPath });
+    await applyPlan(insertLedger);
 
-    await recoverFromSnapshot(markerCommit.commitId, { dbPath });
+    await recoverFromSnapshot(markerCommit.commitId);
 
-    const rows = readQuery("SELECT id, balance FROM account WHERE id=1", { dbPath });
+    const rows = readQuery("SELECT id, balance FROM account WHERE id=1");
     expect(rows).toEqual([{ id: 1, balance: 7 }]);
   });
 
@@ -280,15 +280,15 @@ describe("snapshot / recover", () => {
         { type: "drop_table", table: "parent_created_later" },
       ],
     });
-    const dropped = await applyPlan(destructive, { dbPath });
+    const dropped = await applyPlan(destructive);
 
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success before replay test");
     }
 
-    const recovered = await recoverFromSnapshot(dropped.commitId, { dbPath });
+    const recovered = await recoverFromSnapshot(dropped.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
 
     const verify = new Database(dbPath);
@@ -305,7 +305,7 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -328,21 +328,21 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const baseCommit = await applyPlan(basePlan, { dbPath });
+    const baseCommit = await applyPlan(basePlan);
 
     const firstInsertPlan = await writePlanFile(dir, "autoinc-first-insert.json", {
       message: "first autoincrement insert",
       operations: [{ type: "insert", table: "auto_replay", values: { body: "x" } }],
     });
-    const firstInsert = await applyPlan(firstInsertPlan, { dbPath });
+    const firstInsert = await applyPlan(firstInsertPlan);
 
-    const recovered = await recoverFromSnapshot(baseCommit.commitId, { dbPath });
+    const recovered = await recoverFromSnapshot(baseCommit.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
 
-    const rows = readQuery("SELECT id, body FROM auto_replay ORDER BY id", { dbPath });
+    const rows = readQuery("SELECT id, body FROM auto_replay ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "x" }]);
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(firstInsert.commitId);
   });
 
@@ -366,20 +366,20 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const markerCommit = await applyPlan(markerPlan, { dbPath });
+    const markerCommit = await applyPlan(markerPlan);
 
     const dropPlan = await writePlanFile(dir, "drop-autoinc-schema-replay.json", {
       message: "drop autoincrement table",
       operations: [{ type: "drop_table", table: "auto_schema" }],
     });
-    const dropped = await applyPlan(dropPlan, { dbPath });
+    const dropped = await applyPlan(dropPlan);
 
-    const recovered = await recoverFromSnapshot(markerCommit.commitId, { dbPath });
+    const recovered = await recoverFromSnapshot(markerCommit.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
 
-    const tableRows = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='auto_schema'", { dbPath });
+    const tableRows = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='auto_schema'");
     expect(tableRows).toEqual([{ c: 0 }]);
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(dropped.commitId);
   });
 
@@ -410,15 +410,15 @@ describe("snapshot / recover", () => {
         { type: "drop_table", table: "z_parent" },
       ],
     });
-    const dropped = await applyPlan(dropBoth, { dbPath });
+    const dropped = await applyPlan(dropBoth);
 
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success before recover replay");
     }
 
-    const recovered = await recoverFromSnapshot(dropped.commitId, { dbPath });
+    const recovered = await recoverFromSnapshot(dropped.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
 
     const verify = new Database(dbPath);
@@ -433,7 +433,7 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -459,15 +459,15 @@ describe("snapshot / recover", () => {
       message: "drop self fk note",
       operations: [{ type: "drop_column", table: "self_fk_replay", column: "note" }],
     });
-    const dropped = await applyPlan(dropPlan, { dbPath });
+    const dropped = await applyPlan(dropPlan);
 
-    const reverted = revertCommit(dropped.commitId, { dbPath });
+    const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for self-FK schema rebuild");
     }
 
-    const recovered = await recoverFromSnapshot(dropped.commitId, { dbPath });
+    const recovered = await recoverFromSnapshot(dropped.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
 
     const verify = new Database(dbPath);
@@ -487,7 +487,7 @@ describe("snapshot / recover", () => {
     expect(() => verify.run("INSERT INTO self_fk_replay(id, parent_id, note) VALUES (4, 999, 'bad')")).toThrow();
     verify.close(false);
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -510,7 +510,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    await applyPlan(create, { dbPath });
+    await applyPlan(create);
 
     const direct = new Database(dbPath);
     direct.run("INSERT INTO text_nul_recover(id, payload, tag) VALUES (1, CAST(X'410042' AS TEXT), 'a')");
@@ -526,22 +526,21 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const markerCommit = await applyPlan(marker, { dbPath });
+    const markerCommit = await applyPlan(marker);
 
     const update = await writePlanFile(dir, "text-nul-recover-update.json", {
       message: "update tag",
       operations: [{ type: "update", table: "text_nul_recover", values: { tag: "b" }, where: { id: 1 } }],
     });
-    const updated = await applyPlan(update, { dbPath });
+    const updated = await applyPlan(update);
 
-    await recoverFromSnapshot(markerCommit.commitId, { dbPath });
+    await recoverFromSnapshot(markerCommit.commitId);
     const rows = readQuery(
       "SELECT id, hex(CAST(payload AS BLOB)) AS payload_hex, length(CAST(payload AS BLOB)) AS payload_len, tag FROM text_nul_recover",
-      { dbPath },
     );
     expect(rows).toEqual([{ id: 1, payload_hex: "410042", payload_len: 3, tag: "b" }]);
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history[0]?.commitId).toBe(updated.commitId);
   });
 });

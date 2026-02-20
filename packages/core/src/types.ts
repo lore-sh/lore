@@ -182,13 +182,10 @@ export interface SnapshotEntry {
   rowCountHint: number;
 }
 
-export interface DatabaseOptions {
-  dbPath?: string;
-}
-
 export type SkillPlatform = "claude" | "cursor" | "codex" | "opencode" | "openclaw";
 
-export interface InitDatabaseOptions extends DatabaseOptions {
+export interface InitDatabaseOptions {
+  dbPath?: string;
   generateSkills?: boolean;
   skillPlatforms?: SkillPlatform[] | undefined;
   forceNew?: boolean;

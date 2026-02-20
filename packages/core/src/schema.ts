@@ -2,9 +2,8 @@ import { withInitializedDatabase, getRow } from "./db";
 import { TossError } from "./errors";
 import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./rows";
 import { asciiCaseFold, quoteName } from "./sql";
-import type { DatabaseOptions } from "./types";
 
-export interface GetSchemaOptions extends DatabaseOptions {
+export interface GetSchemaOptions {
   table?: string | undefined;
 }
 
@@ -36,7 +35,7 @@ function sqliteIdentifierEquals(left: string, right: string): boolean {
 }
 
 export function getSchema(options: GetSchemaOptions = {}): SchemaView {
-  return withInitializedDatabase(options, ({ db, dbPath }) => {
+  return withInitializedDatabase(({ db, dbPath }) => {
     const descriptor = describeSchema(db);
     const selected = selectTables(descriptor.tables, options.table);
     const tables = selected.map(({ table: name, ...rest }) => {

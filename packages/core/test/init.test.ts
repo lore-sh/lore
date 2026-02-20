@@ -103,9 +103,26 @@ describe("initDatabase", () => {
 
     const reinit = await initDatabase({ dbPath, forceNew: true });
     expect(reinit.dbPath).toBe(dbPath);
-    const status = getStatus({ dbPath });
+    const status = getStatus();
     expect(status.tableCount).toBe(0);
     expect(status.headCommit).toBeNull();
+  });
+
+  testWithTmp("init applies drizzle migrations metadata", async () => {
+    const { dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const db = new Database(dbPath);
+    try {
+      const migrationTable = db
+        .query<{ ok: number }, []>("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations' LIMIT 1")
+        .get();
+      expect(migrationTable).toEqual({ ok: 1 });
+      const row = db.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM __drizzle_migrations").get();
+      expect((row?.c ?? 0) > 0).toBe(true);
+    } finally {
+      db.close(false);
+    }
   });
 
   testWithTmp("default database path is ~/.toss/toss.db", async () => {

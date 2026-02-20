@@ -36,7 +36,7 @@ describe("getSchema", () => {
     const expectedHash = schemaHash(direct);
     direct.close(false);
 
-    const schema = getSchema({ dbPath });
+    const schema = getSchema();
     expect(schema.schemaHash).toBe(expectedHash);
     expect(schema.tables.length).toBeGreaterThanOrEqual(2);
 
@@ -61,7 +61,7 @@ describe("getSchema", () => {
     direct.run("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)");
     direct.close(false);
 
-    const schema = getSchema({ dbPath, table: "notes" });
+    const schema = getSchema({ table: "notes" });
     expect(schema.tables).toHaveLength(1);
     expect(schema.tables[0]?.name).toBe("notes");
   });
@@ -75,11 +75,11 @@ describe("getSchema", () => {
     direct.run('CREATE TABLE "ä" (id INTEGER PRIMARY KEY)');
     direct.close(false);
 
-    const upper = getSchema({ dbPath, table: "Ä" });
+    const upper = getSchema({ table: "Ä" });
     expect(upper.tables).toHaveLength(1);
     expect(upper.tables[0]?.name).toBe("Ä");
 
-    const lower = getSchema({ dbPath, table: "ä" });
+    const lower = getSchema({ table: "ä" });
     expect(lower.tables).toHaveLength(1);
     expect(lower.tables[0]?.name).toBe("ä");
   });
@@ -93,11 +93,11 @@ describe("getSchema", () => {
     direct.run('CREATE TABLE "Task List" (id INTEGER PRIMARY KEY)');
     direct.close(false);
 
-    const dashed = getSchema({ dbPath, table: "foo-bar" });
+    const dashed = getSchema({ table: "foo-bar" });
     expect(dashed.tables).toHaveLength(1);
     expect(dashed.tables[0]?.name).toBe("Foo-Bar");
 
-    const spaced = getSchema({ dbPath, table: "task list" });
+    const spaced = getSchema({ table: "task list" });
     expect(spaced.tables).toHaveLength(1);
     expect(spaced.tables[0]?.name).toBe("Task List");
   });
@@ -107,7 +107,7 @@ describe("getSchema", () => {
     await initDatabase({ dbPath });
 
     try {
-      getSchema({ dbPath, table: "missing_table" });
+      getSchema({ table: "missing_table" });
       throw new Error("getSchema should throw for missing table");
     } catch (error) {
       expect(isTossError(error)).toBe(true);

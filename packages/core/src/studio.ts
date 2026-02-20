@@ -12,7 +12,7 @@ import { TossError } from "./errors";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./log";
 import { describeSchema, normalizeRowObject, type SchemaDescriptor, type SchemaTableDescriptor } from "./rows";
 import { asciiCaseFold, quoteName } from "./sql";
-import type { CommitEntry, CommitKind, DatabaseOptions, JsonObject } from "./types";
+import type { CommitEntry, CommitKind, JsonObject } from "./types";
 
 export type StudioSortDirection = "asc" | "desc";
 
@@ -54,7 +54,7 @@ export interface StudioTableDataView {
 export type StudioCellValue = string | number | boolean | null;
 export type StudioRow = Record<string, StudioCellValue>;
 
-export interface ReadStudioTableOptions extends DatabaseOptions {
+export interface ReadStudioTableOptions {
   table: string;
   page?: number | undefined;
   pageSize?: number | undefined;
@@ -269,8 +269,8 @@ function toStudioRow(row: JsonObject): StudioRow {
   return output;
 }
 
-export function listStudioTables(options: DatabaseOptions = {}): StudioTablesView {
-  return withInitializedDatabase(options, ({ db, dbPath }) => {
+export function listStudioTables(): StudioTablesView {
+  return withInitializedDatabase(({ db, dbPath }) => {
     const tableNames = listUserTables(db);
     const tables = tableNames.map((name) => {
       const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(name)}`);
@@ -311,7 +311,7 @@ export function listStudioTables(options: DatabaseOptions = {}): StudioTablesVie
 }
 
 export function readStudioTable(options: ReadStudioTableOptions): StudioTableDataView {
-  return withInitializedDatabase(options, ({ db }) => {
+  return withInitializedDatabase(({ db }) => {
     const tableName = resolveTableName(listUserTables(db), options.table);
     const schema = describeSchema(db);
     const table = findTableFromSchema(schema, tableName);
@@ -392,8 +392,8 @@ function mapSchemaTable(table: SchemaTableDescriptor): StudioSchemaTable {
   };
 }
 
-export function getStudioSchema(options: DatabaseOptions = {}): StudioSchemaView {
-  return withInitializedDatabase(options, ({ db, dbPath }) => {
+export function getStudioSchema(): StudioSchemaView {
+  return withInitializedDatabase(({ db, dbPath }) => {
     const descriptor = describeSchema(db);
     const tables = descriptor.tables.map((table) => {
       const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(table.table)}`);
@@ -408,8 +408,8 @@ export function getStudioSchema(options: DatabaseOptions = {}): StudioSchemaView
   });
 }
 
-export function getStudioTableSchema(table: string, options: DatabaseOptions = {}): StudioSchemaTable {
-  return withInitializedDatabase(options, ({ db }) => {
+export function getStudioTableSchema(table: string): StudioSchemaTable {
+  return withInitializedDatabase(({ db }) => {
     const tableName = resolveTableName(listUserTables(db), table);
     const descriptor = describeSchema(db);
     const target = findTableFromSchema(descriptor, tableName);
@@ -419,11 +419,11 @@ export function getStudioTableSchema(table: string, options: DatabaseOptions = {
 }
 
 export function listStudioHistory(
-  options: DatabaseOptions & {
+  options: {
     limit?: number | undefined;
   } = {},
 ): StudioHistoryEntry[] {
-  return withInitializedDatabase(options, ({ db }) => {
+  return withInitializedDatabase(({ db }) => {
     const max = normalizePageSize(options.limit);
     const rows = getRows<{
       commit_id: string;
@@ -463,8 +463,8 @@ export function listStudioHistory(
   });
 }
 
-export function getStudioCommitDetail(commitId: string, options: DatabaseOptions = {}): StudioCommitDetail {
-  return withInitializedDatabase(options, ({ db }) => {
+export function getStudioCommitDetail(commitId: string): StudioCommitDetail {
+  return withInitializedDatabase(({ db }) => {
     const commit = getCommitById(db, commitId);
     if (!commit) {
       throw new TossError("NOT_FOUND", `Commit not found: ${commitId}`);

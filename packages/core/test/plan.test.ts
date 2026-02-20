@@ -23,15 +23,15 @@ describe("planCheck", () => {
       ],
     });
 
-    const result = await planCheck(createPlan, { dbPath });
+    const result = await planCheck(createPlan);
     expect(result.ok).toBe(true);
     expect(result.errors).toEqual([]);
     expect(result.summary.operations).toBe(1);
     expect(result.summary.predicted.schemaEffects).toBeGreaterThan(0);
 
-    const tableRows = readQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'", { dbPath });
+    const tableRows = readQuery("SELECT name FROM sqlite_master WHERE type='table' AND name='todos'");
     expect(tableRows).toEqual([]);
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history).toHaveLength(0);
   });
 
@@ -43,7 +43,7 @@ describe("planCheck", () => {
       message: "",
       operations: [],
     });
-    const result = await planCheck(invalidPlan, { dbPath });
+    const result = await planCheck(invalidPlan);
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.risk).toBe("high");
@@ -71,18 +71,18 @@ describe("planCheck", () => {
         },
       ],
     });
-    await applyPlan(setup, { dbPath });
+    await applyPlan(setup);
 
     const destructive = await writePlanFile(dir, "destructive-plan.json", {
       message: "delete expense",
       operations: [{ type: "delete", table: "expenses", where: { id: 1 } }],
     });
-    const result = await planCheck(destructive, { dbPath });
+    const result = await planCheck(destructive);
     expect(result.ok).toBe(true);
     expect(result.risk).toBe("high");
     expect(result.warnings.some((warning) => warning.code === "DESTRUCTIVE_OPERATION")).toBe(true);
 
-    const rows = readQuery("SELECT id, item FROM expenses ORDER BY id", { dbPath });
+    const rows = readQuery("SELECT id, item FROM expenses ORDER BY id");
     expect(rows).toEqual([{ id: 1, item: "lunch" }]);
   });
 
@@ -94,7 +94,7 @@ describe("planCheck", () => {
       message: "insert missing table",
       operations: [{ type: "insert", table: "missing_table", values: { id: 1 } }],
     });
-    const result = await planCheck(invalidRuntime, { dbPath });
+    const result = await planCheck(invalidRuntime);
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
   });
@@ -103,7 +103,7 @@ describe("planCheck", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const result = await planCheck(`${dir}/missing-plan.json`, { dbPath });
+    const result = await planCheck(`${dir}/missing-plan.json`);
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
   });

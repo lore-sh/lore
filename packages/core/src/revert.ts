@@ -28,7 +28,7 @@ import {
   rowHash,
 } from "./observed";
 import { schemaHash } from "./rows";
-import type { DatabaseOptions, RevertConflict, RevertResult } from "./types";
+import type { RevertConflict, RevertResult } from "./types";
 
 export function detectSchemaConflicts(
   schemaEffects: StoredSchemaEffect[],
@@ -205,8 +205,8 @@ function preflightInverseApply(
   }
 }
 
-export function revertCommit(commitId: string, options: DatabaseOptions = {}): RevertResult {
-  return withInitializedDatabase(options, ({ db }) => {
+export function revertCommit(commitId: string): RevertResult {
+  return withInitializedDatabase(({ db }) => {
     return runInTransactionWithDeferredForeignKeys(db, () => {
       const targetCommit = getCommitById(db, commitId);
       if (!targetCommit) {

@@ -1,9 +1,10 @@
-import { type SQLQueryBindings, Database } from "bun:sqlite";
+import type { SQLQueryBindings, Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+import { getClientPath, getSqlite, hasClient, initClient, withClient } from "./engine/client";
 import { TossError } from "./errors";
 import { resolveHomeDir } from "./fsx";
-import type { DatabaseOptions } from "./types";
 
 export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
@@ -20,6 +21,7 @@ export const OP_TABLE = "_toss_op";
 export const EFFECT_ROW_TABLE = "_toss_effect_row";
 export const EFFECT_SCHEMA_TABLE = "_toss_effect_schema";
 export const SNAPSHOT_TABLE = "_toss_snapshot";
+const ENGINE_MIGRATIONS_DIR = resolve(import.meta.dir, "../migration");
 
 export interface DatabaseContext {
   db: Database;
@@ -49,18 +51,26 @@ function assertDatabaseFileExists(dbPath: string): void {
   }
 }
 
-function applyPragmas(db: Database): void {
-  db.run("PRAGMA journal_mode=WAL");
-  db.run("PRAGMA synchronous=FULL");
-  db.run("PRAGMA foreign_keys=ON");
-  db.run("PRAGMA busy_timeout=5000");
+function runtimeDbPath(path?: string): string {
+  if (path) {
+    return resolveDbPath(path);
+  }
+  const currentPath = getClientPath();
+  if (currentPath) {
+    return currentPath;
+  }
+  return resolveDbPath();
 }
 
-function openDatabase(pathFromArg?: string): DatabaseContext {
-  const dbPath = resolveDbPath(pathFromArg);
+function openDatabase(path?: string): DatabaseContext {
+  const dbPath = runtimeDbPath(path);
   ensureDatabaseDirectory(dbPath);
-  const db = new Database(dbPath);
-  applyPragmas(db);
+  if (path) {
+    initClient(dbPath);
+  } else if (!hasClient()) {
+    initClient(dbPath);
+  }
+  const db = getSqlite();
   return { db, dbPath };
 }
 
@@ -72,172 +82,43 @@ export function getRows<T>(db: Database, sql: string, ...bindings: SQLQueryBindi
   return db.query<T, SQLQueryBindings[]>(sql).all(...bindings);
 }
 
-export function withDatabase<T>(options: DatabaseOptions | undefined, run: (ctx: DatabaseContext) => T): T {
-  const ctx = openDatabase(options?.dbPath);
-  try {
-    return run(ctx);
-  } finally {
-    ctx.db.close(false);
-  }
+export function withDatabaseAtPath<T>(dbPath: string, run: (ctx: DatabaseContext) => T): T {
+  const ctx = openDatabase(dbPath);
+  return run(ctx);
 }
 
-export async function withDatabaseAsync<T>(
-  options: DatabaseOptions | undefined,
-  run: (ctx: DatabaseContext) => Promise<T>,
-): Promise<T> {
-  const ctx = openDatabase(options?.dbPath);
-  try {
-    return await run(ctx);
-  } finally {
-    ctx.db.close(false);
-  }
+export async function withDatabaseAsyncAtPath<T>(dbPath: string, run: (ctx: DatabaseContext) => Promise<T>): Promise<T> {
+  const ctx = openDatabase(dbPath);
+  return await run(ctx);
 }
 
-export function withInitializedDatabase<T>(options: DatabaseOptions | undefined, run: (ctx: DatabaseContext) => T): T {
-  const dbPath = resolveDbPath(options?.dbPath);
-  assertDatabaseFileExists(dbPath);
-  return withDatabase({ dbPath }, (ctx) => {
+export function withInitializedDatabase<T>(run: (ctx: DatabaseContext) => T): T {
+  const resolvedPath = runtimeDbPath();
+  assertDatabaseFileExists(resolvedPath);
+  return withDatabaseAtPath(resolvedPath, (ctx) => {
     assertInitialized(ctx.db, ctx.dbPath);
     return run(ctx);
   });
 }
 
 export async function withInitializedDatabaseAsync<T>(
-  options: DatabaseOptions | undefined,
   run: (ctx: DatabaseContext) => Promise<T>,
 ): Promise<T> {
-  const dbPath = resolveDbPath(options?.dbPath);
-  assertDatabaseFileExists(dbPath);
-  return withDatabaseAsync({ dbPath }, (ctx) => {
+  const resolvedPath = runtimeDbPath();
+  assertDatabaseFileExists(resolvedPath);
+  return withDatabaseAsyncAtPath(resolvedPath, (ctx) => {
     assertInitialized(ctx.db, ctx.dbPath);
     return run(ctx);
   });
 }
 
-export function initializeStorage(db: Database): void {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${ENGINE_META_TABLE} (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${COMMIT_TABLE} (
-      commit_id TEXT PRIMARY KEY,
-      seq INTEGER NOT NULL UNIQUE,
-      kind TEXT NOT NULL,
-      message TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      parent_count INTEGER NOT NULL,
-      schema_hash_before TEXT NOT NULL,
-      schema_hash_after TEXT NOT NULL,
-      state_hash_after TEXT NOT NULL,
-      plan_hash TEXT NOT NULL,
-      inverse_ready INTEGER NOT NULL,
-      reverted_target_id TEXT
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${COMMIT_PARENT_TABLE} (
-      commit_id TEXT NOT NULL,
-      parent_commit_id TEXT NOT NULL,
-      ord INTEGER NOT NULL,
-      PRIMARY KEY (commit_id, ord)
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${REF_TABLE} (
-      name TEXT PRIMARY KEY,
-      commit_id TEXT,
-      updated_at TEXT NOT NULL
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${REFLOG_TABLE} (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ref_name TEXT NOT NULL,
-      old_commit_id TEXT,
-      new_commit_id TEXT,
-      reason TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${OP_TABLE} (
-      commit_id TEXT NOT NULL,
-      op_index INTEGER NOT NULL,
-      op_type TEXT NOT NULL,
-      op_json TEXT NOT NULL,
-      PRIMARY KEY (commit_id, op_index)
-    );
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${EFFECT_ROW_TABLE} (
-      commit_id TEXT NOT NULL,
-      effect_index INTEGER NOT NULL,
-      table_name TEXT NOT NULL,
-      pk_json TEXT NOT NULL,
-      op_kind TEXT NOT NULL,
-      before_row_json TEXT,
-      after_row_json TEXT,
-      before_hash TEXT,
-      after_hash TEXT,
-      PRIMARY KEY (commit_id, effect_index)
-    );
-  `);
-
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_toss_effect_row_table_pk
-      ON ${EFFECT_ROW_TABLE}(table_name, pk_json);
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${EFFECT_SCHEMA_TABLE} (
-      commit_id TEXT NOT NULL,
-      effect_index INTEGER NOT NULL,
-      table_name TEXT NOT NULL,
-      before_table_json TEXT,
-      after_table_json TEXT,
-      PRIMARY KEY (commit_id, effect_index)
-    );
-  `);
-
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_toss_effect_schema_table_column
-      ON ${EFFECT_SCHEMA_TABLE}(table_name);
-  `);
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS ${SNAPSHOT_TABLE} (
-      commit_id TEXT PRIMARY KEY,
-      file_path TEXT NOT NULL,
-      file_sha256 TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      row_count_hint INTEGER NOT NULL
-    );
-  `);
-
-  const upsertMeta = db.query(`
-    INSERT INTO ${ENGINE_META_TABLE}(key, value)
-    VALUES(?, ?)
-    ON CONFLICT(key) DO UPDATE SET value=excluded.value;
-  `);
-  upsertMeta.run("schema_fingerprint", SCHEMA_FINGERPRINT);
-  upsertMeta.run("snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL));
-  upsertMeta.run("snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN));
-
-  const now = new Date().toISOString();
-  db.query(`
-    INSERT INTO ${REF_TABLE}(name, commit_id, updated_at)
-    VALUES(?, NULL, ?)
-    ON CONFLICT(name) DO NOTHING;
-  `).run(MAIN_REF_NAME, now);
+export function initializeStorage(): void {
+  if (!existsSync(ENGINE_MIGRATIONS_DIR)) {
+    throw new TossError("CONFIG_ERROR", `Engine migrations directory not found: ${ENGINE_MIGRATIONS_DIR}`);
+  }
+  withClient((db) => {
+    migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
+  });
 }
 
 export function tableExists(db: Database, name: string): boolean {
@@ -320,7 +201,7 @@ export function runInSavepoint<T>(
 export function listUserTables(db: Database): string[] {
   const rows = getRows<{ name: string }>(
     db,
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '_toss_%' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
   );
   return rows.map((row) => row.name);
 }

@@ -5,7 +5,7 @@ import { executeOperation } from "./executors/apply";
 import { appendCommit, getHeadCommit, getNextCommitSeq } from "./log";
 import { captureObservedState, diffObservedState, type CapturedObservedState } from "./observed";
 import { schemaHash, stateHash } from "./rows";
-import type { CommitEntry, DatabaseOptions, Operation } from "./types";
+import type { CommitEntry, Operation } from "./types";
 import { parseAndValidateOperationPlan } from "./validators/operation";
 
 export function readPlanInput(planRef: string): Promise<string> {
@@ -54,11 +54,11 @@ export function appendCommitFromObservedChange(
   });
 }
 
-export async function applyPlan(planRef: string, options: DatabaseOptions = {}): Promise<CommitEntry> {
+export async function applyPlan(planRef: string): Promise<CommitEntry> {
   const payload = await readPlanInput(planRef);
   const plan = parseAndValidateOperationPlan(payload);
 
-  const { commit, dbPath } = await withInitializedDatabaseAsync(options, async ({ db, dbPath }) => {
+  const { commit, dbPath } = await withInitializedDatabaseAsync(async ({ db, dbPath }) => {
     const commit = runInTransaction(db, () => {
       const beforeSchemaHash = schemaHash(db);
       const beforeObservedState = captureObservedState(db);

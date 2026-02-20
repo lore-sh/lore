@@ -78,7 +78,7 @@ export function startStudioServer(options: StartStudioServerOptions = {}): Start
   ensureClientBundle();
   const port = normalizeStudioPort(options.port);
   const host = options.host ?? DEFAULT_HOST;
-  const app = createStudioApp(options);
+  const app = createStudioApp();
   const server = Bun.serve({
     hostname: host,
     port,

@@ -5,7 +5,6 @@ import { createHistoryRoutes } from "./routes/history";
 import { createSchemaRoutes } from "./routes/schema";
 import { createStatusRoutes } from "./routes/status";
 import { createTableRoutes } from "./routes/tables";
-import type { StudioServerOptions } from "./types";
 
 function statusFromTossCode(code: string): number {
   switch (code) {
@@ -58,16 +57,16 @@ export function isAssetRequestPath(path: string): boolean {
   return path.startsWith("/assets/");
 }
 
-export function createStudioApi(options: StudioServerOptions = {}) {
+export function createStudioApi() {
   return new Hono()
-    .route("/", createTableRoutes(options))
-    .route("/", createSchemaRoutes(options))
-    .route("/", createHistoryRoutes(options))
-    .route("/", createStatusRoutes(options));
+    .route("/", createTableRoutes())
+    .route("/", createSchemaRoutes())
+    .route("/", createHistoryRoutes())
+    .route("/", createStatusRoutes());
 }
 
-export function createStudioApp(options: StudioServerOptions = {}) {
-  const api = createStudioApi(options);
+export function createStudioApp() {
+  const api = createStudioApi();
   const app = new Hono().route("/", api).get("*", async (c) => {
     if (c.req.path.startsWith("/api/")) {
       return c.json({ error: "NOT_FOUND", message: "API route not found" }, 404);

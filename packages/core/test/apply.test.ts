@@ -37,10 +37,10 @@ describe("applyPlan", () => {
       operations: [{ type: "insert", table: "expenses", values: { id: 1, item: "dinner", amount: 1200 } }],
     });
 
-    await applyPlan(createPlanPath, { dbPath });
-    const insertCommit = await applyPlan(insertPlanPath, { dbPath });
+    await applyPlan(createPlanPath);
+    const insertCommit = await applyPlan(insertPlanPath);
 
-    const status = getStatus({ dbPath });
+    const status = getStatus();
     expect(status.tableCount).toBe(1);
     expect(status.headCommit?.commitId).toBe(insertCommit.commitId);
     expect(status.snapshotCount).toBe(0);
@@ -48,7 +48,7 @@ describe("applyPlan", () => {
     expect(status.lastVerifiedOk).toBeNull();
     expect(status.lastVerifiedOkAt).toBeNull();
 
-    const history = getHistory({ dbPath, verbose: true });
+    const history = getHistory({ verbose: true });
     expect(history).toHaveLength(2);
     expect(history[0]?.commitId).toBe(insertCommit.commitId);
     expect(history[0]?.parentIds).toHaveLength(1);
@@ -69,7 +69,7 @@ describe("applyPlan", () => {
     });
 
     try {
-      await applyPlan(insertPlan, { dbPath });
+      await applyPlan(insertPlan);
       throw new Error("applyPlan should fail for table without PK");
     } catch (error) {
       expect(isTossError(error)).toBe(true);
@@ -101,7 +101,7 @@ describe("applyPlan", () => {
     });
 
     try {
-      await applyPlan(plan, { dbPath });
+      await applyPlan(plan);
       throw new Error("applyPlan should fail when NULL PK values exist in tracked table");
     } catch (error) {
       expect(isTossError(error)).toBe(true);

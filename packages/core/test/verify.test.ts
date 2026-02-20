@@ -30,13 +30,13 @@ describe("verifyDatabase", () => {
         },
       ],
     });
-    await applyPlan(setup, { dbPath });
+    await applyPlan(setup);
 
-    const quick = verifyDatabase({ dbPath });
+    const quick = verifyDatabase();
     expect(quick.ok).toBe(true);
     expect(quick.mode).toBe("quick");
 
-    const firstStatus = getStatus({ dbPath });
+    const firstStatus = getStatus();
     expect(firstStatus.lastVerifiedAt).not.toBeNull();
     expect(firstStatus.lastVerifiedOk).toBe(true);
     expect(firstStatus.lastVerifiedOkAt).not.toBeNull();
@@ -45,11 +45,11 @@ describe("verifyDatabase", () => {
     tamper.query(`UPDATE ${COMMIT_TABLE} SET message='tampered' WHERE seq=1`).run();
     tamper.close(false);
 
-    const broken = verifyDatabase({ dbPath, full: true });
+    const broken = verifyDatabase({ full: true });
     expect(broken.ok).toBe(false);
     expect(broken.mode).toBe("full");
 
-    const secondStatus = getStatus({ dbPath });
+    const secondStatus = getStatus();
     expect(secondStatus.lastVerifiedOk).toBe(false);
     expect(secondStatus.lastVerifiedOkAt).toBe(firstStatus.lastVerifiedOkAt);
   });

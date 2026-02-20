@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 import { initDatabase } from "../src";
+import { closeClient } from "../src/engine/client";
 import { ENGINE_META_TABLE } from "../src/db";
 import { schemaHash } from "../src/rows";
 
@@ -30,6 +31,7 @@ export function withTmpDirCleanup<T>(fn: () => T | Promise<T>): () => Promise<T>
       try {
         return await fn();
       } finally {
+        closeClient();
         cleanupTmpDirScope(scope);
       }
     });
@@ -51,15 +53,19 @@ export async function writePlanFile(dir: string, name: string, payload: unknown)
 }
 
 export async function computeSchemaHash(statements: string[]): Promise<string> {
+  closeClient();
   const { dbPath } = createTestContext();
   await initDatabase({ dbPath });
   const db = new Database(dbPath);
-  for (const sql of statements) {
-    db.run(sql);
+  try {
+    for (const sql of statements) {
+      db.run(sql);
+    }
+    return schemaHash(db);
+  } finally {
+    db.close(false);
+    closeClient();
   }
-  const hash = schemaHash(db);
-  db.close(false);
-  return hash;
 }
 
 export function enableSnapshotEveryCommit(dbPath: string): void {

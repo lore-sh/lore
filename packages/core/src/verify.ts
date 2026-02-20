@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { ENGINE_META_TABLE, getRow, withInitializedDatabase } from "./db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./log";
-import type { DatabaseOptions, VerifyResult } from "./types";
+import type { VerifyResult } from "./types";
 
 export function putMeta(db: Database, key: string, value: string): void {
   db.query(
@@ -12,8 +12,8 @@ export function putMeta(db: Database, key: string, value: string): void {
   ).run(key, value);
 }
 
-export function verifyDatabase(options: DatabaseOptions & { full?: boolean } = {}): VerifyResult {
-  return withInitializedDatabase(options, ({ db }) => {
+export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {
+  return withInitializedDatabase(({ db }) => {
     const mode = options.full ? "full" : "quick";
     const issues: string[] = [];
 

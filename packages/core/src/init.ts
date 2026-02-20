@@ -1,4 +1,5 @@
-import { initializeStorage, resolveDbPath, withDatabase } from "./db";
+import { closeClient } from "./engine/client";
+import { initializeStorage, resolveDbPath, withDatabaseAtPath } from "./db";
 import { deleteWithSidecars } from "./fsx";
 import { generateSkills, type GeneratedSkills } from "./skills";
 import type { InitDatabaseOptions } from "./types";
@@ -12,10 +13,11 @@ export async function initDatabase(
 ): Promise<{ dbPath: string; generatedSkills: GeneratedSkills | null }> {
   const dbPath = resolveDbPath(options.dbPath);
   if (options.forceNew) {
+    closeClient();
     await removeExistingDbFiles(dbPath);
   }
-  withDatabase({ dbPath }, ({ db }) => {
-    initializeStorage(db);
+  withDatabaseAtPath(dbPath, () => {
+    initializeStorage();
   });
 
   const generatedSkills = options.generateSkills

@@ -30,7 +30,7 @@ describe("alter_column_type", () => {
       message: "convert child amount",
       operations: [{ type: "alter_column_type", table: "children", column: "amount", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
     const verifyDb = new Database(dbPath);
     verifyDb.run("PRAGMA foreign_keys=ON");
@@ -65,7 +65,7 @@ describe("alter_column_type", () => {
       message: "alter self fk table",
       operations: [{ type: "alter_column_type", table: "tree_nodes", column: "weight", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
     const verifyDb = new Database(dbPath);
     verifyDb.run("PRAGMA foreign_keys=ON");
@@ -91,9 +91,9 @@ describe("alter_column_type", () => {
       message: "alter legacy single-quoted identifiers",
       operations: [{ type: "alter_column_type", table: "sq_users", column: "amount", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery('SELECT typeof("amount") AS t FROM "sq_users" WHERE "id" = 1', { dbPath });
+    const rows = readQuery('SELECT typeof("amount") AS t FROM "sq_users" WHERE "id" = 1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
@@ -115,9 +115,9 @@ describe("alter_column_type", () => {
       message: "convert quoted keyword column type",
       operations: [{ type: "alter_column_type", table: "kw_cols", column: "primary", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery(`SELECT typeof("primary") AS t, note FROM kw_cols`, { dbPath });
+    const rows = readQuery(`SELECT typeof("primary") AS t, note FROM kw_cols`);
     expect(rows).toEqual([{ t: "integer", note: "x" }]);
   });
 
@@ -142,9 +142,9 @@ describe("alter_column_type", () => {
       message: "convert commented column type",
       operations: [{ type: "alter_column_type", table: "commented_cols", column: "b", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery("SELECT typeof(b) AS t, c FROM commented_cols WHERE id=1", { dbPath });
+    const rows = readQuery("SELECT typeof(b) AS t, c FROM commented_cols WHERE id=1");
     expect(rows).toEqual([{ t: "integer", c: "y" }]);
   });
 
@@ -167,9 +167,9 @@ describe("alter_column_type", () => {
       message: "convert line-commented column type",
       operations: [{ type: "alter_column_type", table: "line_comment_cols", column: "b", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery("SELECT typeof(a) AS ta, typeof(b) AS tb FROM line_comment_cols WHERE id=1", { dbPath });
+    const rows = readQuery("SELECT typeof(a) AS ta, typeof(b) AS tb FROM line_comment_cols WHERE id=1");
     expect(rows).toEqual([{ ta: "text", tb: "integer" }]);
   });
 
@@ -191,9 +191,9 @@ describe("alter_column_type", () => {
       message: "convert last commented column type",
       operations: [{ type: "alter_column_type", table: "trailing_comment_last", column: "b", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery("SELECT typeof(b) AS tb FROM trailing_comment_last WHERE id=1", { dbPath });
+    const rows = readQuery("SELECT typeof(b) AS tb FROM trailing_comment_last WHERE id=1");
     expect(rows).toEqual([{ tb: "integer" }]);
   });
 
@@ -218,7 +218,7 @@ describe("alter_column_type", () => {
       message: "alter users amount",
       operations: [{ type: "alter_column_type", table: "users", column: "amount", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
     const db = new Database(dbPath);
     const indexes = db.query("PRAGMA index_list('Users')").all() as Array<{ name: string }>;
@@ -242,9 +242,9 @@ describe("alter_column_type", () => {
       message: "alter unicode bare column",
       operations: [{ type: "alter_column_type", table: "사용자", column: "이름", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery('SELECT typeof("이름") AS t FROM "사용자" WHERE id=1', { dbPath });
+    const rows = readQuery('SELECT typeof("이름") AS t FROM "사용자" WHERE id=1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
@@ -261,9 +261,9 @@ describe("alter_column_type", () => {
       message: "alter astral bare column",
       operations: [{ type: "alter_column_type", table: "astral_cols", column: "𐐷", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery('SELECT typeof("𐐷") AS t FROM "astral_cols" WHERE id=1', { dbPath });
+    const rows = readQuery('SELECT typeof("𐐷") AS t FROM "astral_cols" WHERE id=1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
@@ -280,11 +280,9 @@ describe("alter_column_type", () => {
       message: "alter only capital-a-umlaut",
       operations: [{ type: "alter_column_type", table: "unicode_case_cols", column: "Ä", newType: "INTEGER" }],
     });
-    await applyPlan(alter, { dbPath });
+    await applyPlan(alter);
 
-    const rows = readQuery('SELECT typeof("Ä") AS upper_t, typeof("ä") AS lower_t FROM "unicode_case_cols" WHERE id=1', {
-      dbPath,
-    });
+    const rows = readQuery('SELECT typeof("Ä") AS upper_t, typeof("ä") AS lower_t FROM "unicode_case_cols" WHERE id=1');
     expect(rows).toEqual([{ upper_t: "integer", lower_t: "text" }]);
   });
 });

@@ -3,7 +3,7 @@ import { runInSavepoint, withInitializedDatabase } from "./db";
 import { isTossError } from "./errors";
 import { executeOperation } from "./executors/apply";
 import { captureObservedState, diffObservedState } from "./observed";
-import type { DatabaseOptions, Operation } from "./types";
+import type { Operation } from "./types";
 import { parseAndValidateOperationPlan } from "./validators/operation";
 
 const SCHEMA_OPERATION_TYPES = new Set<Operation["type"]>([
@@ -131,9 +131,9 @@ interface DryRunResult {
   predicted: PlanCheckSummary["predicted"];
 }
 
-function dryRun(operations: Operation[], options: DatabaseOptions): DryRunResult {
+function dryRun(operations: Operation[]): DryRunResult {
   try {
-    const predicted = withInitializedDatabase(options, ({ db }) => {
+    const predicted = withInitializedDatabase(({ db }) => {
       const before = captureObservedState(db);
       return runInSavepoint(
         db,
@@ -165,7 +165,7 @@ function dryRun(operations: Operation[], options: DatabaseOptions): DryRunResult
   }
 }
 
-export async function planCheck(planRef: string, options: DatabaseOptions = {}): Promise<PlanCheckResult> {
+export async function planCheck(planRef: string): Promise<PlanCheckResult> {
   const checkedAt = new Date().toISOString();
   let payload: string;
   try {
@@ -183,7 +183,7 @@ export async function planCheck(planRef: string, options: DatabaseOptions = {}):
 
   const warnings = destructiveWarnings(plan.operations);
   const summaryBase = summarizeOperations(plan.operations);
-  const { errors, predicted } = dryRun(plan.operations, options);
+  const { errors, predicted } = dryRun(plan.operations);
 
   const summary: PlanCheckSummary = { ...summaryBase, predicted };
 
