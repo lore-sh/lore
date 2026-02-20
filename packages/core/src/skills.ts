@@ -64,10 +64,6 @@ export interface GenerateSkillsOptions {
   platforms?: SkillPlatform[] | undefined;
 }
 
-function isNodeErrorWithCode(error: unknown, code: string): boolean {
-  return error instanceof Error && "code" in error && error.code === code;
-}
-
 function resolveHomeDir(): string {
   const home = process.env.HOME ?? process.env.USERPROFILE;
   if (!home) {
@@ -77,12 +73,8 @@ function resolveHomeDir(): string {
 }
 
 function envPath(name: string): string | undefined {
-  const value = process.env[name];
-  if (!value) {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
+  const trimmed = process.env[name]?.trim();
+  if (!trimmed) {
     return undefined;
   }
   return resolve(trimmed);
@@ -124,21 +116,17 @@ function resolveSkillPaths(): SkillPaths {
 }
 
 function normalizePlatforms(platforms?: SkillPlatform[] | undefined): SkillPlatform[] {
-  if (platforms === undefined) {
+  if (!platforms) {
     return [...ALL_PLATFORMS];
   }
   const seen = new Set<SkillPlatform>();
-  const normalized: SkillPlatform[] = [];
-  for (const platform of platforms) {
-    if (!PLATFORM_SET.has(platform)) {
-      continue;
+  return platforms.filter((platform) => {
+    if (!PLATFORM_SET.has(platform) || seen.has(platform)) {
+      return false;
     }
-    if (!seen.has(platform)) {
-      seen.add(platform);
-      normalized.push(platform);
-    }
-  }
-  return normalized;
+    seen.add(platform);
+    return true;
+  });
 }
 
 function tossSkillContent(): string {
@@ -310,18 +298,6 @@ ${CLAUDE_BLOCK_END}
 `;
 }
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch (error) {
-    if (isNodeErrorWithCode(error, "ENOENT")) {
-      return false;
-    }
-    throw error;
-  }
-}
-
 async function writeText(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await Bun.write(path, content);
@@ -380,8 +356,21 @@ async function upsertManagedBlock(path: string, block: string, blocks: ManagedBl
   await writeText(path, next);
 }
 
+function isEnoent(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
 async function removeDirIfExists(path: string): Promise<boolean> {
-  if (!(await exists(path))) {
+  let info: Awaited<ReturnType<typeof stat>>;
+  try {
+    info = await stat(path);
+  } catch (error) {
+    if (isEnoent(error)) {
+      return false;
+    }
+    throw error;
+  }
+  if (!info.isDirectory()) {
     return false;
   }
   await rm(path, { recursive: true, force: true });
@@ -389,10 +378,11 @@ async function removeDirIfExists(path: string): Promise<boolean> {
 }
 
 async function removeFileIfExists(path: string): Promise<boolean> {
-  if (!(await exists(path))) {
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
     return false;
   }
-  await deleteIfExists(path);
+  await file.delete();
   return true;
 }
 
@@ -505,35 +495,18 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
 export async function cleanSkills(): Promise<CleanSkillsResult> {
   const paths = resolveSkillPaths();
 
-  const files: CleanSkillFile[] = [];
-  files.push({ platform: "shared", path: paths.sharedSkillDir, removed: await removeDirIfExists(paths.sharedSkillDir) });
-  files.push({
-    platform: "codex",
-    path: paths.codexAgentsPath,
-    removed: await removeManagedBlocks(paths.codexAgentsPath, AGENTS_BLOCKS),
-  });
-  files.push({
-    platform: "opencode",
-    path: paths.opencodeAgentsPath,
-    removed: await removeManagedBlocks(paths.opencodeAgentsPath, AGENTS_BLOCKS),
-  });
-  files.push({ platform: "cursor", path: paths.cursorRulePath, removed: await removeFileIfExists(paths.cursorRulePath) });
-  files.push({ platform: "claude", path: paths.claudeSkillDir, removed: await removeDirIfExists(paths.claudeSkillDir) });
-  files.push({
-    platform: "claude",
-    path: paths.claudeDocPath,
-    removed: await removeManagedBlocks(paths.claudeDocPath, CLAUDE_BLOCKS),
-  });
-  files.push({
-    platform: "openclaw",
-    path: paths.openclawSkillDir,
-    removed: await removeDirIfExists(paths.openclawSkillDir),
-  });
-  files.push({
-    platform: "openclaw",
-    path: paths.openclawAgentsPath,
-    removed: await removeManagedBlocks(paths.openclawAgentsPath, AGENTS_BLOCKS),
-  });
+  const targets: Array<{ platform: GeneratedPlatform; path: string; remove: () => Promise<boolean> }> = [
+    { platform: "shared", path: paths.sharedSkillDir, remove: () => removeDirIfExists(paths.sharedSkillDir) },
+    { platform: "codex", path: paths.codexAgentsPath, remove: () => removeManagedBlocks(paths.codexAgentsPath, AGENTS_BLOCKS) },
+    { platform: "opencode", path: paths.opencodeAgentsPath, remove: () => removeManagedBlocks(paths.opencodeAgentsPath, AGENTS_BLOCKS) },
+    { platform: "cursor", path: paths.cursorRulePath, remove: () => removeFileIfExists(paths.cursorRulePath) },
+    { platform: "claude", path: paths.claudeSkillDir, remove: () => removeDirIfExists(paths.claudeSkillDir) },
+    { platform: "claude", path: paths.claudeDocPath, remove: () => removeManagedBlocks(paths.claudeDocPath, CLAUDE_BLOCKS) },
+    { platform: "openclaw", path: paths.openclawSkillDir, remove: () => removeDirIfExists(paths.openclawSkillDir) },
+    { platform: "openclaw", path: paths.openclawAgentsPath, remove: () => removeManagedBlocks(paths.openclawAgentsPath, AGENTS_BLOCKS) },
+  ];
 
+  const results = await Promise.all(targets.map((t) => t.remove()));
+  const files = targets.map((t, i) => ({ platform: t.platform, path: t.path, removed: results[i]! }));
   return { files };
 }

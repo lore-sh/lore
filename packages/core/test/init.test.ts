@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { mkdir } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { cleanSkills, getStatus, initDatabase } from "../src";
 import { createTestContext, withTmpDirCleanup } from "./helpers";
@@ -320,6 +320,32 @@ describe("initDatabase", () => {
         const text = await Bun.file(codexAgentsPath).text();
         expect(text.includes("<!-- toss:init:agents:start -->")).toBe(false);
         expect(text.includes("<!-- toss:init:agents:end -->")).toBe(false);
+      }
+    });
+  });
+
+  testWithTmp("cleanSkills propagates stat permission errors", async () => {
+    const { dir } = createTestContext();
+    await withGlobalSkillEnv(dir, async (paths) => {
+      const agentsDir = join(paths.home, ".agents");
+      await mkdir(agentsDir, { recursive: true });
+      await chmod(agentsDir, 0o000);
+
+      try {
+        let thrown: unknown = null;
+        try {
+          await cleanSkills();
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown).not.toBeNull();
+        if (typeof thrown !== "object" || thrown === null || !("code" in thrown)) {
+          throw new Error("cleanSkills should reject with a filesystem error code");
+        }
+        expect(thrown.code === "EACCES" || thrown.code === "EPERM").toBe(true);
+      } finally {
+        await chmod(agentsDir, 0o755);
       }
     });
   });
