@@ -21,6 +21,7 @@ import { printTable, toJson } from "./format";
 import {
   canUseInteractivePrompt,
   parseInitArgs,
+  promptHeartbeat,
   promptPlatformSelection,
   renderCleanResult,
   renderInitResult,
@@ -91,10 +92,17 @@ async function runInit(args: string[]): Promise<void> {
   const isInteractiveTty = canUseInteractivePrompt(stdin.isTTY === true, stdout.isTTY === true);
   const resolved = resolveInitSelection(parsed, isInteractiveTty);
   const skillPlatforms = resolved.interactive ? await promptPlatformSelection() : resolved.platforms;
+
+  let openclawHeartbeat = false;
+  if (!parsed.noSkills && skillPlatforms.includes("openclaw")) {
+    openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
+  }
+
   const result = await initDatabase({
     generateSkills: !parsed.noSkills,
     forceNew: parsed.forceNew,
     skillPlatforms,
+    openclawHeartbeat,
   });
   console.log(
     renderInitResult({

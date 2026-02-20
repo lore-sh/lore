@@ -20,7 +20,10 @@ export async function initDatabase(
   initializeStorage();
 
   const generatedSkills = options.generateSkills
-    ? await generateSkills(options.skillPlatforms ? { platforms: options.skillPlatforms } : {})
+    ? await generateSkills({
+        platforms: options.skillPlatforms,
+        openclawHeartbeat: options.openclawHeartbeat,
+      })
     : null;
   return { dbPath, generatedSkills };
 }

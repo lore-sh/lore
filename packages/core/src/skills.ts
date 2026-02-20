@@ -10,8 +10,11 @@ const AGENTS_BLOCK_START = "<!-- toss:init:agents:start -->";
 const AGENTS_BLOCK_END = "<!-- toss:init:agents:end -->";
 const CLAUDE_BLOCK_START = "<!-- toss:init:claude:start -->";
 const CLAUDE_BLOCK_END = "<!-- toss:init:claude:end -->";
+const HEARTBEAT_BLOCK_START = "<!-- toss:init:heartbeat:start -->";
+const HEARTBEAT_BLOCK_END = "<!-- toss:init:heartbeat:end -->";
 const AGENTS_BLOCKS: ManagedBlock[] = [{ start: AGENTS_BLOCK_START, end: AGENTS_BLOCK_END }];
 const CLAUDE_BLOCKS: ManagedBlock[] = [{ start: CLAUDE_BLOCK_START, end: CLAUDE_BLOCK_END }];
+const HEARTBEAT_BLOCKS: ManagedBlock[] = [{ start: HEARTBEAT_BLOCK_START, end: HEARTBEAT_BLOCK_END }];
 
 type GeneratedPlatform = SkillPlatform | "shared";
 
@@ -35,6 +38,7 @@ interface SkillPaths {
   openclawSkillPath: string;
   openclawContractsPath: string;
   openclawAgentsPath: string;
+  openclawHeartbeatPath: string;
 }
 
 export interface GeneratedSkillFile {
@@ -59,6 +63,7 @@ export interface CleanSkillsResult {
 
 export interface GenerateSkillsOptions {
   platforms?: SkillPlatform[] | undefined;
+  openclawHeartbeat?: boolean | undefined;
 }
 
 function envPath(name: string): string | undefined {
@@ -98,6 +103,7 @@ function resolveSkillPaths(): SkillPaths {
     openclawSkillPath: resolve(openclawSkillDir, "SKILL.md"),
     openclawContractsPath: resolve(openclawReferencesDir, "contracts.md"),
     openclawAgentsPath: resolve(openclawWorkspace, "AGENTS.md"),
+    openclawHeartbeatPath: resolve(openclawWorkspace, "HEARTBEAT.md"),
   };
 }
 
@@ -612,6 +618,33 @@ ${AGENTS_BLOCK_END}
 `;
 }
 
+function heartbeatBlock(): string {
+  return `${HEARTBEAT_BLOCK_START}
+## toss: Personal Data Patrol
+
+Check personal database and act on what you find.
+
+### Routine (every heartbeat)
+1. \`toss status\` — discover tables and row counts
+2. For time-sensitive tables (schedules, tasks, deadlines, etc.):
+   - Due within 2h → **alert immediately**
+   - Due within 24h → mention once per item
+   - Overdue → remind with list
+3. \`toss verify\` — once per day (track in heartbeat-state.json)
+
+### Cleanup (auto-execute, notify afterward)
+All toss deletions are committed and revertable via \`toss revert\`.
+- Completed tasks/goals older than 30 days → delete, report
+- Past events older than 7 days with no notes → delete, report
+- Ambiguous cases → suggest to human, wait for approval
+
+### Quiet rules
+- No time-sensitive data + verify OK + no cleanup targets → HEARTBEAT_OK
+- Already notified same items within 4h → HEARTBEAT_OK
+${HEARTBEAT_BLOCK_END}
+`;
+}
+
 function claudeBlock(skillPath: string): string {
   return `${CLAUDE_BLOCK_START}
 ## Skills
@@ -801,9 +834,21 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
       paths.openclawContractsPath,
       paths.openclawAgentsPath,
     );
+    if (options.openclawHeartbeat) {
+      await upsertManagedBlock(
+        paths.openclawHeartbeatPath,
+        heartbeatBlock(),
+        HEARTBEAT_BLOCKS,
+        "# HEARTBEAT.md\n",
+      );
+      addGeneratedFiles(files, "openclaw", paths.openclawHeartbeatPath);
+    } else {
+      await removeManagedBlocks(paths.openclawHeartbeatPath, HEARTBEAT_BLOCKS);
+    }
   } else {
     await removeDirIfExists(paths.openclawSkillDir);
     await removeManagedBlocks(paths.openclawAgentsPath, AGENTS_BLOCKS);
+    await removeManagedBlocks(paths.openclawHeartbeatPath, HEARTBEAT_BLOCKS);
   }
 
   return {
@@ -824,6 +869,7 @@ export async function cleanSkills(): Promise<CleanSkillsResult> {
     { platform: "claude", path: paths.claudeDocPath, remove: () => removeManagedBlocks(paths.claudeDocPath, CLAUDE_BLOCKS) },
     { platform: "openclaw", path: paths.openclawSkillDir, remove: () => removeDirIfExists(paths.openclawSkillDir) },
     { platform: "openclaw", path: paths.openclawAgentsPath, remove: () => removeManagedBlocks(paths.openclawAgentsPath, AGENTS_BLOCKS) },
+    { platform: "openclaw", path: paths.openclawHeartbeatPath, remove: () => removeManagedBlocks(paths.openclawHeartbeatPath, HEARTBEAT_BLOCKS) },
   ];
 
   const results = await Promise.all(targets.map((t) => t.remove()));

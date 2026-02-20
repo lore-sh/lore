@@ -211,5 +211,6 @@ export interface InitDatabaseOptions {
   dbPath?: string;
   generateSkills?: boolean;
   skillPlatforms?: SkillPlatform[] | undefined;
+  openclawHeartbeat?: boolean;
   forceNew?: boolean;
 }

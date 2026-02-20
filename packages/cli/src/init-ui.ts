@@ -1,4 +1,5 @@
 import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
+import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { relative, resolve } from "node:path";
 import type { SkillPlatform } from "@toss/core";
@@ -442,4 +443,15 @@ export async function promptPlatformSelection(): Promise<SkillPlatform[]> {
 
     stdin.on("keypress", onKeypress);
   });
+}
+
+export async function promptHeartbeat(): Promise<boolean> {
+  const rl = createInterface({ input: stdin, output: stdout });
+  try {
+    const answer = await rl.question("Enable OpenClaw heartbeat patrol for toss data? [Y/n] ");
+    const normalized = answer.trim().toLowerCase();
+    return normalized !== "n" && normalized !== "no";
+  } finally {
+    rl.close();
+  }
 }
