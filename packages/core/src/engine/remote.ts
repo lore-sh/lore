@@ -170,10 +170,6 @@ function parseSqlStorageClass(value: unknown, label: string): EncodedCell["stora
   throw new TossError("SYNC_DIVERGED", `Remote ${label} storage class is invalid`);
 }
 
-function sqlStringLiteral(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
 function rowHash(row: EncodedRow | null): string | null {
   if (!row) {
     return null;
@@ -190,16 +186,14 @@ function projectionFailure(message: string): TossError {
 }
 
 function projectionErrorMessage(error: unknown): string | null {
-  if (!isTossError(error)) {
-    return null;
+  if (
+    isTossError(error) &&
+    error.code === "SYNC_DIVERGED" &&
+    error.message.startsWith("Remote projection failed:")
+  ) {
+    return error.message;
   }
-  if (error.code !== "SYNC_DIVERGED") {
-    return null;
-  }
-  if (!error.message.startsWith("Remote projection failed:")) {
-    return null;
-  }
-  return error.message;
+  return null;
 }
 
 function describeError(error: unknown): string {
@@ -674,10 +668,9 @@ async function verifyProjectionAtCommit(executor: SqlExecutor, commitId: string)
 
 async function remoteTableColumns(executor: SqlExecutor, tableName: string): Promise<string[]> {
   const result = await executor.execute(`PRAGMA table_info(${quoteIdentifier(tableName, { unsafe: true })})`);
-  const names: string[] = [];
-  for (const row of rowsFrom(result)) {
-    names.push(parseString(parseRowValue(row, "name"), `PRAGMA table_info(${tableName}).name`));
-  }
+  const names = rowsFrom(result).map((row) =>
+    parseString(parseRowValue(row, "name"), `PRAGMA table_info(${tableName}).name`),
+  );
   if (names.length === 0) {
     throw projectionFailure(`Unable to inspect columns for table ${tableName}`);
   }
@@ -753,8 +746,7 @@ function encodeRowFromRemote(
 }
 
 async function fetchObservedRowByPk(executor: SqlExecutor, tableName: string, pk: Record<string, string>): Promise<EncodedRow | null> {
-  const tableExists = await remoteTableExists(executor, tableName);
-  if (!tableExists) {
+  if (!(await remoteTableExists(executor, tableName))) {
     if (isSystemSideEffectTable(tableName)) {
       return null;
     }
@@ -1084,7 +1076,7 @@ async function restoreSqliteSequenceSnapshot(
     sql: "DELETE FROM sqlite_sequence WHERE name = ?",
     args: [tableName],
   });
-  await executor.execute(`INSERT INTO sqlite_sequence(name, seq) VALUES (${sqlStringLiteral(tableName)}, ${snapshot.seqLiteral})`);
+  await executor.execute(`INSERT INTO sqlite_sequence(name, seq) VALUES (${pragmaLiteral(tableName)}, ${snapshot.seqLiteral})`);
 }
 
 function encodeCellSqlLiteral(cell: EncodedCell | undefined, label: string): string {
@@ -1241,10 +1233,7 @@ async function assertStructuralIntegrity(executor: SqlExecutor, context: string)
 }
 
 async function rebuildProjectionFromCanonicalHistory(executor: SqlExecutor, headSeqInclusive: number): Promise<void> {
-  const result = await executor.execute({
-    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
-  });
-  const userTables = rowsFrom(result).map((row) => parseString(parseRowValue(row, "name"), "sqlite_master.name"));
+  const userTables = await listRemoteUserTables(executor);
 
   await executor.execute("PRAGMA foreign_keys=OFF");
   try {
