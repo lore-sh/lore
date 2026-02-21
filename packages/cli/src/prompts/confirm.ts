@@ -1,6 +1,6 @@
 import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
 import { stdin, stdout } from "node:process";
-import { colorEnabled, style } from "./terminal";
+import { colorEnabled, style } from "../terminal";
 
 export interface ConfirmPromptOptions {
   title: string;

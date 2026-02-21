@@ -1,3 +1,5 @@
+import type { CommitEntry } from "@toss/core";
+
 export function toJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
@@ -18,4 +20,25 @@ export function printTable(rows: Array<Record<string, unknown>>): string {
   const lines = rows.map((row) => makeLine(headers.map((header) => String(row[header] ?? "null"))));
 
   return [divider, headerLine, divider, ...lines, divider].join("\n");
+}
+
+export function formatTimestamp(unixMs: number): string {
+  const date = new Date(unixMs);
+  return Number.isNaN(date.getTime()) ? String(unixMs) : date.toISOString();
+}
+
+export function summarizeCommit(entry: CommitEntry): Record<string, unknown> {
+  return {
+    commit_id: entry.commitId,
+    seq: entry.seq,
+    created_at: formatTimestamp(entry.createdAt),
+    created_at_unix_ms: entry.createdAt,
+    kind: entry.kind,
+    message: entry.message,
+    parent_ids: entry.parentIds,
+    state_hash_after: entry.stateHashAfter,
+    schema_hash_after: entry.schemaHashAfter,
+    inverse_ready: entry.inverseReady,
+    reverted_target_id: entry.revertedTargetId,
+  };
 }

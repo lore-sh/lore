@@ -1,13 +1,16 @@
-import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
-import { stdin, stdout } from "node:process";
 import { relative, resolve } from "node:path";
+import { stdin, stdout } from "node:process";
 import type { SkillPlatform } from "@toss/core";
-import { promptConfirm } from "./prompt-ui";
-import { colorEnabled, style } from "./terminal";
+import { cleanSkills, initDatabase } from "@toss/core";
+import { promptConfirm } from "../prompts/confirm";
+import { promptMultiSelect } from "../prompts/multiselect";
+import type { MultiSelectOption } from "../prompts/multiselect";
+import { colorEnabled, style } from "../terminal";
+import { toJson } from "../format";
 
 export const DEFAULT_INIT_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "codex", "opencode", "openclaw"];
 
-export const PLATFORM_OPTIONS: Array<{ id: SkillPlatform; label: string; hint: string }> = [
+export const PLATFORM_OPTIONS: Array<MultiSelectOption<SkillPlatform>> = [
   { id: "claude", label: "Claude Code", hint: "~/.claude/skills + ~/.claude/CLAUDE.md" },
   { id: "cursor", label: "Cursor", hint: "~/.cursor/rules/toss.mdc" },
   { id: "codex", label: "Codex CLI", hint: "~/.agents/skills + ~/.codex/AGENTS.md" },
@@ -71,14 +74,6 @@ export interface InitResultView {
   useColor?: boolean | undefined;
 }
 
-export type MultiSelectKey = "up" | "down" | "space" | "toggle_all" | "enter" | "cancel";
-export type MultiSelectAction = "none" | "submit" | "cancel";
-
-export interface MultiSelectState {
-  cursor: number;
-  selected: boolean[];
-}
-
 function normalizePlatformToken(input: string): string {
   return input.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
@@ -93,13 +88,6 @@ function platformLabel(platform: GeneratedPlatform): string {
   }
   const option = PLATFORM_OPTIONS.find((item) => item.id === platform);
   return option?.label ?? platform;
-}
-
-function checkbox(selected: boolean, enabled: boolean): string {
-  if (selected) {
-    return style("[✓]", "32;1", enabled);
-  }
-  return style("[ ]", "37;2", enabled);
 }
 
 function displayPath(path: string): string {
@@ -272,178 +260,14 @@ export function resolveInitSelection(parsed: ParsedInitArgs, isTty: boolean): Re
   return { interactive: true, platforms: [...DEFAULT_INIT_PLATFORMS] };
 }
 
-export function createMultiSelectState(count: number, selectedByDefault = true): MultiSelectState {
-  return { cursor: 0, selected: Array.from({ length: count }, () => selectedByDefault) };
-}
-
-export function hasAnySelected(state: MultiSelectState): boolean {
-  return state.selected.some(Boolean);
-}
-
-export function reduceMultiSelectState(
-  state: MultiSelectState,
-  key: MultiSelectKey,
-): { state: MultiSelectState; action: MultiSelectAction } {
-  if (state.selected.length === 0) {
-    return { state, action: key === "cancel" ? "cancel" : "none" };
-  }
-  switch (key) {
-    case "up": {
-      const cursor = state.cursor === 0 ? state.selected.length - 1 : state.cursor - 1;
-      return { state: { ...state, cursor }, action: "none" };
-    }
-    case "down": {
-      const cursor = state.cursor === state.selected.length - 1 ? 0 : state.cursor + 1;
-      return { state: { ...state, cursor }, action: "none" };
-    }
-    case "space": {
-      const selected = [...state.selected];
-      selected[state.cursor] = !selected[state.cursor];
-      return { state: { ...state, selected }, action: "none" };
-    }
-    case "toggle_all": {
-      const shouldSelectAll = state.selected.some((value) => !value);
-      const selected = state.selected.map(() => shouldSelectAll);
-      return { state: { ...state, selected }, action: "none" };
-    }
-    case "enter":
-      return { state, action: "submit" };
-    case "cancel":
-      return { state, action: "cancel" };
-  }
-}
-
-function renderPrompt(state: MultiSelectState, withColor: boolean): string {
-  const selectedCount = state.selected.filter(Boolean).length;
-  const lines = [
-    style("toss init - Platform Installer", "1;36", withColor),
-    "Select target platforms and confirm to generate skill integrations.",
-    "Keys: Up/Down move | Space toggle checkbox | a all/none | Enter confirm | Ctrl+C cancel",
-    style(`Selected: ${selectedCount}/${PLATFORM_OPTIONS.length}`, "1;33", withColor),
-    "",
-  ];
-
-  for (let index = 0; index < PLATFORM_OPTIONS.length; index += 1) {
-    const option = PLATFORM_OPTIONS[index];
-    if (!option) {
-      continue;
-    }
-    const stateBadge = checkbox(state.selected[index] === true, withColor);
-    const pointer = index === state.cursor ? style(">>", "1;36", withColor) : "  ";
-    const label = index === state.cursor ? style(option.label, "1", withColor) : option.label;
-    const hint = style(option.hint, "2", withColor);
-    lines.push(`${pointer} ${stateBadge} ${label}`);
-    lines.push(`   ${hint}`);
-  }
-
-  return lines.join("\n");
-}
-
-function selectedPlatformsFromState(state: MultiSelectState): SkillPlatform[] {
-  const selected: SkillPlatform[] = [];
-  for (let index = 0; index < state.selected.length; index += 1) {
-    if (!state.selected[index]) {
-      continue;
-    }
-    const option = PLATFORM_OPTIONS[index];
-    if (option) {
-      selected.push(option.id);
-    }
-  }
-  return selected;
-}
-
 export async function promptPlatformSelection(): Promise<SkillPlatform[]> {
-  if (!stdin.isTTY || !stdout.isTTY) {
-    throw new Error("interactive platform selection requires a TTY");
-  }
-
-  let state = createMultiSelectState(PLATFORM_OPTIONS.length, true);
-  let renderedLines = 0;
-  const withColor = colorEnabled();
-
-  const redraw = (): void => {
-    if (renderedLines > 0) {
-      if (renderedLines > 1) {
-        moveCursor(stdout, 0, -(renderedLines - 1));
-      }
-      cursorTo(stdout, 0);
-    }
-
-    const lines = renderPrompt(state, withColor).split("\n");
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index] ?? "";
-      clearLine(stdout, 0);
-      cursorTo(stdout, 0);
-      stdout.write(line);
-      if (index < lines.length - 1) {
-        stdout.write("\n");
-      }
-    }
-    renderedLines = lines.length;
-    clearScreenDown(stdout);
-  };
-
-  emitKeypressEvents(stdin);
-
-  stdin.setRawMode(true);
-  stdin.resume();
-  stdout.write("\x1B[?25l");
-  stdout.write("\n");
-  redraw();
-
-  return await new Promise<SkillPlatform[]>((resolve, reject) => {
-    const cleanup = (): void => {
-      stdin.off("keypress", onKeypress);
-      if (stdin.isRaw) {
-        stdin.setRawMode(false);
-      }
-      stdin.pause();
-      stdout.write("\x1B[?25h");
-      stdout.write("\x1B[0m");
-      stdout.write("\n");
-    };
-
-    const onKeypress = (_input: string, key: { name?: string; ctrl?: boolean }): void => {
-      let keyAction: MultiSelectKey | null = null;
-      if (key.ctrl && key.name === "c") {
-        keyAction = "cancel";
-      } else if (key.name === "up") {
-        keyAction = "up";
-      } else if (key.name === "down") {
-        keyAction = "down";
-      } else if (key.name === "space") {
-        keyAction = "space";
-      } else if (key.name === "return") {
-        keyAction = "enter";
-      } else if (key.name === "a") {
-        keyAction = "toggle_all";
-      }
-      if (!keyAction) {
-        return;
-      }
-
-      const reduced = reduceMultiSelectState(state, keyAction);
-      state = reduced.state;
-      if (reduced.action === "cancel") {
-        cleanup();
-        reject(new Error("init cancelled"));
-        return;
-      }
-      if (reduced.action === "submit") {
-        if (!hasAnySelected(state)) {
-          stdout.write("\x07");
-        } else {
-          const selected = selectedPlatformsFromState(state);
-          cleanup();
-          resolve(selected);
-          return;
-        }
-      }
-      redraw();
-    };
-
-    stdin.on("keypress", onKeypress);
+  return await promptMultiSelect({
+    title: "toss init - Platform Installer",
+    subtitle: "Select target platforms and confirm to generate skill integrations.",
+    keyHint: "Keys: Up/Down move | Space toggle checkbox | a all/none | Enter confirm | Ctrl+C cancel",
+    options: PLATFORM_OPTIONS,
+    selectedByDefault: true,
+    cancelMessage: "init cancelled",
   });
 }
 
@@ -458,4 +282,111 @@ export async function promptHeartbeat(): Promise<boolean> {
     noHint: "Skips heartbeat setup and keeps standard toss skill output only.",
     cancelMessage: "init cancelled",
   });
+}
+
+export function parseCleanArgs(args: string[]): { yes: boolean; json: boolean } {
+  let yes = false;
+  let json = false;
+  for (const arg of args) {
+    if (arg === "--yes") {
+      yes = true;
+      continue;
+    }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    throw new Error(`clean does not accept argument: ${arg}`);
+  }
+  return { yes, json };
+}
+
+async function confirmClean(): Promise<boolean> {
+  try {
+    return await promptConfirm({
+      title: "toss clean",
+      message: "This will remove global toss integrations. Continue?",
+      defaultValue: false,
+      yesLabel: "Continue",
+      noLabel: "Cancel",
+      yesHint: "Remove shared skills and platform integration files.",
+      noHint: "Keep current global toss integration state.",
+      cancelMessage: "clean cancelled",
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "clean cancelled") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function runInit(args: string[]): Promise<void> {
+  const parsed = parseInitArgs(args);
+  const isInteractiveTty = canUseInteractivePrompt(stdin.isTTY === true, stdout.isTTY === true);
+  const resolved = resolveInitSelection(parsed, isInteractiveTty);
+  const skillPlatforms = resolved.interactive ? await promptPlatformSelection() : resolved.platforms;
+
+  let openclawHeartbeat = false;
+  if (!parsed.noSkills && !parsed.noHeartbeat && skillPlatforms.includes("openclaw")) {
+    openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
+  }
+
+  const result = await initDatabase({
+    generateSkills: !parsed.noSkills,
+    forceNew: parsed.forceNew,
+    skillPlatforms,
+    openclawHeartbeat,
+  });
+  if (parsed.json) {
+    console.log(
+      toJson({
+        dbPath: result.dbPath,
+        platforms: skillPlatforms,
+        files: result.generatedSkills?.files.map((file) => file.path) ?? [],
+      }),
+    );
+    return;
+  }
+  console.log(
+    renderInitResult({
+      dbPath: result.dbPath,
+      forceNew: parsed.forceNew,
+      selectedPlatforms: skillPlatforms,
+      generatedSkills: result.generatedSkills,
+      noSkills: parsed.noSkills,
+      useColor: stdout.isTTY === true,
+    }),
+  );
+}
+
+export async function runClean(args: string[]): Promise<void> {
+  const parsed = parseCleanArgs(args);
+  const isInteractiveTty = canUseInteractivePrompt(stdin.isTTY === true, stdout.isTTY === true);
+  if (!isInteractiveTty && !parsed.yes) {
+    throw new Error("clean requires --yes in non-interactive mode.");
+  }
+  if (!parsed.yes) {
+    const confirmed = await confirmClean();
+    if (!confirmed) {
+      console.log("clean cancelled");
+      return;
+    }
+  }
+  const result = await cleanSkills();
+  if (parsed.json) {
+    console.log(
+      toJson({
+        removed: result.files.filter((file) => file.removed).length,
+        files: result.files.map((file) => file.path),
+      }),
+    );
+    return;
+  }
+  console.log(
+    renderCleanResult({
+      files: result.files,
+      useColor: stdout.isTTY === true,
+    }),
+  );
 }

@@ -1,33 +1,17 @@
-import type { RemotePlatform } from "@toss/core";
 import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
-import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { colorEnabled, style } from "./terminal";
+import { colorEnabled, style } from "../terminal";
 
-export interface ConnectInput {
-  platform: RemotePlatform;
-  url: string;
-  authToken?: string | null | undefined;
-}
-
-interface RadioOption<T extends string> {
+export interface RadioOption<T extends string> {
   id: T;
   label: string;
   hint: string;
 }
 
-const PLATFORM_OPTIONS: Array<RadioOption<RemotePlatform>> = [
-  { id: "turso", label: "Turso (libSQL)", hint: "Managed Turso database" },
-  { id: "libsql", label: "Other libSQL endpoint", hint: "Self-hosted or non-Turso libSQL URL" },
-];
-
 export type RadioKey = "up" | "down" | "enter" | "cancel";
+
 export interface RadioState {
   cursor: number;
-}
-
-export function canUseConnectPrompt(stdinIsTty: boolean, stdoutIsTty: boolean): boolean {
-  return stdinIsTty && stdoutIsTty;
 }
 
 function radioMark(selected: boolean, withColor: boolean): string {
@@ -66,7 +50,7 @@ function renderRadioPrompt<T extends string>(
   return lines.join("\n");
 }
 
-export function createRadioState(cursor = 0, optionCount = PLATFORM_OPTIONS.length): RadioState {
+export function createRadioState(cursor = 0, optionCount = 0): RadioState {
   if (optionCount <= 0) {
     return { cursor: 0 };
   }
@@ -76,7 +60,7 @@ export function createRadioState(cursor = 0, optionCount = PLATFORM_OPTIONS.leng
   return { cursor };
 }
 
-export function reduceRadioState(state: RadioState, key: RadioKey, optionCount = PLATFORM_OPTIONS.length): RadioState {
+export function reduceRadioState(state: RadioState, key: RadioKey, optionCount = 0): RadioState {
   if (optionCount <= 0) {
     return state;
   }
@@ -91,7 +75,7 @@ export function reduceRadioState(state: RadioState, key: RadioKey, optionCount =
   }
 }
 
-async function promptRadioSelection<T extends string>(options: {
+export async function promptRadioSelection<T extends string>(options: {
   title: string;
   subtitle: string;
   options: ReadonlyArray<RadioOption<T>>;
@@ -184,54 +168,4 @@ async function promptRadioSelection<T extends string>(options: {
 
     stdin.on("keypress", onKeypress);
   });
-}
-
-async function promptPlatformSelection(): Promise<RemotePlatform> {
-  return await promptRadioSelection({
-    title: "toss remote connect",
-    subtitle: "Select platform.",
-    options: PLATFORM_OPTIONS,
-    cancelMessage: "remote connect cancelled",
-  });
-}
-
-function normalizeRequired(input: string, label: string): string {
-  const normalized = input.trim();
-  if (normalized.length === 0) {
-    throw new Error(`${label} is required.`);
-  }
-  return normalized;
-}
-
-export function platformName(platform: RemotePlatform): string {
-  return platform === "turso" ? "Turso" : "libSQL";
-}
-
-export async function promptRemoteConnect(): Promise<ConnectInput> {
-  const platform = await promptPlatformSelection();
-  const prompt = createInterface({ input: stdin, output: stdout });
-  try {
-    const urlLabel = platform === "turso" ? "? Turso database URL: " : "? libSQL endpoint URL: ";
-    const url = normalizeRequired(await prompt.question(urlLabel), "Remote URL");
-    const tokenActionRaw = (await prompt.question("? Auth token action [keep|set|clear] (default: keep): "))
-      .trim()
-      .toLowerCase();
-    let authToken: string | null | undefined;
-    if (tokenActionRaw.length === 0 || tokenActionRaw === "keep") {
-      authToken = undefined;
-    } else if (tokenActionRaw === "clear") {
-      authToken = null;
-    } else if (tokenActionRaw === "set") {
-      authToken = normalizeRequired(await prompt.question("? Auth token: "), "Auth token");
-    } else {
-      throw new Error("Auth token action must be one of: keep, set, clear.");
-    }
-    return {
-      platform,
-      url,
-      authToken,
-    };
-  } finally {
-    prompt.close();
-  }
 }

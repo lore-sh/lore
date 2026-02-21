@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { createConfirmState, reduceConfirmState } from "../src/prompt-ui";
+import { createConfirmState, reduceConfirmState } from "../../src/prompts/confirm";
 
-describe("prompt-ui", () => {
+describe("confirm", () => {
   test("createConfirmState uses defaultValue", () => {
     expect(createConfirmState(true).cursor).toBe(0);
     expect(createConfirmState(false).cursor).toBe(1);

@@ -2,17 +2,15 @@ import { describe, expect, test } from "bun:test";
 import {
   canUseInteractivePrompt,
   DEFAULT_INIT_PLATFORMS,
-  createMultiSelectState,
-  hasAnySelected,
+  parseCleanArgs,
   parseInitArgs,
   parsePlatformList,
   renderCleanResult,
   renderInitResult,
-  reduceMultiSelectState,
   resolveInitSelection,
-} from "../src/init-ui";
+} from "../../src/commands/init";
 
-describe("init-ui", () => {
+describe("init command", () => {
   test("canUseInteractivePrompt requires both stdin and stdout TTY", () => {
     expect(canUseInteractivePrompt(true, true)).toBe(true);
     expect(canUseInteractivePrompt(true, false)).toBe(false);
@@ -62,25 +60,6 @@ describe("init-ui", () => {
     expect(resolved.platforms).toEqual([]);
   });
 
-  test("multi-select reducer supports cursor move and toggles", () => {
-    let state = createMultiSelectState(3, true);
-
-    state = reduceMultiSelectState(state, "down").state;
-    expect(state.cursor).toBe(1);
-
-    state = reduceMultiSelectState(state, "space").state;
-    expect(state.selected).toEqual([true, false, true]);
-
-    state = reduceMultiSelectState(state, "toggle_all").state;
-    expect(state.selected).toEqual([true, true, true]);
-
-    state = reduceMultiSelectState(state, "toggle_all").state;
-    expect(hasAnySelected(state)).toBe(false);
-
-    const submit = reduceMultiSelectState(state, "enter");
-    expect(submit.action).toBe("submit");
-  });
-
   test("renderInitResult prints generated summary", () => {
     const text = renderInitResult({
       dbPath: "/tmp/work/toss.db",
@@ -127,5 +106,13 @@ describe("init-ui", () => {
     expect(text.includes("Removed: 1/2")).toBe(true);
     expect(text.includes("Shared")).toBe(true);
     expect(text.includes("Cursor")).toBe(true);
+  });
+
+  test("parseCleanArgs rejects unknown arguments", () => {
+    expect(() => parseCleanArgs(["--unknown"])).toThrow("clean does not accept argument: --unknown");
+  });
+
+  test("parseCleanArgs accepts --yes and --json", () => {
+    expect(parseCleanArgs(["--yes", "--json"])).toEqual({ yes: true, json: true });
   });
 });
