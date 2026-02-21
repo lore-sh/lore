@@ -19,7 +19,7 @@ import {
   writeAuthToken,
   writeRemoteConfig,
 } from "../src";
-import { LAST_SYNC_STATE_META_KEY, withInitializedDatabase } from "../src/db";
+import { LAST_SYNC_STATE_META_KEY, withInitializedDatabase } from "../src/engine/db";
 import { createTestContext, withDbPath, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

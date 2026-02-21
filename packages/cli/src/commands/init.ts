@@ -1,7 +1,8 @@
 import { relative, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
 import type { SkillPlatform } from "@toss/core";
-import { cleanSkills, initDatabase } from "@toss/core";
+import { initDatabase } from "@toss/core";
+import { cleanSkills, generateSkills } from "../skills";
 import { promptConfirm } from "../prompts/confirm";
 import { promptMultiSelect } from "../prompts/multiselect";
 import type { MultiSelectOption } from "../prompts/multiselect";
@@ -329,28 +330,26 @@ export async function runInit(args: string[]): Promise<void> {
     openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
   }
 
-  const result = await initDatabase({
-    generateSkills: !parsed.noSkills,
-    forceNew: parsed.forceNew,
-    skillPlatforms,
-    openclawHeartbeat,
-  });
+  const { dbPath } = await initDatabase({ forceNew: parsed.forceNew });
+  const generatedSkills = !parsed.noSkills
+    ? await generateSkills({ platforms: skillPlatforms, openclawHeartbeat })
+    : null;
   if (parsed.json) {
     console.log(
       toJson({
-        dbPath: result.dbPath,
+        dbPath,
         platforms: skillPlatforms,
-        files: result.generatedSkills?.files.map((file) => file.path) ?? [],
+        files: generatedSkills?.files.map((file) => file.path) ?? [],
       }),
     );
     return;
   }
   console.log(
     renderInitResult({
-      dbPath: result.dbPath,
+      dbPath,
       forceNew: parsed.forceNew,
       selectedPlatforms: skillPlatforms,
-      generatedSkills: result.generatedSkills,
+      generatedSkills,
       noSkills: parsed.noSkills,
       useColor: stdout.isTTY === true,
     }),

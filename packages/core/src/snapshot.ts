@@ -14,13 +14,13 @@ import {
   runInTransactionWithDeferredForeignKeys,
   withInitializedDatabase,
   withInitializedDatabaseAsync,
-} from "./db";
+} from "./engine/db";
 import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
 import { TossError } from "./errors";
-import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
-import type { CommitReplayInput } from "./log";
-import { loadCommitReplayInputs, replayCommitExactly } from "./replay";
-import { quoteIdentifier } from "./sql";
+import { deleteWalAndShm, deleteWithSidecars } from "./engine/fsx";
+import type { CommitReplayInput } from "./engine/log";
+import { loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
+import { quoteIdentifier } from "./engine/sql";
 import type { CommitEntry, SnapshotEntry } from "./types";
 
 export async function hashFile(path: string): Promise<string> {

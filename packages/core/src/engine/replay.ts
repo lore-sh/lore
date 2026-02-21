@@ -7,10 +7,10 @@ import {
   assertNoForeignKeyViolations,
 } from "./observed";
 import { schemaHash, stateHash } from "./rows";
-import { TossError } from "./errors";
+import { TossError } from "../errors";
 import { asc, eq, gt } from "drizzle-orm";
-import { createEngineDb } from "./engine/client";
-import { CommitTable } from "./engine/schema.sql";
+import { createEngineDb } from "./client";
+import { CommitTable } from "./schema.sql";
 
 export function getCommitReplayInput(db: Database, commitId: string): CommitReplayInput {
   const commit = getCommitById(db, commitId);

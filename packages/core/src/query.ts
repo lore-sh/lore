@@ -1,6 +1,6 @@
-import { withInitializedDatabase } from "./db";
-import { executeReadSql } from "./executors/read";
-import { validateReadSql } from "./validators/sql";
+import { withInitializedDatabase } from "./engine/db";
+import { executeReadSql } from "./engine/execute";
+import { validateReadSql } from "./engine/validate";
 
 export function readQuery(sqlInput: string): Record<string, unknown>[] {
   const sql = validateReadSql(sqlInput);

@@ -40,7 +40,7 @@ describe("studio api error mapping", () => {
   test("returns NOT_FOUND as 404 for missing table", async () => {
     const dbPath = createTempPath("studio-api-not-found-");
     const { status, body } = await withDbPath(dbPath, async () => {
-      await initDatabase({ dbPath, generateSkills: false });
+      await initDatabase({ dbPath });
       const app = createStudioApp();
       const response = await app.request("/api/tables/missing");
       return { status: response.status, body: await response.text() };

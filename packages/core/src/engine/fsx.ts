@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { TossError } from "./errors";
+import { TossError } from "../errors";
 
 export function isEnoent(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";

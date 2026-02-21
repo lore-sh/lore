@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables, tableExists } from "./db";
-import { TossError } from "./errors";
-import { executeOperation } from "./executors/apply";
+import { TossError } from "../errors";
+import { executeOperation } from "./execute";
 import { primaryKeyColumns, tableDDL, tableInfo } from "./rows";
 import { quoteIdentifier, quoteName } from "./sql";
 import type {
@@ -11,7 +11,7 @@ import type {
   RestoreTableOperation,
   SqlStorageClass,
   TableSecondaryObject,
-} from "./types";
+} from "../types";
 
 export interface RowEffect {
   tableName: string;

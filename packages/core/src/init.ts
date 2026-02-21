@@ -1,7 +1,6 @@
 import { closeClient } from "./engine/client";
-import { configureDatabase, initializeStorage, resolveDbPath } from "./db";
-import { deleteWithSidecars } from "./fsx";
-import { generateSkills, type GeneratedSkills } from "./skills";
+import { configureDatabase, initializeStorage, resolveDbPath } from "./engine/db";
+import { deleteWithSidecars } from "./engine/fsx";
 import type { InitDatabaseOptions } from "./types";
 
 export async function removeExistingDbFiles(dbPath: string): Promise<void> {
@@ -10,7 +9,7 @@ export async function removeExistingDbFiles(dbPath: string): Promise<void> {
 
 export async function initDatabase(
   options: InitDatabaseOptions = {},
-): Promise<{ dbPath: string; generatedSkills: GeneratedSkills | null }> {
+): Promise<{ dbPath: string }> {
   const dbPath = resolveDbPath(options.dbPath);
   if (options.forceNew) {
     closeClient();
@@ -18,12 +17,5 @@ export async function initDatabase(
   }
   configureDatabase(dbPath);
   initializeStorage();
-
-  const generatedSkills = options.generateSkills
-    ? await generateSkills({
-        platforms: options.skillPlatforms,
-        openclawHeartbeat: options.openclawHeartbeat,
-      })
-    : null;
-  return { dbPath, generatedSkills };
+  return { dbPath };
 }

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { getRow, setMetaValue, withInitializedDatabase } from "./db";
-import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./log";
+import { getRow, setMetaValue, withInitializedDatabase } from "./engine/db";
+import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
 import type { VerifyResult } from "./types";
 
 export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {

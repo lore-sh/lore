@@ -8,11 +8,11 @@ import {
   getRows,
   listUserTables,
   withInitializedDatabase,
-} from "./db";
+} from "./engine/db";
 import { TossError } from "./errors";
-import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./log";
-import { describeSchema, normalizeRowObject, type SchemaDescriptor, type SchemaTableDescriptor } from "./rows";
-import { asciiCaseFold, quoteName } from "./sql";
+import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./engine/log";
+import { describeSchema, normalizeRowObject, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/rows";
+import { asciiCaseFold, quoteName } from "./engine/sql";
 import type { CommitEntry, CommitKind, JsonObject } from "./types";
 
 function countTableRows(db: Database, tableName: string): number {

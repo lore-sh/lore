@@ -1,9 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables } from "./db";
-import { TossError } from "./errors";
+import { TossError } from "../errors";
 import { createScanner, findMatchingParen, isWordBoundary, normalizeSql, quoteIdentifier, splitTopLevelCommaList } from "./sql";
-import type { JsonObject, JsonPrimitive } from "./types";
+import type { JsonObject, JsonPrimitive } from "../types";
 
 export interface TableInfoRow {
   cid: number;

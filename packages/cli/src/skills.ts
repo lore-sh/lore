@@ -1,7 +1,7 @@
 import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { deleteIfExists, isEnoent, resolveHomeDir } from "./fsx";
-import type { SkillPlatform } from "./types";
+import { deleteIfExists, isEnoent, resolveHomeDir } from "@toss/core";
+import type { SkillPlatform } from "@toss/core";
 
 const ALL_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "codex", "opencode", "openclaw"];
 const PLATFORM_SET = new Set<SkillPlatform>(ALL_PLATFORMS);

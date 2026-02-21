@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { listUserTables, resolveDbPath, withInitializedDatabase } from "../src/db";
+import { listUserTables, resolveDbPath, withInitializedDatabase } from "../src/engine/db";
 import { isTossError } from "../src/errors";
 import { initDatabase } from "../src";
 import { createTestContext, withTmpDirCleanup } from "./helpers";

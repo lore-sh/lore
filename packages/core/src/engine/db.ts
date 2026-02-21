@@ -2,9 +2,9 @@ import type { SQLQueryBindings, Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { createEngineDb, getClientPath, getSqlite, hasClient, initClient, withClient } from "./engine/client";
-import { EngineMetaTable, RefTable } from "./engine/schema.sql";
-import { TossError } from "./errors";
+import { createEngineDb, getClientPath, getSqlite, hasClient, initClient, withClient } from "./client";
+import { EngineMetaTable, RefTable } from "./schema.sql";
+import { TossError } from "../errors";
 import { resolveHomeDir } from "./fsx";
 
 export const DEFAULT_DB_DIR = ".toss";
@@ -35,7 +35,7 @@ export const PRESERVED_META_DEFAULTS = [
   [LAST_SYNC_ERROR_META_KEY, ""],
   [SYNC_PROTOCOL_VERSION_META_KEY, DEFAULT_SYNC_PROTOCOL_VERSION],
 ] as const;
-const ENGINE_MIGRATIONS_DIR = resolve(import.meta.dir, "../migration");
+const ENGINE_MIGRATIONS_DIR = resolve(import.meta.dir, "../../migration");
 
 export interface DatabaseContext {
   db: Database;

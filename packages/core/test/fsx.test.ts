@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deleteIfExists, deleteWithSidecars } from "../src/fsx";
+import { deleteIfExists, deleteWithSidecars } from "../src/engine/fsx";
 import { createTestContext, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
-import { getRow, getRows, runInSavepoint, tableExists } from "../db";
+import { getRow, getRows, runInSavepoint, tableExists } from "./db";
 import { TossError } from "../errors";
-import { type TableInfoRow, whereClauseFromRecord } from "../rows";
-import { COLUMN_TYPE_PATTERN, createScanner, findMatchingParen, isWordBoundary, normalizeSql, quoteIdentifier, splitTopLevelCommaList } from "../sql";
+import { type TableInfoRow, whereClauseFromRecord } from "./rows";
+import { COLUMN_TYPE_PATTERN, createScanner, findMatchingParen, isWordBoundary, normalizeSql, quoteIdentifier, splitTopLevelCommaList } from "./sql";
 import type {
   AddCheckOperation,
   AddColumnOperation,
@@ -857,4 +857,9 @@ export function executeOperation(db: Database, operation: Operation): void {
     default:
       throw new TossError("UNSUPPORTED_OPERATION", `Unsupported operation type: ${(operation as Operation).type}`);
   }
+}
+
+export function executeReadSql(db: Database, sql: string): Record<string, unknown>[] {
+  const statement = db.query<Record<string, unknown>, []>(sql);
+  return statement.all();
 }

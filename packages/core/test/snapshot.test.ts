@@ -13,7 +13,7 @@ import {
 } from "../src";
 import { getClientPath } from "../src/engine/client";
 import { promotePreparedDatabase } from "../src/snapshot";
-import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/db";
+import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/engine/db";
 import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

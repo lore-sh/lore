@@ -6,7 +6,7 @@ import {
   initDatabase,
   verifyDatabase,
 } from "../src";
-import { COMMIT_TABLE } from "../src/db";
+import { COMMIT_TABLE } from "../src/engine/db";
 import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

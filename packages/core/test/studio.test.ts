@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { OP_TABLE } from "../src/db";
+import { OP_TABLE } from "../src/engine/db";
 import {
   applyPlan,
   getStudioCommitDetail,

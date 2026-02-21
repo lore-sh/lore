@@ -25,14 +25,14 @@ import {
   setMetaValue,
   withInitializedDatabase,
   withInitializedDatabaseAsync,
-} from "./db";
+} from "./engine/db";
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import { getClientPath } from "./engine/client";
 import { TossError, isTossError } from "./errors";
-import { getHeadCommit, getHeadCommitId, getCommitById } from "./log";
+import { getHeadCommit, getHeadCommitId, getCommitById } from "./engine/log";
 import { initDatabase } from "./init";
-import { findCommitSeq, getCommitReplayInput, loadCommitReplayInputs, replayCommitExactly } from "./replay";
-import type { CommitReplayInput } from "./log";
+import { findCommitSeq, getCommitReplayInput, loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
+import type { CommitReplayInput } from "./engine/log";
 import type {
   Operation,
   RemoteHead,
@@ -42,7 +42,7 @@ import type {
   SyncState,
   TossSyncStatus,
 } from "./types";
-import { canonicalJson, sha256Hex } from "./checksum";
+import { canonicalJson, sha256Hex } from "./engine/checksum";
 
 const ENGINE_MIGRATION_DIR = resolve(import.meta.dir, "../migration");
 const COMMIT_SIZE_WARNING_THRESHOLD_BYTES = 256 * 1024;
@@ -922,7 +922,7 @@ export async function cloneFromRemote(options: {
   if (!forceNew && existsSync(targetDbPath)) {
     throw new TossError("CONFIG_ERROR", `Clone target already exists: ${targetDbPath}. Use --force-new to replace it.`);
   }
-  const initialized = await initDatabase({ dbPath: targetDbPath, forceNew, generateSkills: false });
+  const initialized = await initDatabase({ dbPath: targetDbPath, forceNew });
   await connectRemote({
     platform: options.platform,
     url: options.url,

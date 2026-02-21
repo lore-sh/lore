@@ -8,7 +8,7 @@ import {
   isTossError,
   readQuery,
 } from "../src";
-import { executeOperation } from "../src/executors/apply";
+import { executeOperation } from "../src/engine/execute";
 import type { RestoreTableOperation } from "../src/types";
 import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
 

@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { MAIN_REF_NAME } from "./db";
-import { createEngineDb } from "./engine/client";
+import { createEngineDb } from "./client";
 import {
   CommitParentTable,
   CommitTable,
@@ -11,10 +11,10 @@ import {
   OpTable,
   ReflogTable,
   RefTable,
-} from "./engine/schema.sql";
-import { TossError } from "./errors";
+} from "./schema.sql";
+import { TossError } from "../errors";
 import type { RowEffect, SchemaEffect } from "./observed";
-import type { CommitEntry, CommitKind, Operation } from "./types";
+import type { CommitEntry, CommitKind, Operation } from "../types";
 
 export interface CommitWriteInput {
   seq: number;

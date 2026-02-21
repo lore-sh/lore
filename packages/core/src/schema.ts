@@ -1,7 +1,7 @@
-import { withInitializedDatabase, getRow } from "./db";
+import { withInitializedDatabase, getRow } from "./engine/db";
 import { TossError } from "./errors";
-import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./rows";
-import { asciiCaseFold, quoteName } from "./sql";
+import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./engine/rows";
+import { asciiCaseFold, quoteName } from "./engine/sql";
 
 export interface GetSchemaOptions {
   table?: string | undefined;
