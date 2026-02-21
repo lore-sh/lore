@@ -6,6 +6,7 @@ import {
   LAST_SYNC_ERROR_META_KEY,
   LAST_SYNC_STATE_META_KEY,
   getMetaValue,
+  normalizeMetaString,
   resolveDbPath,
   runInTransactionWithDeferredForeignKeys,
   setMetaValue,
@@ -45,14 +46,6 @@ import {
 import { canonicalJson } from "./engine/checksum";
 
 const COMMIT_SIZE_WARNING_THRESHOLD_BYTES = 256 * 1024;
-
-function normalizeMetaString(value: string | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
-}
 
 function readSyncConfig(): SyncConfig | null {
   const remote = readRemoteConfig();

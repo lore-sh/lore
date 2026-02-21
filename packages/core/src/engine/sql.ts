@@ -278,6 +278,17 @@ export function normalizeSql(sql: string, options: { tight?: boolean } = {}): st
   return out.trim();
 }
 
+export function normalizeSqlNullable(sql: string | null): string | null {
+  if (sql === null) {
+    return null;
+  }
+  return normalizeSql(sql, { tight: true });
+}
+
+export function pragmaLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
 const sqlInputSchema = z.string().trim().min(1, "SQL must not be empty");
 
 const FORBIDDEN_KEYWORDS = [

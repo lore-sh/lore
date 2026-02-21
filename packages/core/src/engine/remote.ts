@@ -16,13 +16,14 @@ import {
   PRESERVED_META_DEFAULTS,
   REF_TABLE,
   RESETTABLE_META_DEFAULTS,
+  normalizeMetaString,
 } from "./db";
 import { readAuthToken } from "../config";
 import { TossError, isTossError } from "../errors";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable, rewriteCreateTableName } from "./ddl";
 import { schemaHashFromDescriptor } from "./inspect";
-import { normalizeSql, quoteIdentifier } from "./sql";
+import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
 import type { CommitReplayInput } from "./log";
 import type { EncodedCell, EncodedRow, Operation, RemoteHead, SyncConfig } from "../types";
 
@@ -167,14 +168,6 @@ function parseSqlStorageClass(value: unknown, label: string): EncodedCell["stora
     return value;
   }
   throw new TossError("SYNC_DIVERGED", `Remote ${label} storage class is invalid`);
-}
-
-function normalizeMetaValue(value: string | null): string | null {
-  if (value === null) {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length === 0 ? null : trimmed;
 }
 
 function sqlStringLiteral(value: string): string {
@@ -417,17 +410,6 @@ export async function remoteCommitSeq(executor: SqlExecutor, commitId: string): 
     return null;
   }
   return parseInteger(parseRowValue(row, "seq"), "_toss_commit.seq");
-}
-
-function pragmaLiteral(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-function normalizeSqlNullable(sql: string | null): string | null {
-  if (sql === null) {
-    return null;
-  }
-  return normalizeSql(sql, { tight: true });
 }
 
 async function listRemoteUserTables(executor: SqlExecutor): Promise<string[]> {
@@ -1337,31 +1319,21 @@ export async function materializeRemoteToHead(client: Client): Promise<void> {
     await tx.execute("PRAGMA defer_foreign_keys=ON");
 
     const remoteHead = await fetchRemoteHead(tx);
-    if (!remoteHead.commitId) {
+    const checkpoint = remoteHead.commitId
+      ? normalizeMetaString(await getRemoteMetaValue(tx, LAST_MATERIALIZED_COMMIT_META_KEY))
+      : null;
+    const checkpointSeq = checkpoint ? await remoteCommitSeq(tx, checkpoint) : null;
+    const needsRebuild = !remoteHead.commitId || !checkpoint || checkpointSeq === null || checkpointSeq > remoteHead.seq;
+
+    if (needsRebuild) {
       await runProjectionStep(() => rebuildProjectionFromCanonicalHistory(tx, remoteHead.seq), "rebuild projection");
       await tx.commit();
       return;
     }
 
-    const checkpoint = normalizeMetaValue(await getRemoteMetaValue(tx, LAST_MATERIALIZED_COMMIT_META_KEY));
-    let fromSeq = 0;
+    await runProjectionStep(() => verifyProjectionAtCommit(tx, checkpoint), `verify checkpoint ${checkpoint}`);
 
-    if (checkpoint) {
-      const checkpointSeq = await remoteCommitSeq(tx, checkpoint);
-      if (checkpointSeq === null || checkpointSeq > remoteHead.seq) {
-        await runProjectionStep(() => rebuildProjectionFromCanonicalHistory(tx, remoteHead.seq), "rebuild projection");
-        await tx.commit();
-        return;
-      }
-      await runProjectionStep(() => verifyProjectionAtCommit(tx, checkpoint), `verify checkpoint ${checkpoint}`);
-      fromSeq = checkpointSeq;
-    } else {
-      await runProjectionStep(() => rebuildProjectionFromCanonicalHistory(tx, remoteHead.seq), "rebuild projection");
-      await tx.commit();
-      return;
-    }
-
-    const replayInputs = await fetchRemoteReplayInputsAfterSeq(tx, fromSeq, remoteHead);
+    const replayInputs = await fetchRemoteReplayInputsAfterSeq(tx, checkpointSeq, remoteHead);
     for (const replay of replayInputs) {
       await materializeSingleCommit(tx, replay);
       await writeMaterializedCheckpoint(tx, replay.commitId);
@@ -1394,8 +1366,8 @@ export async function fetchRemoteProjectionStatus(
   remoteHeadInput?: RemoteHead,
 ): Promise<RemoteProjectionStatus> {
   const remoteHead = remoteHeadInput ?? (await fetchRemoteHead(executor));
-  const projectionHead = normalizeMetaValue(await getRemoteMetaValue(executor, LAST_MATERIALIZED_COMMIT_META_KEY));
-  const recordedError = normalizeMetaValue(await getRemoteMetaValue(executor, LAST_MATERIALIZED_ERROR_META_KEY));
+  const projectionHead = normalizeMetaString(await getRemoteMetaValue(executor, LAST_MATERIALIZED_COMMIT_META_KEY));
+  const recordedError = normalizeMetaString(await getRemoteMetaValue(executor, LAST_MATERIALIZED_ERROR_META_KEY));
 
   if (!remoteHead.commitId) {
     return {
@@ -1411,7 +1383,14 @@ export async function fetchRemoteProjectionStatus(
   }
 
   const projectionAheadOfHead = projectionSeq !== null && projectionSeq > remoteHead.seq;
-  const projectionLagCommits = projectionSeq === null ? remoteHead.seq : projectionAheadOfHead ? 0 : remoteHead.seq - projectionSeq;
+  let projectionLagCommits: number;
+  if (projectionSeq === null) {
+    projectionLagCommits = remoteHead.seq;
+  } else if (projectionAheadOfHead) {
+    projectionLagCommits = 0;
+  } else {
+    projectionLagCommits = remoteHead.seq - projectionSeq;
+  }
   let projectionError = projectionHead && projectionSeq === null
     ? `Materialization checkpoint is missing from canonical history: ${projectionHead}`
     : recordedError;

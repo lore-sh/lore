@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables } from "./db";
 import { TossError } from "../errors";
-import { normalizeSql, quoteIdentifier } from "./sql";
+import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
 import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable } from "./ddl";
 import type { JsonObject, JsonPrimitive } from "../types";
 
@@ -123,17 +123,6 @@ export interface SchemaDescriptor {
 
 export function schemaHashFromDescriptor(descriptor: SchemaDescriptor): string {
   return sha256Hex(descriptor.tables);
-}
-
-function pragmaLiteral(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-function normalizeSqlNullable(sql: string | null): string | null {
-  if (sql === null) {
-    return null;
-  }
-  return normalizeSql(sql, { tight: true });
 }
 
 function serializeStateValue(value: JsonPrimitive): JsonPrimitive {

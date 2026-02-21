@@ -226,6 +226,14 @@ export function getMetaValue(db: Database, key: string): string | null {
   return row?.value ?? null;
 }
 
+export function normalizeMetaString(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
 export function setMetaValue(db: Database, key: string, value: string): void {
   createEngineDb(db)
     .insert(EngineMetaTable)
