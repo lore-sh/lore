@@ -3,6 +3,7 @@ import { stdin, stdout } from "node:process";
 import { relative, resolve } from "node:path";
 import type { SkillPlatform } from "@toss/core";
 import { promptConfirm } from "./prompt-ui";
+import { colorEnabled, style } from "./terminal";
 
 export const DEFAULT_INIT_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "codex", "opencode", "openclaw"];
 
@@ -82,17 +83,6 @@ function normalizePlatformToken(input: string): string {
 
 export function canUseInteractivePrompt(stdinIsTTY: boolean, stdoutIsTTY: boolean): boolean {
   return stdinIsTTY && stdoutIsTTY;
-}
-
-function colorEnabled(): boolean {
-  return stdout.isTTY && process.env.NO_COLOR !== "1" && process.env.TERM !== "dumb";
-}
-
-function style(text: string, code: string, enabled: boolean): string {
-  if (!enabled) {
-    return text;
-  }
-  return `\x1B[${code}m${text}\x1B[0m`;
 }
 
 function platformLabel(platform: GeneratedPlatform): string {

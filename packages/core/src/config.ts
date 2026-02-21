@@ -129,8 +129,7 @@ function parseToken(value: unknown, fieldPath: string): string | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
-  const token = parseNonEmptyString(value, fieldPath);
-  return token;
+  return parseNonEmptyString(value, fieldPath);
 }
 
 function parseCredentialsFromUnknown(value: unknown): CredentialsFile {

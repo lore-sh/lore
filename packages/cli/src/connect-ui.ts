@@ -3,6 +3,7 @@ import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } 
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { promptConfirm } from "./prompt-ui";
+import { colorEnabled, style } from "./terminal";
 
 export interface ConnectInput {
   platform: RemotePlatform;
@@ -37,17 +38,6 @@ export interface RadioState {
 
 export function canUseConnectPrompt(stdinIsTty: boolean, stdoutIsTty: boolean): boolean {
   return stdinIsTty && stdoutIsTty;
-}
-
-function colorEnabled(): boolean {
-  return stdout.isTTY && process.env.NO_COLOR !== "1" && process.env.TERM !== "dumb";
-}
-
-function style(text: string, code: string, enabled: boolean): string {
-  if (!enabled) {
-    return text;
-  }
-  return `\x1B[${code}m${text}\x1B[0m`;
 }
 
 function radioMark(selected: boolean, withColor: boolean): string {

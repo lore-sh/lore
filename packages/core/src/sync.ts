@@ -168,15 +168,6 @@ function classifySyncBoundaryError(error: unknown): TossError {
     if (message.includes("unauthorized") || message.includes("401") || message.includes("auth")) {
       return new TossError("SYNC_AUTH_FAILED", error.message);
     }
-    if (
-      message.includes("fetch") ||
-      message.includes("network") ||
-      message.includes("enotfound") ||
-      message.includes("econn") ||
-      message.includes("timeout")
-    ) {
-      return new TossError("SYNC_REMOTE_UNREACHABLE", error.message);
-    }
     return new TossError("SYNC_REMOTE_UNREACHABLE", error.message);
   }
   return new TossError("SYNC_REMOTE_UNREACHABLE", String(error));
@@ -305,7 +296,6 @@ async function ensureRemoteInitialized(client: Client): Promise<void> {
     "write",
   );
 }
-
 
 async function fetchRemoteHead(executor: SqlExecutor): Promise<RemoteHead> {
   const result = await executor.execute({

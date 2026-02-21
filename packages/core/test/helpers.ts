@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from "async_hooks";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
-import { initDatabase } from "../src";
-import { closeClient } from "../src/engine/client";
+import { configureDatabase, initDatabase } from "../src";
+import { closeClient, getClientPath } from "../src/engine/client";
 import { ENGINE_META_TABLE } from "../src/db";
 import { schemaHash } from "../src/rows";
 
@@ -73,4 +73,59 @@ export function enableSnapshotEveryCommit(dbPath: string): void {
   db.query(`UPDATE ${ENGINE_META_TABLE} SET value='1' WHERE key='snapshot_interval'`).run();
   db.query(`UPDATE ${ENGINE_META_TABLE} SET value='10' WHERE key='snapshot_retain'`).run();
   db.close(false);
+}
+
+interface EnvSnapshot {
+  HOME?: string | undefined;
+  USERPROFILE?: string | undefined;
+  TURSO_AUTH_TOKEN?: string | undefined;
+}
+
+function captureEnv(): EnvSnapshot {
+  return {
+    HOME: process.env.HOME,
+    USERPROFILE: process.env.USERPROFILE,
+    TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
+  };
+}
+
+function restoreEnv(snapshot: EnvSnapshot): void {
+  for (const key of ["HOME", "USERPROFILE", "TURSO_AUTH_TOKEN"] as const) {
+    if (snapshot[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = snapshot[key];
+    }
+  }
+}
+
+export function withTestHome<T>(home: string, run: () => T): T {
+  const snapshot = captureEnv();
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  delete process.env.TURSO_AUTH_TOKEN;
+  try {
+    return run();
+  } finally {
+    restoreEnv(snapshot);
+  }
+}
+
+export async function withDbPath<T>(dbPath: string, run: () => Promise<T>): Promise<T> {
+  const previousClientPath = getClientPath();
+  const snapshot = captureEnv();
+  closeClient();
+  process.env.HOME = dirname(dbPath);
+  process.env.USERPROFILE = dirname(dbPath);
+  delete process.env.TURSO_AUTH_TOKEN;
+  configureDatabase(dbPath);
+  try {
+    return await run();
+  } finally {
+    closeClient();
+    if (previousClientPath) {
+      configureDatabase(previousClientPath);
+    }
+    restoreEnv(snapshot);
+  }
 }

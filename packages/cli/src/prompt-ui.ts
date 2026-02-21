@@ -1,5 +1,6 @@
 import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
 import { stdin, stdout } from "node:process";
+import { colorEnabled, style } from "./terminal";
 
 export interface ConfirmPromptOptions {
   title: string;
@@ -25,27 +26,12 @@ interface ConfirmOption {
   hint?: string | undefined;
 }
 
-function colorEnabled(): boolean {
-  return stdout.isTTY && process.env.NO_COLOR !== "1" && process.env.TERM !== "dumb";
-}
-
-function style(text: string, code: string, enabled: boolean): string {
-  if (!enabled) {
-    return text;
-  }
-  return `\x1B[${code}m${text}\x1B[0m`;
-}
-
 function radioMark(selected: boolean, withColor: boolean): string {
   return selected ? style("(*)", "32;1", withColor) : style("( )", "37;2", withColor);
 }
 
 function optionForCursor(cursor: ConfirmState["cursor"], options: readonly [ConfirmOption, ConfirmOption]): ConfirmOption {
-  const option = options[cursor];
-  if (!option) {
-    return options[0];
-  }
-  return option;
+  return options[cursor];
 }
 
 function renderConfirmPrompt(

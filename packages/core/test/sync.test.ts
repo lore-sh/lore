@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmod } from "node:fs/promises";
-import { dirname } from "node:path";
 import {
   applyPlan,
   autoSyncAfterApply,
   cloneFromRemote,
-  configureDatabase,
   connectRemote,
   getSyncConfig,
   getRemoteStatus,
@@ -22,62 +20,9 @@ import {
   writeRemoteConfig,
 } from "../src";
 import { LAST_SYNC_STATE_META_KEY, withInitializedDatabase } from "../src/db";
-import { closeClient, getClientPath } from "../src/engine/client";
-import { createTestContext, withTmpDirCleanup, writePlanFile } from "./helpers";
+import { createTestContext, withDbPath, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
-
-interface EnvSnapshot {
-  HOME?: string | undefined;
-  USERPROFILE?: string | undefined;
-  TURSO_AUTH_TOKEN?: string | undefined;
-}
-
-function captureEnv(): EnvSnapshot {
-  return {
-    HOME: process.env.HOME,
-    USERPROFILE: process.env.USERPROFILE,
-    TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
-  };
-}
-
-function restoreEnv(snapshot: EnvSnapshot): void {
-  if (snapshot.HOME === undefined) {
-    delete process.env.HOME;
-  } else {
-    process.env.HOME = snapshot.HOME;
-  }
-  if (snapshot.USERPROFILE === undefined) {
-    delete process.env.USERPROFILE;
-  } else {
-    process.env.USERPROFILE = snapshot.USERPROFILE;
-  }
-  if (snapshot.TURSO_AUTH_TOKEN === undefined) {
-    delete process.env.TURSO_AUTH_TOKEN;
-  } else {
-    process.env.TURSO_AUTH_TOKEN = snapshot.TURSO_AUTH_TOKEN;
-  }
-}
-
-async function withDbPath<T>(dbPath: string, run: () => Promise<T>): Promise<T> {
-  const previousClientPath = getClientPath();
-  const snapshot = captureEnv();
-  const home = dirname(dbPath);
-  closeClient();
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  delete process.env.TURSO_AUTH_TOKEN;
-  configureDatabase(dbPath);
-  try {
-    return await run();
-  } finally {
-    closeClient();
-    if (previousClientPath) {
-      configureDatabase(previousClientPath);
-    }
-    restoreEnv(snapshot);
-  }
-}
 
 function remoteUrlFor(path: string): string {
   return `file:${path}`;
