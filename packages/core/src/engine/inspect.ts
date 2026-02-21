@@ -305,9 +305,11 @@ export function stateHash(db: Database): string {
   const tables = listUserTables(db);
   const state: Record<string, JsonObject[]> = {};
   for (const table of tables) {
+    const pkColumns = assertTableHasPrimaryKey(db, table);
+    const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
     const rows = getRows<Record<string, unknown>>(
       db,
-      `SELECT * FROM ${quoteIdentifier(table, { unsafe: true })} ORDER BY rowid ASC`,
+      `SELECT * FROM ${quoteIdentifier(table, { unsafe: true })} ORDER BY ${orderBy}`,
     );
     state[table] = rows.map((row) => normalizeStateRow(row));
   }
