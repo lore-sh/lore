@@ -7,7 +7,8 @@ import {
 } from "./db";
 import { createEngineDb } from "./engine/client";
 import { SnapshotTable } from "./engine/schema.sql";
-import { getHeadCommit, listCommits } from "./log";
+import { buildSyncStatus } from "./sync";
+import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit, listCommits } from "./log";
 import { quoteIdentifier } from "./sql";
 import type { CommitEntry, TossStatus } from "./types";
 
@@ -21,6 +22,8 @@ export function getStatus(): TossStatus {
     const head = getHeadCommit(db);
     const snapshotCountRow = createEngineDb(db).select({ c: sql<number>`count(*)` }).from(SnapshotTable).get();
     const verifiedOkRaw = getMetaValue(db, "last_verified_ok");
+    const commitCount = getCommitCount(db);
+    const latestCommitEstimatedBytes = head ? estimateCommitSizeBytes(db, head.commitId) : null;
 
     return {
       dbPath,
@@ -39,6 +42,12 @@ export function getStatus(): TossStatus {
       lastVerifiedAt: getMetaValue(db, "last_verified_at"),
       lastVerifiedOk: verifiedOkRaw === null ? null : verifiedOkRaw === "1",
       lastVerifiedOkAt: getMetaValue(db, "last_verified_ok_at"),
+      sync: buildSyncStatus(db),
+      storage: {
+        commitCount,
+        estimatedHistoryBytes: estimateHistorySizeBytes(db),
+        latestCommitEstimatedBytes,
+      },
     };
   });
 }

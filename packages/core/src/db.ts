@@ -2,7 +2,7 @@ import type { SQLQueryBindings, Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { getClientPath, getSqlite, hasClient, initClient, withClient } from "./engine/client";
+import { createEngineDb, getClientPath, getSqlite, hasClient, initClient, withClient } from "./engine/client";
 import { EngineMetaTable, RefTable } from "./engine/schema.sql";
 import { TossError } from "./errors";
 import { resolveHomeDir } from "./fsx";
@@ -11,6 +11,7 @@ export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
 export const DEFAULT_SNAPSHOT_INTERVAL = 100;
 export const DEFAULT_SNAPSHOT_RETAIN = 20;
+export const DEFAULT_SYNC_PROTOCOL_VERSION = "1";
 export const MAIN_REF_NAME = "main";
 export const ENGINE_META_TABLE = "_toss_engine_meta";
 export const COMMIT_TABLE = "_toss_commit";
@@ -21,6 +22,28 @@ export const OP_TABLE = "_toss_op";
 export const EFFECT_ROW_TABLE = "_toss_effect_row";
 export const EFFECT_SCHEMA_TABLE = "_toss_effect_schema";
 export const SNAPSHOT_TABLE = "_toss_snapshot";
+export const REMOTE_URL_META_KEY = "remote_url";
+export const REMOTE_DB_NAME_META_KEY = "remote_db_name";
+export const REMOTE_AUTO_SYNC_META_KEY = "remote_auto_sync";
+export const LAST_PUSHED_COMMIT_META_KEY = "last_pushed_commit";
+export const LAST_PULLED_COMMIT_META_KEY = "last_pulled_commit";
+export const LAST_SYNC_STATE_META_KEY = "last_sync_state";
+export const LAST_SYNC_ERROR_META_KEY = "last_sync_error";
+export const SYNC_PROTOCOL_VERSION_META_KEY = "sync_protocol_version";
+export const RESETTABLE_META_DEFAULTS = [
+  ["snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL)],
+  ["snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN)],
+] as const;
+export const PRESERVED_META_DEFAULTS = [
+  [REMOTE_URL_META_KEY, ""],
+  [REMOTE_DB_NAME_META_KEY, ""],
+  [REMOTE_AUTO_SYNC_META_KEY, "1"],
+  [LAST_PUSHED_COMMIT_META_KEY, ""],
+  [LAST_PULLED_COMMIT_META_KEY, ""],
+  [LAST_SYNC_STATE_META_KEY, "offline"],
+  [LAST_SYNC_ERROR_META_KEY, ""],
+  [SYNC_PROTOCOL_VERSION_META_KEY, DEFAULT_SYNC_PROTOCOL_VERSION],
+] as const;
 const ENGINE_MIGRATIONS_DIR = resolve(import.meta.dir, "../migration");
 
 export interface DatabaseContext {
@@ -102,13 +125,16 @@ export function initializeStorage(): void {
   }
   withClient((db) => {
     migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
-    for (const [key, value] of [
-      ["snapshot_interval", DEFAULT_SNAPSHOT_INTERVAL],
-      ["snapshot_retain", DEFAULT_SNAPSHOT_RETAIN],
-    ] as const) {
+    for (const [key, value] of RESETTABLE_META_DEFAULTS) {
       db.insert(EngineMetaTable)
-        .values({ key, value: String(value) })
-        .onConflictDoUpdate({ target: EngineMetaTable.key, set: { value: String(value) } })
+        .values({ key, value })
+        .onConflictDoUpdate({ target: EngineMetaTable.key, set: { value } })
+        .run();
+    }
+    for (const [key, value] of PRESERVED_META_DEFAULTS) {
+      db.insert(EngineMetaTable)
+        .values({ key, value })
+        .onConflictDoNothing({ target: EngineMetaTable.key })
         .run();
     }
     db.insert(RefTable)
@@ -203,4 +229,15 @@ export function listUserTables(db: Database): string[] {
 export function getMetaValue(db: Database, key: string): string | null {
   const row = getRow<{ value?: string }>(db, `SELECT value FROM ${ENGINE_META_TABLE} WHERE key=?`, key);
   return row?.value ?? null;
+}
+
+export function setMetaValue(db: Database, key: string, value: string): void {
+  createEngineDb(db)
+    .insert(EngineMetaTable)
+    .values({ key, value })
+    .onConflictDoUpdate({
+      target: EngineMetaTable.key,
+      set: { value },
+    })
+    .run();
 }

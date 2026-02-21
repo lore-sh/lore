@@ -140,11 +140,16 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
   });
 }
 
-export function appendCommitExact(db: Database, input: CommitReplayInput): CommitEntry {
+export function appendCommitExact(
+  db: Database,
+  input: CommitReplayInput,
+  options: { errorCode?: string } = {},
+): CommitEntry {
+  const errorCode = options.errorCode ?? "RECOVER_FAILED";
   const commitId = input.commitId;
   const expected = computeCommitId(input);
   if (expected !== commitId) {
-    throw new TossError("RECOVER_FAILED", `Commit payload mismatch for replayed commit ${commitId}`);
+    throw new TossError(errorCode, `Commit payload mismatch for replayed commit ${commitId}`);
   }
 
   const engineDb = createEngineDb(db);
@@ -255,6 +260,14 @@ export function listCommits(db: Database, descending: boolean): CommitEntry[] {
   return rows.map((row) => decodeCommit(db, row));
 }
 
+export function getCommitCount(db: Database): number {
+  const row = createEngineDb(db)
+    .select({ c: sql<number>`count(*)` })
+    .from(CommitTable)
+    .get();
+  return row?.c ?? 0;
+}
+
 export interface StoredRowEffect extends RowEffect {
   beforeHash: string | null;
   afterHash: string | null;
@@ -294,4 +307,59 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Stor
     beforeTable: row.beforeTableJson ? (JSON.parse(row.beforeTableJson) as SchemaEffect["beforeTable"]) : null,
     afterTable: row.afterTableJson ? (JSON.parse(row.afterTableJson) as SchemaEffect["afterTable"]) : null,
   }));
+}
+
+export function estimateCommitSizeBytes(db: Database, commitId: string): number {
+  const engineDb = createEngineDb(db);
+  const opBytes = engineDb
+    .select({ n: sql<number>`coalesce(sum(length(${OpTable.opJson})), 0)` })
+    .from(OpTable)
+    .where(eq(OpTable.commitId, commitId))
+    .get()?.n ?? 0;
+  const rowEffectBytes = engineDb
+    .select({
+      n: sql<number>`coalesce(sum(length(${EffectRowTable.pkJson}) + coalesce(length(${EffectRowTable.beforeRowJson}), 0) + coalesce(length(${EffectRowTable.afterRowJson}), 0)), 0)`,
+    })
+    .from(EffectRowTable)
+    .where(eq(EffectRowTable.commitId, commitId))
+    .get()?.n ?? 0;
+  const schemaEffectBytes = engineDb
+    .select({
+      n: sql<number>`coalesce(sum(coalesce(length(${EffectSchemaTable.beforeTableJson}), 0) + coalesce(length(${EffectSchemaTable.afterTableJson}), 0)), 0)`,
+    })
+    .from(EffectSchemaTable)
+    .where(eq(EffectSchemaTable.commitId, commitId))
+    .get()?.n ?? 0;
+  const commitMessageBytes = engineDb
+    .select({ n: sql<number>`coalesce(length(${CommitTable.message}), 0)` })
+    .from(CommitTable)
+    .where(eq(CommitTable.commitId, commitId))
+    .limit(1)
+    .get()?.n ?? 0;
+  return opBytes + rowEffectBytes + schemaEffectBytes + commitMessageBytes;
+}
+
+export function estimateHistorySizeBytes(db: Database): number {
+  const engineDb = createEngineDb(db);
+  const opBytes = engineDb
+    .select({ n: sql<number>`coalesce(sum(length(${OpTable.opJson})), 0)` })
+    .from(OpTable)
+    .get()?.n ?? 0;
+  const rowEffectBytes = engineDb
+    .select({
+      n: sql<number>`coalesce(sum(length(${EffectRowTable.pkJson}) + coalesce(length(${EffectRowTable.beforeRowJson}), 0) + coalesce(length(${EffectRowTable.afterRowJson}), 0)), 0)`,
+    })
+    .from(EffectRowTable)
+    .get()?.n ?? 0;
+  const schemaEffectBytes = engineDb
+    .select({
+      n: sql<number>`coalesce(sum(coalesce(length(${EffectSchemaTable.beforeTableJson}), 0) + coalesce(length(${EffectSchemaTable.afterTableJson}), 0)), 0)`,
+    })
+    .from(EffectSchemaTable)
+    .get()?.n ?? 0;
+  const commitMessageBytes = engineDb
+    .select({ n: sql<number>`coalesce(sum(length(${CommitTable.message})), 0)` })
+    .from(CommitTable)
+    .get()?.n ?? 0;
+  return opBytes + rowEffectBytes + schemaEffectBytes + commitMessageBytes;
 }

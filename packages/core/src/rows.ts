@@ -254,7 +254,7 @@ function normalizeSqlNullable(sql: string | null): string | null {
   if (sql === null) {
     return null;
   }
-  return normalizeSql(sql);
+  return normalizeSql(sql, { tight: true });
 }
 
 function readQuotedIdentifier(segment: string, start: number): { raw: string; next: number } | null {

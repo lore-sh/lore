@@ -145,6 +145,55 @@ export interface CommitEntry {
   operations: Operation[];
 }
 
+export interface SyncConfig {
+  remoteUrl: string;
+  remoteDbName: string | null;
+  autoSync: boolean;
+}
+
+export interface RemoteHead {
+  commitId: string | null;
+  seq: number;
+}
+
+export interface SyncConflict {
+  kind: "non_fast_forward" | "diverged";
+  message: string;
+  localHead: string | null;
+  remoteHead: string | null;
+}
+
+export type SyncState = "synced" | "pending" | "conflict" | "offline";
+
+export interface SyncResult {
+  action: "push" | "pull" | "sync" | "auto_sync" | "clone";
+  state: SyncState;
+  pushed: number;
+  pulled: number;
+  localHead: string | null;
+  remoteHead: string | null;
+  conflict?: SyncConflict | undefined;
+  error?: string | undefined;
+}
+
+export interface TossSyncStatus {
+  configured: boolean;
+  remoteUrl: string | null;
+  remoteDbName: string | null;
+  autoSync: boolean;
+  state: SyncState;
+  lastPushedCommit: string | null;
+  lastPulledCommit: string | null;
+  pendingCommits: number;
+  lastError: string | null;
+}
+
+export interface StorageEstimate {
+  commitCount: number;
+  estimatedHistoryBytes: number;
+  latestCommitEstimatedBytes: number | null;
+}
+
 export interface StatusTable {
   name: string;
   count: number;
@@ -165,6 +214,8 @@ export interface TossStatus {
   lastVerifiedAt: string | null;
   lastVerifiedOk: boolean | null;
   lastVerifiedOkAt: string | null;
+  sync: TossSyncStatus;
+  storage: StorageEstimate;
 }
 
 export interface RevertConflict {

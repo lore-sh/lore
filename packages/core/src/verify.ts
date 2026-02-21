@@ -1,19 +1,10 @@
 import type { Database } from "bun:sqlite";
-import { getRow, withInitializedDatabase } from "./db";
-import { createEngineDb } from "./engine/client";
-import { EngineMetaTable } from "./engine/schema.sql";
+import { getRow, setMetaValue, withInitializedDatabase } from "./db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./log";
 import type { VerifyResult } from "./types";
 
 export function putMeta(db: Database, key: string, value: string): void {
-  createEngineDb(db)
-    .insert(EngineMetaTable)
-    .values({ key, value })
-    .onConflictDoUpdate({
-      target: EngineMetaTable.key,
-      set: { value },
-    })
-    .run();
+  setMetaValue(db, key, value);
 }
 
 export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {

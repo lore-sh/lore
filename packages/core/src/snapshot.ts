@@ -1,8 +1,7 @@
 import { Database } from "bun:sqlite";
-import { asc, desc, eq, gt } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { mkdir, rename } from "fs/promises";
 import { dirname, resolve } from "node:path";
-import { sha256Hex } from "./checksum";
 import { closeClient, createEngineDb } from "./engine/client";
 import {
   assertInitialized,
@@ -20,19 +19,8 @@ import {
 import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
 import { TossError } from "./errors";
 import { deleteWalAndShm, deleteWithSidecars } from "./fsx";
-import {
-  appendCommitExact,
-  type CommitReplayInput,
-  getCommitById,
-  getRowEffectsByCommitId,
-  getSchemaEffectsByCommitId,
-} from "./log";
-import {
-  applyRowEffectsWithOptions,
-  applyUserRowAndSchemaEffects,
-  assertNoForeignKeyViolations,
-} from "./observed";
-import { schemaHash, stateHash } from "./rows";
+import type { CommitReplayInput } from "./log";
+import { loadCommitReplayInputs, replayCommitExactly } from "./replay";
 import { quoteIdentifier } from "./sql";
 import type { CommitEntry, SnapshotEntry } from "./types";
 
@@ -166,27 +154,6 @@ export function listSnapshots(): SnapshotEntry[] {
   });
 }
 
-function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitReplayInput[] {
-  const commitRows = createEngineDb(db)
-    .select({ commitId: CommitTable.commitId })
-    .from(CommitTable)
-    .where(gt(CommitTable.seq, fromSeqExclusive))
-    .orderBy(asc(CommitTable.seq))
-    .all();
-  return commitRows.map((row) => {
-    const commit = getCommitById(db, row.commitId);
-    if (!commit) {
-      throw new TossError("RECOVER_FAILED", `Replay commit not found: ${row.commitId}`);
-    }
-    const { parentCount: _, ...base } = commit;
-    return {
-      ...base,
-      rowEffects: getRowEffectsByCommitId(db, commit.commitId),
-      schemaEffects: getSchemaEffectsByCommitId(db, commit.commitId),
-    };
-  });
-}
-
 export async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
   closeClient({ resetPath: false });
   try {
@@ -202,53 +169,6 @@ export async function promotePreparedDatabase(preparedDbPath: string, dbPath: st
     }
     throw error;
   }
-}
-
-function replayCommitExactly(db: Database, replay: CommitReplayInput): void {
-  const beforeSchemaHash = schemaHash(db);
-  if (beforeSchemaHash !== replay.schemaHashBefore) {
-    throw new TossError(
-      "RECOVER_FAILED",
-      `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.schemaHashBefore}, got ${beforeSchemaHash}`,
-    );
-  }
-
-  const computedPlanHash = sha256Hex(replay.operations);
-  if (computedPlanHash !== replay.planHash) {
-    throw new TossError(
-      "RECOVER_FAILED",
-      `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.planHash}, got ${computedPlanHash}`,
-    );
-  }
-
-  applyUserRowAndSchemaEffects(db, replay.rowEffects, replay.schemaEffects, "forward", {
-    disableTableTriggers: true,
-  });
-  applyRowEffectsWithOptions(db, replay.rowEffects, "forward", {
-    disableTableTriggers: true,
-    includeUserEffects: false,
-    includeSystemEffects: true,
-    systemPolicy: "reconcile",
-  });
-  assertNoForeignKeyViolations(db, "RECOVER_FAILED", `replay ${replay.commitId}`);
-
-  const afterSchemaHash = schemaHash(db);
-  if (afterSchemaHash !== replay.schemaHashAfter) {
-    throw new TossError(
-      "RECOVER_FAILED",
-      `schema_hash_after mismatch for replay ${replay.commitId}: expected ${replay.schemaHashAfter}, got ${afterSchemaHash}`,
-    );
-  }
-
-  const afterStateHash = stateHash(db);
-  if (afterStateHash !== replay.stateHashAfter) {
-    throw new TossError(
-      "RECOVER_FAILED",
-      `state_hash_after mismatch for replay ${replay.commitId}: expected ${replay.stateHashAfter}, got ${afterStateHash}`,
-    );
-  }
-
-  appendCommitExact(db, replay);
 }
 
 function resolveSnapshotForRecovery(commitId: string): { dbPath: string; snapshotPath: string; replayCommits: CommitReplayInput[] } {
@@ -289,7 +209,7 @@ export async function recoverFromSnapshot(
     assertInitialized(replayDb, stagingPath);
     for (const replay of replayCommits) {
       runInTransactionWithDeferredForeignKeys(replayDb, () => {
-        replayCommitExactly(replayDb, replay);
+        replayCommitExactly(replayDb, replay, { errorCode: "RECOVER_FAILED" });
       });
     }
     replayDb.close(false);

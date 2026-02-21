@@ -1,16 +1,24 @@
 #!/usr/bin/env bun
 import {
+  autoSyncAfterApply,
   applyPlan,
+  cloneFromRemote,
   cleanSkills,
+  commitSizeWarning,
+  connectRemote,
   getHistory,
+  getRemoteStatus,
   getSchema,
   getStatus,
   initDatabase,
   isTossError,
   planCheck,
+  pullFromRemote,
+  pushToRemote,
   readQuery,
   recoverFromSnapshot,
   revertCommit,
+  syncWithRemote,
   verifyDatabase,
 } from "@toss/core";
 import type { CommitEntry } from "@toss/core";
@@ -44,10 +52,18 @@ function usage(): string {
     "  toss revert <commit_id>",
     "  toss verify [--full]",
     "  toss recover --from-snapshot <commit_id>",
+    "  toss remote connect --url <turso_url> [--db-name <name>] [--auto-sync|--no-auto-sync]",
+    "  toss remote status",
+    "  toss push",
+    "  toss pull",
+    "  toss sync",
+    "  toss clone --url <turso_url> [--db-name <name>] [--db-path <path>] [--auto-sync|--no-auto-sync] [--force-new]",
     "  toss studio [--port <n>] [--no-open]",
     "",
     "Environment:",
     "  TOSS_DB_PATH   Override default database path (default: ~/.toss/toss.db)",
+    "  TOSS_TURSO_URL Override configured remote URL",
+    "  TOSS_TURSO_AUTH_TOKEN or TURSO_AUTH_TOKEN for Turso auth",
     "",
     "Init Platforms:",
     "  claude,cursor,codex,opencode,openclaw",
@@ -178,7 +194,17 @@ function parseSinglePlanRef(command: "plan" | "apply", args: string[]): string {
 async function runApply(args: string[]): Promise<void> {
   const plan = parseSinglePlanRef("apply", args);
   const commit = await applyPlan(plan);
-  console.log(toJson({ status: "ok", commit: summarizeCommit(commit), operations: commit.operations.length }));
+  const sync = await autoSyncAfterApply();
+  const warning = commitSizeWarning(commit.commitId);
+  console.log(
+    toJson({
+      status: "ok",
+      commit: summarizeCommit(commit),
+      operations: commit.operations.length,
+      sync,
+      warnings: warning ? [warning] : [],
+    }),
+  );
 }
 
 function parseSchemaArgs(args: string[]): { table?: string | undefined } {
@@ -237,12 +263,183 @@ function runStatus(args: string[]): void {
   console.log(`Last Verified At: ${status.lastVerifiedAt ?? "never"}`);
   console.log(`Last Verified OK: ${status.lastVerifiedOk === null ? "unknown" : status.lastVerifiedOk ? "yes" : "no"}`);
   console.log(`Last Verified OK At: ${status.lastVerifiedOkAt ?? "never"}`);
+  console.log(`Sync Configured: ${status.sync.configured ? "yes" : "no"}`);
+  console.log(`Sync State: ${status.sync.state}`);
+  console.log(`Pending Commits: ${status.sync.pendingCommits}`);
+  console.log(`Remote: ${status.sync.remoteUrl ?? "not configured"}`);
+  console.log(`History Commits: ${status.storage.commitCount}`);
+  console.log(`History Size Estimate: ${status.storage.estimatedHistoryBytes} bytes`);
+  console.log(
+    `Latest Commit Size Estimate: ${status.storage.latestCommitEstimatedBytes === null ? "n/a" : `${status.storage.latestCommitEstimatedBytes} bytes`}`,
+  );
   console.log(
     status.headCommit
       ? `HEAD: ${status.headCommit.commitId} (seq=${status.headCommit.seq}, kind=${status.headCommit.kind})`
       : "HEAD: none",
   );
   console.log(rows.length === 0 ? "(no user tables)" : printTable(rows));
+}
+
+function parseRemoteConnectArgs(args: string[]): { url: string; dbName?: string | undefined; autoSync: boolean } {
+  let url: string | undefined;
+  let dbName: string | undefined;
+  let autoSync = true;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "--url") {
+      url = args[i + 1];
+      if (!url) {
+        throw new Error("remote connect requires value for --url");
+      }
+      i += 1;
+      continue;
+    }
+    if (arg === "--db-name") {
+      dbName = args[i + 1];
+      if (!dbName) {
+        throw new Error("remote connect requires value for --db-name");
+      }
+      i += 1;
+      continue;
+    }
+    if (arg === "--auto-sync") {
+      autoSync = true;
+      continue;
+    }
+    if (arg === "--no-auto-sync") {
+      autoSync = false;
+      continue;
+    }
+    throw new Error(`remote connect does not accept argument: ${arg}`);
+  }
+  if (!url) {
+    throw new Error("remote connect requires --url <turso_url>");
+  }
+  return { url, dbName, autoSync };
+}
+
+function parseRemoteStatusArgs(args: string[]): void {
+  if (args.length > 0) {
+    throw new Error("remote status does not accept arguments");
+  }
+}
+
+async function runRemote(args: string[]): Promise<void> {
+  const sub = args[0];
+  const rest = args.slice(1);
+  if (!sub) {
+    throw new Error("remote requires subcommand: connect | status");
+  }
+  if (sub === "connect") {
+    const parsed = parseRemoteConnectArgs(rest);
+    const config = await connectRemote(parsed);
+    console.log(
+      toJson({
+        status: "ok",
+        remote: {
+          url: config.remoteUrl,
+          db_name: config.remoteDbName,
+          auto_sync: config.autoSync,
+        },
+      }),
+    );
+    return;
+  }
+  if (sub === "status") {
+    parseRemoteStatusArgs(rest);
+    const status = await getRemoteStatus();
+    console.log(toJson(status));
+    return;
+  }
+  throw new Error(`Unknown remote subcommand: ${sub}`);
+}
+
+async function runPush(args: string[]): Promise<void> {
+  if (args.length > 0) {
+    throw new Error("push does not accept arguments");
+  }
+  const result = await pushToRemote();
+  console.log(toJson({ status: "ok", ...result }));
+}
+
+async function runPull(args: string[]): Promise<void> {
+  if (args.length > 0) {
+    throw new Error("pull does not accept arguments");
+  }
+  const result = await pullFromRemote();
+  console.log(toJson({ status: "ok", ...result }));
+}
+
+async function runSync(args: string[]): Promise<void> {
+  if (args.length > 0) {
+    throw new Error("sync does not accept arguments");
+  }
+  const result = await syncWithRemote();
+  console.log(toJson({ status: "ok", ...result }));
+}
+
+function parseCloneArgs(args: string[]): {
+  url: string;
+  dbName?: string | undefined;
+  dbPath?: string | undefined;
+  autoSync: boolean;
+  forceNew: boolean;
+} {
+  let url: string | undefined;
+  let dbName: string | undefined;
+  let dbPath: string | undefined;
+  let autoSync = true;
+  let forceNew = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i]!;
+    if (arg === "--url") {
+      url = args[i + 1];
+      if (!url) {
+        throw new Error("clone requires value for --url");
+      }
+      i += 1;
+      continue;
+    }
+    if (arg === "--db-name") {
+      dbName = args[i + 1];
+      if (!dbName) {
+        throw new Error("clone requires value for --db-name");
+      }
+      i += 1;
+      continue;
+    }
+    if (arg === "--db-path") {
+      dbPath = args[i + 1];
+      if (!dbPath) {
+        throw new Error("clone requires value for --db-path");
+      }
+      i += 1;
+      continue;
+    }
+    if (arg === "--auto-sync") {
+      autoSync = true;
+      continue;
+    }
+    if (arg === "--no-auto-sync") {
+      autoSync = false;
+      continue;
+    }
+    if (arg === "--force-new") {
+      forceNew = true;
+      continue;
+    }
+    throw new Error(`clone does not accept argument: ${arg}`);
+  }
+  if (!url) {
+    throw new Error("clone requires --url <turso_url>");
+  }
+  return { url, dbName, dbPath, autoSync, forceNew };
+}
+
+async function runClone(args: string[]): Promise<void> {
+  const parsed = parseCloneArgs(args);
+  const result = await cloneFromRemote(parsed);
+  console.log(toJson({ status: "ok", db_path: result.dbPath, sync: result.sync }));
 }
 
 function parseStudioArgs(args: string[]): { port?: number | undefined; open: boolean } {
@@ -386,6 +583,21 @@ async function main(): Promise<void> {
       return;
     case "recover":
       await runRecover(rest);
+      return;
+    case "remote":
+      await runRemote(rest);
+      return;
+    case "push":
+      await runPush(rest);
+      return;
+    case "pull":
+      await runPull(rest);
+      return;
+    case "sync":
+      await runSync(rest);
+      return;
+    case "clone":
+      await runClone(rest);
       return;
     case "studio":
       runStudio(rest);
