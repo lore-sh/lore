@@ -5,6 +5,7 @@ import {
   getHistory,
   initDatabase,
   isTossError,
+  maybeCreateSnapshot,
   readQuery,
   recoverFromSnapshot,
   revertCommit,
@@ -12,10 +13,16 @@ import {
 } from "../src";
 import { getClientPath } from "../src/engine/client";
 import { promotePreparedDatabase } from "../src/snapshot";
-import { COMMIT_TABLE } from "../src/db";
-import { createTestContext, enableSnapshotEveryCommit, writePlanFile, withTmpDirCleanup } from "./helpers";
+import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/db";
+import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
+
+async function applyPlanAndSnapshot(planPath: string) {
+  const commit = await applyPlan(planPath);
+  await maybeCreateSnapshot({ ...commit, seq: DEFAULT_SNAPSHOT_INTERVAL });
+  return commit;
+}
 
 
 describe("snapshot / recover", () => {
@@ -42,8 +49,7 @@ describe("snapshot / recover", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const create = await writePlanFile(dir, "create.json", {
       message: "create logs",
       operations: [
@@ -62,8 +68,8 @@ describe("snapshot / recover", () => {
       operations: [{ type: "insert", table: "logs", values: { id: 1, msg: "hello" } }],
     });
 
-    const firstCommit = await applyPlan(create);
-    const secondCommit = await applyPlan(insert);
+    const firstCommit = await applyPlanAndSnapshot(create);
+    const secondCommit = await applyPlanAndSnapshot(insert);
 
     const result = await recoverFromSnapshot(firstCommit.commitId);
     expect(result.replayedCommits).toBeGreaterThanOrEqual(1);
@@ -85,8 +91,7 @@ describe("snapshot / recover", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const create = await writePlanFile(dir, "create-safe-recover.json", {
       message: "create table",
       operations: [
@@ -109,9 +114,9 @@ describe("snapshot / recover", () => {
       operations: [{ type: "insert", table: "recover_guard", values: { id: 2, value: "b" } }],
     });
 
-    const base = await applyPlan(create);
-    await applyPlan(insertA);
-    const latest = await applyPlan(insertB);
+    const base = await applyPlanAndSnapshot(create);
+    await applyPlanAndSnapshot(insertA);
+    const latest = await applyPlanAndSnapshot(insertB);
 
     const tamper = new Database(dbPath);
     tamper.run("PRAGMA ignore_check_constraints=ON");
@@ -142,8 +147,7 @@ describe("snapshot / recover", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const create = await writePlanFile(dir, "create-snap-clean.json", {
       message: "create snapshots table",
       operations: [
@@ -154,7 +158,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    await applyPlan(create);
+    await applyPlanAndSnapshot(create);
 
     const snapshotDir = `${dir}/snapshots`;
     const names: string[] = [];
@@ -177,8 +181,7 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO external_data(id, body) VALUES(1, 'stable')");
     direct.close(false);
 
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const create = await writePlanFile(dir, "create-orders.json", {
       message: "create orders",
       operations: [
@@ -197,8 +200,8 @@ describe("snapshot / recover", () => {
       operations: [{ type: "insert", table: "orders", values: { id: 1, item: "book" } }],
     });
 
-    const snapshotBase = await applyPlan(create);
-    const replayed = await applyPlan(insert);
+    const snapshotBase = await applyPlanAndSnapshot(create);
+    const replayed = await applyPlanAndSnapshot(insert);
 
     const recovered = await recoverFromSnapshot(snapshotBase.commitId);
     expect(recovered.replayedCommits).toBe(1);
@@ -215,8 +218,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay does not re-fire triggers already captured in observed effects", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const create = await writePlanFile(dir, "create-ledger-tables.json", {
       message: "create ledger tables",
       operations: [
@@ -239,7 +241,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    await applyPlan(create);
+    await applyPlanAndSnapshot(create);
 
     const direct = new Database(dbPath);
     direct.run(`
@@ -262,13 +264,13 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const markerCommit = await applyPlan(marker);
+    const markerCommit = await applyPlanAndSnapshot(marker);
 
     const insertLedger = await writePlanFile(dir, "insert-ledger-with-trigger.json", {
       message: "insert ledger with trigger",
       operations: [{ type: "insert", table: "ledger", values: { id: 1, account_id: 1, amount: 7 } }],
     });
-    await applyPlan(insertLedger);
+    await applyPlanAndSnapshot(insertLedger);
 
     await recoverFromSnapshot(markerCommit.commitId);
 
@@ -279,8 +281,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay interleaves schema before blocked row effects in revert commit", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
     direct.run("CREATE TABLE parent_created_later (id INTEGER PRIMARY KEY, body TEXT NOT NULL)");
@@ -303,7 +304,7 @@ describe("snapshot / recover", () => {
         { type: "drop_table", table: "parent_created_later" },
       ],
     });
-    const dropped = await applyPlan(destructive);
+    const dropped = await applyPlanAndSnapshot(destructive);
 
     const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
@@ -335,8 +336,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay succeeds for first AUTOINCREMENT insert commit", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_replay (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.close(false);
@@ -351,13 +351,13 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const baseCommit = await applyPlan(basePlan);
+    const baseCommit = await applyPlanAndSnapshot(basePlan);
 
     const firstInsertPlan = await writePlanFile(dir, "autoinc-first-insert.json", {
       message: "first autoincrement insert",
       operations: [{ type: "insert", table: "auto_replay", values: { body: "x" } }],
     });
-    const firstInsert = await applyPlan(firstInsertPlan);
+    const firstInsert = await applyPlanAndSnapshot(firstInsertPlan);
 
     const recovered = await recoverFromSnapshot(baseCommit.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
@@ -372,8 +372,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay succeeds for drop_table on AUTOINCREMENT table", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_schema (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.run("INSERT INTO auto_schema(body) VALUES ('a')");
@@ -389,13 +388,13 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const markerCommit = await applyPlan(markerPlan);
+    const markerCommit = await applyPlanAndSnapshot(markerPlan);
 
     const dropPlan = await writePlanFile(dir, "drop-autoinc-schema-replay.json", {
       message: "drop autoincrement table",
       operations: [{ type: "drop_table", table: "auto_schema" }],
     });
-    const dropped = await applyPlan(dropPlan);
+    const dropped = await applyPlanAndSnapshot(dropPlan);
 
     const recovered = await recoverFromSnapshot(markerCommit.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
@@ -409,8 +408,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay restores FK-related schema effects in dependency-safe order", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
     direct.run("CREATE TABLE z_parent (id INTEGER PRIMARY KEY, body TEXT NOT NULL)");
@@ -433,7 +431,7 @@ describe("snapshot / recover", () => {
         { type: "drop_table", table: "z_parent" },
       ],
     });
-    const dropped = await applyPlan(dropBoth);
+    const dropped = await applyPlanAndSnapshot(dropBoth);
 
     const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
@@ -463,8 +461,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay of self-FK schema rebuild revert preserves FK targets", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
     direct.run(`
@@ -482,7 +479,7 @@ describe("snapshot / recover", () => {
       message: "drop self fk note",
       operations: [{ type: "drop_column", table: "self_fk_replay", column: "note" }],
     });
-    const dropped = await applyPlan(dropPlan);
+    const dropped = await applyPlanAndSnapshot(dropPlan);
 
     const reverted = revertCommit(dropped.commitId);
     expect(reverted.ok).toBe(true);
@@ -517,8 +514,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay preserves TEXT bytes with embedded NUL", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    enableSnapshotEveryCommit(dbPath);
-
+    
     const create = await writePlanFile(dir, "create-text-nul-recover.json", {
       message: "create text nul replay table",
       operations: [
@@ -533,7 +529,7 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    await applyPlan(create);
+    await applyPlanAndSnapshot(create);
 
     const direct = new Database(dbPath);
     direct.run("INSERT INTO text_nul_recover(id, payload, tag) VALUES (1, CAST(X'410042' AS TEXT), 'a')");
@@ -549,13 +545,13 @@ describe("snapshot / recover", () => {
         },
       ],
     });
-    const markerCommit = await applyPlan(marker);
+    const markerCommit = await applyPlanAndSnapshot(marker);
 
     const update = await writePlanFile(dir, "text-nul-recover-update.json", {
       message: "update tag",
       operations: [{ type: "update", table: "text_nul_recover", values: { tag: "b" }, where: { id: 1 } }],
     });
-    const updated = await applyPlan(update);
+    const updated = await applyPlanAndSnapshot(update);
 
     await recoverFromSnapshot(markerCommit.commitId);
     const rows = readQuery(

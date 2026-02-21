@@ -20,14 +20,10 @@ describe("config", () => {
       writeRemoteConfig({
         platform: "turso",
         url: "libsql://mydb-xxx.turso.io",
-        dbName: "mydb-xxx",
-        autoSync: true,
       });
       expect(readRemoteConfig()).toEqual({
         platform: "turso",
         url: "libsql://mydb-xxx.turso.io",
-        dbName: "mydb-xxx",
-        autoSync: true,
       });
       expect(resolveConfigPath()).toBe(`${dir}/.toss/config.json`);
     });

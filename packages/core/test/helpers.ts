@@ -5,7 +5,6 @@ import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
 import { configureDatabase, initDatabase } from "../src";
 import { closeClient, getClientPath } from "../src/engine/client";
-import { ENGINE_META_TABLE } from "../src/db";
 import { schemaHash } from "../src/rows";
 
 const tmpDirScopeStorage = new AsyncLocalStorage<Set<string>>();
@@ -66,13 +65,6 @@ export async function computeSchemaHash(statements: string[]): Promise<string> {
     db.close(false);
     closeClient();
   }
-}
-
-export function enableSnapshotEveryCommit(dbPath: string): void {
-  const db = new Database(dbPath);
-  db.query(`UPDATE ${ENGINE_META_TABLE} SET value='1' WHERE key='snapshot_interval'`).run();
-  db.query(`UPDATE ${ENGINE_META_TABLE} SET value='10' WHERE key='snapshot_retain'`).run();
-  db.close(false);
 }
 
 interface EnvSnapshot {

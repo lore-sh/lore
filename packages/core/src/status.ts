@@ -41,7 +41,6 @@ export function getStatus(): TossStatus {
       snapshotCount: snapshotCountRow?.c ?? 0,
       lastVerifiedAt: getMetaValue(db, "last_verified_at"),
       lastVerifiedOk: verifiedOkRaw === null ? null : verifiedOkRaw === "1",
-      lastVerifiedOkAt: getMetaValue(db, "last_verified_ok_at"),
       sync: buildSyncStatus(db),
       storage: {
         commitCount,

@@ -2,14 +2,12 @@ import type { RemotePlatform } from "@toss/core";
 import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { promptConfirm } from "./prompt-ui";
 import { colorEnabled, style } from "./terminal";
 
 export interface ConnectInput {
   platform: RemotePlatform;
   url: string;
   authToken?: string | null | undefined;
-  autoSync: boolean;
 }
 
 interface RadioOption<T extends string> {
@@ -21,14 +19,6 @@ interface RadioOption<T extends string> {
 const PLATFORM_OPTIONS: Array<RadioOption<RemotePlatform>> = [
   { id: "turso", label: "Turso (libSQL)", hint: "Managed Turso database" },
   { id: "libsql", label: "Other libSQL endpoint", hint: "Self-hosted or non-Turso libSQL URL" },
-];
-
-export type LibsqlAuthMode = "keep" | "set" | "clear";
-
-const LIBSQL_AUTH_OPTIONS: Array<RadioOption<LibsqlAuthMode>> = [
-  { id: "keep", label: "Keep saved token", hint: "Use currently saved libSQL token, if any" },
-  { id: "set", label: "Set new token", hint: "Provide and store a new libSQL token" },
-  { id: "clear", label: "No token", hint: "Clear saved libSQL token and connect without auth" },
 ];
 
 export type RadioKey = "up" | "down" | "enter" | "cancel";
@@ -205,31 +195,12 @@ async function promptPlatformSelection(): Promise<RemotePlatform> {
   });
 }
 
-async function promptLibsqlAuthMode(): Promise<LibsqlAuthMode> {
-  return await promptRadioSelection({
-    title: "toss remote connect",
-    subtitle: "Choose auth token handling for this libSQL endpoint.",
-    options: LIBSQL_AUTH_OPTIONS,
-    cancelMessage: "remote connect cancelled",
-  });
-}
-
 function normalizeRequired(input: string, label: string): string {
   const normalized = input.trim();
   if (normalized.length === 0) {
     throw new Error(`${label} is required.`);
   }
   return normalized;
-}
-
-export function resolveLibsqlAuthToken(mode: LibsqlAuthMode, rawToken?: string): string | null | undefined {
-  if (mode === "keep") {
-    return undefined;
-  }
-  if (mode === "clear") {
-    return null;
-  }
-  return normalizeRequired(rawToken ?? "", "Auth token");
 }
 
 export function platformName(platform: RemotePlatform): string {
@@ -239,50 +210,28 @@ export function platformName(platform: RemotePlatform): string {
 export async function promptRemoteConnect(): Promise<ConnectInput> {
   const platform = await promptPlatformSelection();
   const prompt = createInterface({ input: stdin, output: stdout });
-  let url = "";
-  let authToken: string | null | undefined;
   try {
     const urlLabel = platform === "turso" ? "? Turso database URL: " : "? libSQL endpoint URL: ";
-    url = normalizeRequired(await prompt.question(urlLabel), "Remote URL");
-
-    if (platform === "turso") {
-      const rawToken = await prompt.question("? Auth token (paste, then Enter): ");
-      authToken = normalizeRequired(rawToken, "Auth token");
+    const url = normalizeRequired(await prompt.question(urlLabel), "Remote URL");
+    const tokenActionRaw = (await prompt.question("? Auth token action [keep|set|clear] (default: keep): "))
+      .trim()
+      .toLowerCase();
+    let authToken: string | null | undefined;
+    if (tokenActionRaw.length === 0 || tokenActionRaw === "keep") {
+      authToken = undefined;
+    } else if (tokenActionRaw === "clear") {
+      authToken = null;
+    } else if (tokenActionRaw === "set") {
+      authToken = normalizeRequired(await prompt.question("? Auth token: "), "Auth token");
+    } else {
+      throw new Error("Auth token action must be one of: keep, set, clear.");
     }
+    return {
+      platform,
+      url,
+      authToken,
+    };
   } finally {
     prompt.close();
   }
-
-  if (platform === "libsql") {
-    const mode = await promptLibsqlAuthMode();
-    if (mode === "set") {
-      const tokenPrompt = createInterface({ input: stdin, output: stdout });
-      try {
-        const rawToken = await tokenPrompt.question("? Auth token (paste, then Enter): ");
-        authToken = resolveLibsqlAuthToken(mode, rawToken);
-      } finally {
-        tokenPrompt.close();
-      }
-    } else {
-      authToken = resolveLibsqlAuthToken(mode);
-    }
-  }
-
-  const autoSync = await promptConfirm({
-    title: "toss remote connect",
-    message: "Enable auto-sync after apply?",
-    defaultValue: true,
-    yesLabel: "Enable",
-    noLabel: "Disable",
-    yesHint: "Run pull+push automatically after each apply.",
-    noHint: "Sync only when you run push/pull/sync manually.",
-    cancelMessage: "remote connect cancelled",
-  });
-
-  return {
-    platform,
-    url,
-    authToken,
-    autoSync,
-  };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canUseConnectPrompt, createRadioState, platformName, reduceRadioState, resolveLibsqlAuthToken } from "../src/connect-ui";
+import { canUseConnectPrompt, createRadioState, platformName, reduceRadioState } from "../src/connect-ui";
 
 describe("connect-ui", () => {
   test("canUseConnectPrompt requires stdin/stdout TTY", () => {
@@ -23,10 +23,4 @@ describe("connect-ui", () => {
     expect(state.cursor).toBe(1);
   });
 
-  test("resolveLibsqlAuthToken keeps/sets/clears explicitly", () => {
-    expect(resolveLibsqlAuthToken("keep")).toBeUndefined();
-    expect(resolveLibsqlAuthToken("clear")).toBeNull();
-    expect(resolveLibsqlAuthToken("set", "abc")).toBe("abc");
-    expect(() => resolveLibsqlAuthToken("set", "  ")).toThrow("Auth token is required.");
-  });
 });

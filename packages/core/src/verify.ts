@@ -43,9 +43,6 @@ export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {
     setMetaValue(db, "last_verified_at", checkedAt);
     const ok = issues.length === 0;
     setMetaValue(db, "last_verified_ok", ok ? "1" : "0");
-    if (ok) {
-      setMetaValue(db, "last_verified_ok_at", checkedAt);
-    }
 
     return {
       ok,

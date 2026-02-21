@@ -7,16 +7,12 @@ import type { RemotePlatform } from "./types";
 export interface RemoteConfig {
   platform: RemotePlatform;
   url: string;
-  dbName: string | null;
-  autoSync: boolean;
 }
 
 interface ConfigFile {
   remote?: {
     platform?: unknown;
     url?: unknown;
-    dbName?: unknown;
-    autoSync?: unknown;
   };
 }
 
@@ -80,32 +76,11 @@ function parseNonEmptyString(value: unknown, fieldPath: string): string {
   return normalized;
 }
 
-function parseOptionalString(value: unknown, fieldPath: string): string | undefined {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    throw new TossError("CONFIG_ERROR", `${fieldPath} must be a string`);
-  }
-  const normalized = value.trim();
-  return normalized.length === 0 ? undefined : normalized;
-}
-
 function parsePlatform(value: unknown): RemotePlatform {
   if (value === "turso" || value === "libsql") {
     return value;
   }
   throw new TossError("CONFIG_ERROR", "remote.platform must be one of: turso, libsql");
-}
-
-function parseBoolean(value: unknown, fieldPath: string, fallback: boolean): boolean {
-  if (value === undefined) {
-    return fallback;
-  }
-  if (typeof value !== "boolean") {
-    throw new TossError("CONFIG_ERROR", `${fieldPath} must be a boolean`);
-  }
-  return value;
 }
 
 function parseRemoteConfigFromUnknown(value: unknown): RemoteConfig | null {
@@ -120,8 +95,6 @@ function parseRemoteConfigFromUnknown(value: unknown): RemoteConfig | null {
   return {
     platform: parsePlatform(remote.platform),
     url: parseNonEmptyString(remote.url, "remote.url"),
-    dbName: parseOptionalString(remote.dbName, "remote.dbName") ?? null,
-    autoSync: parseBoolean(remote.autoSync, "remote.autoSync", true),
   };
 }
 
@@ -173,8 +146,6 @@ export function writeRemoteConfig(remote: RemoteConfig): void {
     remote: {
       platform: remote.platform,
       url: remote.url,
-      dbName: remote.dbName,
-      autoSync: remote.autoSync,
     },
   });
 }

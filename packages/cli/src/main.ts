@@ -30,6 +30,7 @@ import {
   platformName,
   promptRemoteConnect,
 } from "./connect-ui";
+import { parseRemoteConnectArgs } from "./remote-connect-args";
 import {
   canUseInteractivePrompt,
   parseInitArgs,
@@ -46,23 +47,24 @@ function usage(): string {
     "toss CLI",
     "",
     "Commands:",
-    "  toss init [--no-skills] [--force-new] [--platforms <list>] [--yes]",
-    "  toss clean [--yes]",
-    "  toss schema [--table <name>]",
+    "  toss init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]",
+    "  toss clean [--yes] [--json]",
+    "  toss schema [<table>]",
     "  toss plan <file|->",
     "  toss apply <file|->",
     "  toss read --sql \"<SELECT...>\" [--json]",
-    "  toss status",
-    "  toss history [--verbose]",
+    "  toss status [--json]",
+    "  toss history [--verbose] [--json]",
     "  toss revert <commit_id>",
     "  toss verify [--full]",
-    "  toss recover --from-snapshot <commit_id>",
+    "  toss recover <commit_id>",
     "  toss remote connect",
+    "  toss remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]",
     "  toss remote status",
     "  toss push",
     "  toss pull",
     "  toss sync",
-    "  toss clone <remote_url> [--platform <turso|libsql>] [--no-auto-sync] [--force-new]",
+    "  toss clone <url> --platform <turso|libsql> [--force-new]",
     "  toss studio [--port <n>] [--no-open]",
     "",
     "Config Files:",
@@ -118,7 +120,11 @@ async function runInit(args: string[]): Promise<void> {
 
   let openclawHeartbeat = false;
   if (!parsed.noSkills && skillPlatforms.includes("openclaw")) {
-    openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
+    if (parsed.noHeartbeat) {
+      openclawHeartbeat = false;
+    } else {
+      openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
+    }
   }
 
   const result = await initDatabase({
@@ -127,6 +133,16 @@ async function runInit(args: string[]): Promise<void> {
     skillPlatforms,
     openclawHeartbeat,
   });
+  if (parsed.json) {
+    console.log(
+      toJson({
+        dbPath: result.dbPath,
+        platforms: skillPlatforms,
+        files: result.generatedSkills?.files.map((file) => file.path) ?? [],
+      }),
+    );
+    return;
+  }
   console.log(
     renderInitResult({
       dbPath: result.dbPath,
@@ -139,16 +155,21 @@ async function runInit(args: string[]): Promise<void> {
   );
 }
 
-function parseCleanArgs(args: string[]): { yes: boolean } {
+function parseCleanArgs(args: string[]): { yes: boolean; json: boolean } {
   let yes = false;
+  let json = false;
   for (const arg of args) {
     if (arg === "--yes") {
       yes = true;
       continue;
     }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
     throw new Error(`clean does not accept argument: ${arg}`);
   }
-  return { yes };
+  return { yes, json };
 }
 
 async function confirmClean(): Promise<boolean> {
@@ -185,6 +206,15 @@ async function runClean(args: string[]): Promise<void> {
     }
   }
   const result = await cleanSkills();
+  if (parsed.json) {
+    console.log(
+      toJson({
+        removed: result.files.filter((file) => file.removed).length,
+        files: result.files.map((file) => file.path),
+      }),
+    );
+    return;
+  }
   console.log(
     renderCleanResult({
       files: result.files,
@@ -224,18 +254,12 @@ async function runApply(args: string[]): Promise<void> {
 }
 
 function parseSchemaArgs(args: string[]): { table?: string | undefined } {
-  let table: string | undefined;
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i]!;
-    if (arg === "--table") {
-      table = args[i + 1];
-      if (!table) {
-        throw new Error("schema requires a value for --table");
-      }
-      i += 1;
-      continue;
-    }
-    throw new Error(`schema does not accept argument: ${arg}`);
+  if (args.length > 1) {
+    throw new Error("schema accepts at most one <table> argument");
+  }
+  const table = args[0];
+  if (table?.startsWith("--")) {
+    throw new Error(`schema does not accept argument: ${table}`);
   }
   return { table };
 }
@@ -268,17 +292,25 @@ function runRead(args: string[]): void {
 }
 
 function runStatus(args: string[]): void {
-  if (args.length > 0) {
-    throw new Error("status does not accept positional arguments");
+  let json = false;
+  for (const arg of args) {
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    throw new Error(`status does not accept argument: ${arg}`);
   }
   const status = getStatus();
+  if (json) {
+    console.log(toJson(status));
+    return;
+  }
   const rows = status.tables.map((table) => ({ table: table.name, rows: table.count }));
   console.log(`DB: ${status.dbPath}`);
   console.log(`User Tables: ${status.tableCount}`);
   console.log(`Snapshots: ${status.snapshotCount}`);
   console.log(`Last Verified At: ${status.lastVerifiedAt ?? "never"}`);
   console.log(`Last Verified OK: ${status.lastVerifiedOk === null ? "unknown" : status.lastVerifiedOk ? "yes" : "no"}`);
-  console.log(`Last Verified OK At: ${status.lastVerifiedOkAt ?? "never"}`);
   console.log(`Sync Configured: ${status.sync.configured ? "yes" : "no"}`);
   console.log(`Sync State: ${status.sync.state}`);
   console.log(`Pending Commits: ${status.sync.pendingCommits}`);
@@ -310,17 +342,27 @@ async function runRemote(args: string[]): Promise<void> {
     throw new Error("remote requires subcommand: connect | status");
   }
   if (sub === "connect") {
-    if (rest.length > 0) {
-      throw new Error("remote connect does not accept arguments");
+    const parsed = parseRemoteConnectArgs(rest);
+    let config: Awaited<ReturnType<typeof connectRemote>>;
+    let authToken: string | null | undefined;
+    if (parsed.interactive) {
+      if (!canUseConnectPrompt(stdin.isTTY === true, stdout.isTTY === true)) {
+        throw new Error("interactive terminal required. Use --platform --url [--token|--clear-token] for non-interactive mode.");
+      }
+      const input = await promptRemoteConnect();
+      authToken = input.authToken;
+      config = await connectRemote(input);
+    } else {
+      authToken = parsed.authToken;
+      config = await connectRemote({
+        platform: parsed.platform,
+        url: parsed.url,
+        authToken: parsed.authToken,
+      });
     }
-    if (!canUseConnectPrompt(stdin.isTTY === true, stdout.isTTY === true)) {
-      throw new Error("interactive terminal required. Set config files directly.");
-    }
-    const input = await promptRemoteConnect();
-    const config = await connectRemote(input);
     console.log(`Connected to ${platformName(config.platform)} (${config.remoteDbName ?? "unknown"}).`);
     console.log("Config saved to ~/.toss/config.json");
-    if (input.authToken !== undefined) {
+    if (authToken !== undefined) {
       console.log("Credentials saved to ~/.toss/credentials.json");
     }
     return;
@@ -359,14 +401,12 @@ async function runSync(args: string[]): Promise<void> {
 }
 
 function parseCloneArgs(args: string[]): {
-  platform?: RemotePlatform | undefined;
+  platform: RemotePlatform;
   url: string;
-  autoSync: boolean;
   forceNew: boolean;
 } {
   let platform: RemotePlatform | undefined;
   let url: string | undefined;
-  let autoSync = true;
   let forceNew = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
@@ -390,10 +430,6 @@ function parseCloneArgs(args: string[]): {
       platform = value;
       continue;
     }
-    if (arg === "--no-auto-sync") {
-      autoSync = false;
-      continue;
-    }
     if (arg === "--force-new") {
       forceNew = true;
       continue;
@@ -408,9 +444,12 @@ function parseCloneArgs(args: string[]): {
     throw new Error(`clone does not accept argument: ${arg}`);
   }
   if (!url) {
-    throw new Error("clone requires <remote_url>");
+    throw new Error("clone requires <url>");
   }
-  return { platform, url, autoSync, forceNew };
+  if (!platform) {
+    throw new Error("clone requires --platform <turso|libsql>");
+  }
+  return { platform, url, forceNew };
 }
 
 async function runClone(args: string[]): Promise<void> {
@@ -449,12 +488,24 @@ function runStudio(args: string[]): void {
 }
 
 function runHistory(args: string[]): void {
-  const verbose = hasFlag(args, "--verbose");
-  const invalidArgs = args.filter((arg) => arg !== "--verbose");
-  if (invalidArgs.length > 0) {
-    throw new Error("history accepts only --verbose");
+  let verbose = false;
+  let json = false;
+  for (const arg of args) {
+    if (arg === "--verbose") {
+      verbose = true;
+      continue;
+    }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    throw new Error(`history does not accept argument: ${arg}`);
   }
   const history = getHistory();
+  if (json) {
+    console.log(toJson(history));
+    return;
+  }
   const rows = history.map((entry) =>
     verbose
       ? {
@@ -511,9 +562,12 @@ function runVerify(args: string[]): never | void {
 }
 
 async function runRecover(args: string[]): Promise<void> {
-  const snapshotCommitId = getOptionValue(args, "--from-snapshot");
+  const snapshotCommitId = args[0];
   if (!snapshotCommitId) {
-    throw new Error("recover requires --from-snapshot <commit_id>");
+    throw new Error("recover requires <commit_id>");
+  }
+  if (args.length > 1) {
+    throw new Error("recover accepts exactly one <commit_id>");
   }
   const result = await recoverFromSnapshot(snapshotCommitId);
   console.log(toJson({ status: "ok", ...result }));

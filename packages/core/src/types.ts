@@ -126,7 +126,7 @@ export interface OperationPlan {
   operations: Operation[];
 }
 
-export type CommitKind = "apply" | "revert" | "system";
+export type CommitKind = "apply" | "revert";
 
 export interface CommitEntry {
   commitId: string;
@@ -151,7 +151,6 @@ export interface SyncConfig {
   platform: RemotePlatform;
   remoteUrl: string;
   remoteDbName: string | null;
-  autoSync: boolean;
 }
 
 export interface RemoteHead {
@@ -184,7 +183,6 @@ export interface TossSyncStatus {
   remotePlatform: RemotePlatform | null;
   remoteUrl: string | null;
   remoteDbName: string | null;
-  autoSync: boolean;
   state: SyncState;
   lastPushedCommit: string | null;
   lastPulledCommit: string | null;
@@ -217,7 +215,6 @@ export interface TossStatus {
   snapshotCount: number;
   lastVerifiedAt: string | null;
   lastVerifiedOk: boolean | null;
-  lastVerifiedOkAt: string | null;
   sync: TossSyncStatus;
   storage: StorageEstimate;
 }

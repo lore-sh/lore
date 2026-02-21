@@ -25,9 +25,11 @@ describe("init-ui", () => {
   });
 
   test("parseInitArgs parses init flags", () => {
-    const parsed = parseInitArgs(["--force-new", "--yes", "--platforms", "opencode,openclaw"]);
+    const parsed = parseInitArgs(["--force-new", "--yes", "--no-heartbeat", "--json", "--platforms", "opencode,openclaw"]);
     expect(parsed.forceNew).toBe(true);
     expect(parsed.yes).toBe(true);
+    expect(parsed.noHeartbeat).toBe(true);
+    expect(parsed.json).toBe(true);
     expect(parsed.platforms).toEqual(["opencode", "openclaw"]);
   });
 
@@ -38,11 +40,12 @@ describe("init-ui", () => {
     );
   });
 
-  test("resolveInitSelection still requires --yes when platforms are provided in non-tty mode", () => {
+  test("resolveInitSelection accepts --platforms in non-tty mode without --yes", () => {
     const parsed = parseInitArgs(["--platforms", "codex,cursor"]);
-    expect(() => resolveInitSelection(parsed, false)).toThrow(
-      "init requires --yes in non-interactive mode. Use --yes --platforms <list>.",
-    );
+    expect(resolveInitSelection(parsed, false)).toEqual({
+      interactive: false,
+      platforms: ["codex", "cursor"],
+    });
   });
 
   test("resolveInitSelection defaults to all platforms with --yes", () => {

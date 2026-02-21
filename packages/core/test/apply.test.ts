@@ -47,7 +47,6 @@ describe("applyPlan", () => {
     expect(status.snapshotCount).toBe(0);
     expect(status.lastVerifiedAt).toBeNull();
     expect(status.lastVerifiedOk).toBeNull();
-    expect(status.lastVerifiedOkAt).toBeNull();
 
     const history = getHistory();
     expect(history).toHaveLength(2);

@@ -34,7 +34,6 @@ import { initDatabase } from "./init";
 import { findCommitSeq, getCommitReplayInput, loadCommitReplayInputs, replayCommitExactly } from "./replay";
 import type { CommitReplayInput } from "./log";
 import type {
-  CommitKind,
   Operation,
   RemoteHead,
   SyncConfig,
@@ -91,19 +90,6 @@ function parseRemoteDbName(remoteUrl: string): string | null {
   }
 }
 
-function inferRemotePlatform(remoteUrl: string): SyncConfig["platform"] {
-  try {
-    const parsed = new URL(remoteUrl);
-    const host = parsed.hostname.trim().toLowerCase();
-    if (host.endsWith(".turso.io")) {
-      return "turso";
-    }
-  } catch {
-    // fall through to generic libsql platform
-  }
-  return "libsql";
-}
-
 function parseRowValue(row: Row, key: string): unknown {
   const map = row as unknown as Record<string, unknown>;
   return map[key];
@@ -143,8 +129,8 @@ function parseInteger(value: unknown, label: string): number {
   throw new TossError("SYNC_DIVERGED", `Remote ${label} is invalid`);
 }
 
-function parseCommitKind(value: string): CommitKind {
-  if (value === "apply" || value === "revert" || value === "system") {
+function parseCommitKind(value: string): "apply" | "revert" {
+  if (value === "apply" || value === "revert") {
     return value;
   }
   throw new TossError("SYNC_DIVERGED", `Remote commit kind is invalid: ${value}`);
@@ -208,8 +194,7 @@ function readSyncConfig(): SyncConfig | null {
   return {
     platform: remote.platform,
     remoteUrl: remote.url,
-    remoteDbName: remote.dbName ?? parseRemoteDbName(remote.url),
-    autoSync: remote.autoSync,
+    remoteDbName: parseRemoteDbName(remote.url),
   };
 }
 
@@ -771,15 +756,14 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
 }
 
 function syncConfigFromInputs(options: {
-  platform?: SyncConfig["platform"] | undefined;
+  platform: SyncConfig["platform"];
   url: string;
-  autoSync?: boolean | undefined;
 }): SyncConfig {
   const trimmedUrl = options.url.trim();
   if (trimmedUrl.length === 0) {
     throw new TossError("CONFIG_ERROR", "Remote URL must not be empty");
   }
-  const platform = options.platform ?? inferRemotePlatform(trimmedUrl);
+  const platform = options.platform;
   if (platform !== "turso" && platform !== "libsql") {
     throw new TossError("CONFIG_ERROR", `Unsupported remote platform: ${platform}`);
   }
@@ -787,14 +771,12 @@ function syncConfigFromInputs(options: {
     platform,
     remoteUrl: trimmedUrl,
     remoteDbName: parseRemoteDbName(trimmedUrl),
-    autoSync: options.autoSync ?? true,
   };
 }
 
 export async function connectRemote(options: {
-  platform?: SyncConfig["platform"] | undefined;
+  platform: SyncConfig["platform"];
   url: string;
-  autoSync?: boolean | undefined;
   authToken?: string | null | undefined;
 }): Promise<SyncConfig> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
@@ -809,8 +791,6 @@ export async function connectRemote(options: {
       writeRemoteConfig({
         platform: config.platform,
         url: config.remoteUrl,
-        dbName: config.remoteDbName,
-        autoSync: config.autoSync,
       });
       const token = normalizeToken(options.authToken);
       if (token) {
@@ -861,7 +841,7 @@ export async function syncWithRemote(options: { action?: SyncResult["action"] } 
 export async function autoSyncAfterApply(): Promise<SyncResult | null> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
     const config = readSyncConfig();
-    if (!config || !config.autoSync) {
+    if (!config) {
       return null;
     }
     try {
@@ -935,14 +915,12 @@ export async function getRemoteStatus(): Promise<{
 }
 
 export async function cloneFromRemote(options: {
-  platform?: SyncConfig["platform"] | undefined;
+  platform: SyncConfig["platform"];
   url: string;
-  autoSync?: boolean | undefined;
   forceNew?: boolean | undefined;
   authToken?: string | null | undefined;
 }): Promise<{ dbPath: string; sync: SyncResult }> {
   const targetDbPath = getClientPath() ?? resolveDbPath();
-  const autoSync = options.autoSync ?? true;
   const forceNew = options.forceNew ?? false;
   if (!forceNew && existsSync(targetDbPath)) {
     throw new TossError("CONFIG_ERROR", `Clone target already exists: ${targetDbPath}. Use --force-new to replace it.`);
@@ -951,7 +929,6 @@ export async function cloneFromRemote(options: {
   await connectRemote({
     platform: options.platform,
     url: options.url,
-    autoSync,
     authToken: options.authToken,
   });
   const sync = await runPull("clone");
@@ -971,7 +948,6 @@ export function buildSyncStatus(db: Database): TossSyncStatus {
     remotePlatform: config?.platform ?? null,
     remoteUrl: config?.remoteUrl ?? null,
     remoteDbName: config?.remoteDbName ?? null,
-    autoSync: config?.autoSync ?? false,
     state,
     lastPushedCommit,
     lastPulledCommit,

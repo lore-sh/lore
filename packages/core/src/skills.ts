@@ -276,19 +276,29 @@ Present results with a short interpretation.
 - MUST prefer SQLite-generated timestamps for system fields (via SQL defaults) instead of injecting current time in values.
 - For finite category/status fields, define and maintain explicit \`CHECK\` constraints.
 - For destructive operations (\`drop_table\`, \`drop_column\`): prefer staged migration — add new -> migrate data -> verify -> drop old.
+- MUST NOT run \`toss clean\`, \`toss init --force-new\`, or \`toss clone --force-new\` unless the user explicitly requests destructive reset/replacement.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| \`toss schema [--table <name>]\` | Read current schema |
+| \`toss schema [<table>]\` | Read current schema |
 | \`toss plan <file\\|->\` | Dry-run validation |
 | \`toss apply <file\\|->\` | Execute and commit |
 | \`toss read --sql "<SELECT>" --json\` | Read-only query |
-| \`toss status\` | Database overview |
-| \`toss history [--verbose]\` | Commit log |
+| \`toss status [--json]\` | Database overview |
+| \`toss history [--verbose] [--json]\` | Commit log |
 | \`toss verify [--full]\` | Integrity check |
 | \`toss revert <commit_id>\` | Reverse a commit |
+| \`toss recover <commit_id>\` | Restore from snapshot |
+| \`toss remote connect --platform <turso\\|libsql> --url <url> [--token <token>\\|--clear-token]\` | Configure remote |
+| \`toss remote status\` | Show local/remote sync state |
+| \`toss push\` | Push local commits |
+| \`toss pull\` | Pull remote commits |
+| \`toss sync\` | Pull then push |
+| \`toss clone <url> --platform <turso\\|libsql> [--force-new]\` | Initialize local DB from remote |
+| \`toss init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]\` | Initialize local DB |
+| \`toss clean [--yes] [--json]\` | Remove global integration files |
 
 IMPORTANT: You can run toss commands from any directory. toss always uses \`~/.toss/toss.db\`.
 
@@ -548,7 +558,7 @@ Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss a
 
 ### schema
 \`\`\`bash
-toss schema [--table <name>]
+toss schema [<table>]
 \`\`\`
 Returns JSON with tables, columns, indexes, foreign keys, triggers, checks, and row counts.
 
@@ -566,11 +576,17 @@ Returns: \`ok\`, \`errors\`, \`warnings\`, \`risk\` (low/medium/high), predicted
 
 ## Other Commands
 
-- \`toss history [--verbose]\`: Commit log with optional detail.
+- \`toss history [--verbose] [--json]\`: Commit log with optional detail.
 - \`toss verify [--full]\`: Chain hash validation + optional SQLite integrity check.
 - \`toss revert <commit_id>\`: Inverse commit. Returns conflict details if revert is blocked.
-- \`toss status\`: Database path, table count, HEAD commit info.
-- \`toss recover --from-snapshot <commit_id>\`: Disaster recovery from snapshot.
+- \`toss status [--json]\`: Database path, table count, HEAD commit info.
+- \`toss recover <commit_id>\`: Disaster recovery from snapshot.
+- \`toss remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]\`: Configure remote connection.
+- \`toss remote status\`: Show local/remote sync state.
+- \`toss push\` / \`toss pull\` / \`toss sync\`: Explicit sync controls.
+- \`toss clone <url> --platform <turso|libsql> [--force-new]\`: Initialize from remote.
+- \`toss init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]\`: Initialize local DB.
+- \`toss clean [--yes] [--json]\`: Remove global integration files (destructive).
 `;
 }
 
@@ -593,6 +609,9 @@ Activate when conversation contains information worth remembering or user asks a
 - \`toss plan -\` — dry-run validation
 - \`toss apply -\` — execute and commit
 - \`toss read --sql "<SELECT ...>" --json\` — query data
+- \`toss remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]\` — configure remote
+- \`toss remote status\` / \`toss push\` / \`toss pull\` / \`toss sync\` — remote sync controls
+- \`toss clone <url> --platform <turso|libsql> [--force-new]\` — clone from remote
 
 ## Rules
 - One semantic unit per apply.
@@ -600,6 +619,7 @@ Activate when conversation contains information worth remembering or user asks a
 - Never store secrets or credentials.
 - Include a descriptive message in every apply.
 - Keep stored content fields in the user-requested language.
+- Never run \`toss clean\`, \`toss init --force-new\`, or \`toss clone --force-new\` unless the user explicitly asks for destructive reset/replacement.
 `;
 }
 

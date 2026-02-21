@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 const nowDefault = sql`(unixepoch() * 1000)`;
-const commitKindValues = ["apply", "revert", "system"] as const;
+const commitKindValues = ["apply", "revert"] as const;
 const reflogReasonValues = ["apply", "revert"] as const;
 const opTypeValues = [
   "create_table",

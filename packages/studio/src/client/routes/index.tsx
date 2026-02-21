@@ -23,7 +23,7 @@ export function DashboardPage() {
         <StatCard label="User tables" value={String(status.tableCount)} />
         <StatCard label="Snapshots" value={String(status.snapshotCount)} />
         <StatCard label="Head kind" value={head?.kind ?? "none"} />
-        <StatCard label="Last verified" value={status.lastVerifiedOkAt ?? "never"} />
+        <StatCard label="Last verified" value={status.lastVerifiedAt ?? "never"} />
       </div>
 
       <section className="ui-surface">

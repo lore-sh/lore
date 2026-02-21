@@ -8,7 +8,6 @@ import {
   configureDatabase,
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
-  getMetaValue,
   getRow,
   listUserTables,
   MAIN_REF_NAME,
@@ -31,16 +30,6 @@ export async function hashFile(path: string): Promise<string> {
     hasher.update(chunk);
   }
   return hasher.digest("hex");
-}
-
-export function getSnapshotInterval(db: Database): number {
-  const value = getMetaValue(db, "snapshot_interval");
-  return value ? Number(value) : DEFAULT_SNAPSHOT_INTERVAL;
-}
-
-export function getSnapshotRetain(db: Database): number {
-  const value = getMetaValue(db, "snapshot_retain");
-  return value ? Number(value) : DEFAULT_SNAPSHOT_RETAIN;
 }
 
 function openStagingWritableDatabase(stagingPath: string): Database {
@@ -81,7 +70,7 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
 
 export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
   const runtime = withInitializedDatabase(({ db, dbPath }) => {
-    const interval = getSnapshotInterval(db);
+    const interval = DEFAULT_SNAPSHOT_INTERVAL;
     if (interval <= 0 || commit.seq % interval !== 0) {
       return null;
     }
@@ -134,7 +123,7 @@ export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
       })
       .run();
 
-    const retain = getSnapshotRetain(writeDb);
+    const retain = DEFAULT_SNAPSHOT_RETAIN;
     const allSnapshots = engineDb
       .select({ commitId: SnapshotTable.commitId, filePath: SnapshotTable.filePath })
       .from(SnapshotTable)

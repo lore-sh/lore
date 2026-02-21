@@ -27,10 +27,7 @@ export const LAST_PULLED_COMMIT_META_KEY = "last_pulled_commit";
 export const LAST_SYNC_STATE_META_KEY = "last_sync_state";
 export const LAST_SYNC_ERROR_META_KEY = "last_sync_error";
 export const SYNC_PROTOCOL_VERSION_META_KEY = "sync_protocol_version";
-export const RESETTABLE_META_DEFAULTS = [
-  ["snapshot_interval", String(DEFAULT_SNAPSHOT_INTERVAL)],
-  ["snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN)],
-] as const;
+export const RESETTABLE_META_DEFAULTS: ReadonlyArray<readonly [string, string]> = [];
 export const PRESERVED_META_DEFAULTS = [
   [LAST_PUSHED_COMMIT_META_KEY, ""],
   [LAST_PULLED_COMMIT_META_KEY, ""],
@@ -154,9 +151,7 @@ export function isInitialized(db: Database): boolean {
   function hasRow(table: string, column: string, value: string): boolean {
     return getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${table} WHERE ${column}=? LIMIT 1`, value)?.ok === 1;
   }
-  return hasRow(REF_TABLE, "name", MAIN_REF_NAME)
-    && hasRow(ENGINE_META_TABLE, "key", "snapshot_interval")
-    && hasRow(ENGINE_META_TABLE, "key", "snapshot_retain");
+  return hasRow(REF_TABLE, "name", MAIN_REF_NAME);
 }
 
 export function assertInitialized(db: Database, dbPath: string): void {

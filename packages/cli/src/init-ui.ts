@@ -29,6 +29,8 @@ export interface ParsedInitArgs {
   noSkills: boolean;
   forceNew: boolean;
   yes: boolean;
+  noHeartbeat: boolean;
+  json: boolean;
   platforms: SkillPlatform[] | null;
 }
 
@@ -208,6 +210,8 @@ export function parseInitArgs(args: string[]): ParsedInitArgs {
   let noSkills = false;
   let forceNew = false;
   let yes = false;
+  let noHeartbeat = false;
+  let json = false;
   let platforms: SkillPlatform[] | null = null;
 
   for (let i = 0; i < args.length; i += 1) {
@@ -222,6 +226,14 @@ export function parseInitArgs(args: string[]): ParsedInitArgs {
     }
     if (arg === "--yes") {
       yes = true;
+      continue;
+    }
+    if (arg === "--no-heartbeat") {
+      noHeartbeat = true;
+      continue;
+    }
+    if (arg === "--json") {
+      json = true;
       continue;
     }
     if (arg === "--platforms") {
@@ -241,18 +253,18 @@ export function parseInitArgs(args: string[]): ParsedInitArgs {
     throw new Error(`init does not accept argument: ${arg}`);
   }
 
-  return { noSkills, forceNew, yes, platforms };
+  return { noSkills, forceNew, yes, noHeartbeat, json, platforms };
 }
 
 export function resolveInitSelection(parsed: ParsedInitArgs, isTty: boolean): ResolvedInitSelection {
   if (parsed.noSkills) {
     return { interactive: false, platforms: [] };
   }
-  if (!isTty && !parsed.yes) {
-    throw new Error("init requires --yes in non-interactive mode. Use --yes --platforms <list>.");
-  }
   if (parsed.platforms) {
     return { interactive: false, platforms: parsed.platforms };
+  }
+  if (!isTty && !parsed.yes) {
+    throw new Error("init requires --yes in non-interactive mode. Use --yes --platforms <list>.");
   }
   if (parsed.yes) {
     return { interactive: false, platforms: [...DEFAULT_INIT_PLATFORMS] };

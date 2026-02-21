@@ -13,7 +13,7 @@ const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name,
 
 
 describe("verifyDatabase", () => {
-  testWithTmp("verify stores last_verified_ok and preserves last_verified_ok_at on failure", async () => {
+  testWithTmp("verify stores last_verified_ok", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
@@ -39,7 +39,6 @@ describe("verifyDatabase", () => {
     const firstStatus = getStatus();
     expect(firstStatus.lastVerifiedAt).not.toBeNull();
     expect(firstStatus.lastVerifiedOk).toBe(true);
-    expect(firstStatus.lastVerifiedOkAt).not.toBeNull();
 
     const tamper = new Database(dbPath);
     tamper.query(`UPDATE ${COMMIT_TABLE} SET message='tampered' WHERE seq=1`).run();
@@ -51,6 +50,5 @@ describe("verifyDatabase", () => {
 
     const secondStatus = getStatus();
     expect(secondStatus.lastVerifiedOk).toBe(false);
-    expect(secondStatus.lastVerifiedOkAt).toBe(firstStatus.lastVerifiedOkAt);
   });
 });
