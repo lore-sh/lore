@@ -106,14 +106,13 @@ function joinPlatformLabels(platforms: SkillPlatform[]): string {
 function renderFileGroup(
   files: InitGeneratedFile[],
   platform: GeneratedPlatform,
-  label: string,
   withColor: boolean,
 ): string[] {
   const filtered = files.filter((file) => file.platform === platform);
   if (filtered.length === 0) {
     return [];
   }
-  const lines = [`  ${style(label, "1", withColor)}`];
+  const lines = [`  ${style(platformLabel(platform), "1", withColor)}`];
   for (const file of filtered) {
     lines.push(`    ${style("[✓]", "32;1", withColor)} ${displayPath(file.path)}`);
   }
@@ -139,12 +138,10 @@ export function renderInitResult(view: InitResultView): string {
   lines.push(`${ok} Platforms: ${joinPlatformLabels(view.selectedPlatforms)}`);
   lines.push(`${ok} Canonical skill: ${displayPath(view.generatedSkills.canonicalSkillPath)}`);
   lines.push(style("Generated files", "1", withColor));
-  lines.push(...renderFileGroup(view.generatedSkills.files, "shared", "Shared", withColor));
-  lines.push(...renderFileGroup(view.generatedSkills.files, "claude", "Claude Code", withColor));
-  lines.push(...renderFileGroup(view.generatedSkills.files, "cursor", "Cursor", withColor));
-  lines.push(...renderFileGroup(view.generatedSkills.files, "codex", "Codex CLI", withColor));
-  lines.push(...renderFileGroup(view.generatedSkills.files, "opencode", "OpenCode", withColor));
-  lines.push(...renderFileGroup(view.generatedSkills.files, "openclaw", "OpenClaw", withColor));
+  const groups: GeneratedPlatform[] = ["shared", ...PLATFORM_OPTIONS.map((opt) => opt.id)];
+  for (const group of groups) {
+    lines.push(...renderFileGroup(view.generatedSkills.files, group, withColor));
+  }
   return lines.join("\n");
 }
 

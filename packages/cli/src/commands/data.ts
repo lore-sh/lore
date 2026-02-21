@@ -77,6 +77,7 @@ export function runRead(args: string[]): void {
       json = true;
       continue;
     }
+    throw new Error(`read does not accept argument: ${arg}`);
   }
   if (!sql) {
     throw new Error('read requires --sql "<SELECT...>"');

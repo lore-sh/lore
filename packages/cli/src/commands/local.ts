@@ -26,7 +26,10 @@ export function runStatus(args: string[]): void {
   console.log(`User Tables: ${status.tableCount}`);
   console.log(`Snapshots: ${status.snapshotCount}`);
   console.log(`Last Verified At: ${status.lastVerifiedAt ?? "never"}`);
-  console.log(`Last Verified OK: ${status.lastVerifiedOk === null ? "unknown" : status.lastVerifiedOk ? "yes" : "no"}`);
+  let verifiedLabel = "unknown";
+  if (status.lastVerifiedOk === true) verifiedLabel = "yes";
+  else if (status.lastVerifiedOk === false) verifiedLabel = "no";
+  console.log(`Last Verified OK: ${verifiedLabel}`);
   console.log(`Sync Configured: ${status.sync.configured ? "yes" : "no"}`);
   console.log(`Sync State: ${status.sync.state}`);
   console.log(`Pending Commits: ${status.sync.pendingCommits}`);
@@ -90,7 +93,7 @@ export function runHistory(args: string[]): void {
   console.log(rows.length === 0 ? "(no commits)" : printTable(rows));
 }
 
-export function runRevert(args: string[]): never | void {
+export function runRevert(args: string[]): void {
   const commitId = args[0];
   if (!commitId) {
     throw new Error("revert requires <commit_id>");
@@ -106,7 +109,7 @@ export function runRevert(args: string[]): never | void {
   console.log(toJson({ status: "ok", revert_commit: summarizeCommit(result.revertCommit) }));
 }
 
-export function runVerify(args: string[]): never | void {
+export function runVerify(args: string[]): void {
   let full = false;
   for (const arg of args) {
     if (arg === "--full") {

@@ -1,6 +1,6 @@
-import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
-import { stdin, stdout } from "node:process";
+import { stdout } from "node:process";
 import { colorEnabled, style } from "../terminal";
+import { runPrompt } from "./runner";
 
 export interface MultiSelectOption<T> {
   id: T;
@@ -17,10 +17,7 @@ export interface MultiSelectState {
 }
 
 function checkbox(selected: boolean, enabled: boolean): string {
-  if (selected) {
-    return style("[✓]", "32;1", enabled);
-  }
-  return style("[ ]", "37;2", enabled);
+  return selected ? style("[✓]", "32;1", enabled) : style("[ ]", "37;2", enabled);
 }
 
 function renderMultiSelectPrompt<T>(
@@ -97,7 +94,19 @@ export function reduceMultiSelectState(
   }
 }
 
-export async function promptMultiSelect<T>(options: {
+function mapKey(key: { name?: string; ctrl?: boolean }): MultiSelectKey | null {
+  if (key.ctrl && key.name === "c") return "cancel";
+  switch (key.name) {
+    case "up": return "up";
+    case "down": return "down";
+    case "space": return "space";
+    case "return": return "enter";
+    case "a": return "toggle_all";
+    default: return null;
+  }
+}
+
+export function promptMultiSelect<T>(options: {
   title: string;
   subtitle: string;
   keyHint: string;
@@ -105,109 +114,34 @@ export async function promptMultiSelect<T>(options: {
   selectedByDefault?: boolean;
   cancelMessage: string;
 }): Promise<T[]> {
-  if (!stdin.isTTY || !stdout.isTTY) {
-    throw new Error("interactive selection requires a TTY");
-  }
-
   let state = createMultiSelectState(options.options.length, options.selectedByDefault ?? true);
-  let renderedLines = 0;
   const withColor = colorEnabled();
 
-  const redraw = (): void => {
-    if (renderedLines > 0) {
-      if (renderedLines > 1) {
-        moveCursor(stdout, 0, -(renderedLines - 1));
-      }
-      cursorTo(stdout, 0);
-    }
-
-    const lines = renderMultiSelectPrompt(
-      options.title,
-      options.subtitle,
-      options.keyHint,
-      state,
-      options.options,
-      withColor,
-    ).split("\n");
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index] ?? "";
-      clearLine(stdout, 0);
-      cursorTo(stdout, 0);
-      stdout.write(line);
-      if (index < lines.length - 1) {
-        stdout.write("\n");
-      }
-    }
-    renderedLines = lines.length;
-    clearScreenDown(stdout);
-  };
-
-  emitKeypressEvents(stdin);
-  stdin.setRawMode(true);
-  stdin.resume();
-  stdout.write("\x1B[?25l");
-  stdout.write("\n");
-  redraw();
-
-  return await new Promise<T[]>((resolve, reject) => {
-    const cleanup = (): void => {
-      stdin.off("keypress", onKeypress);
-      if (stdin.isRaw) {
-        stdin.setRawMode(false);
-      }
-      stdin.pause();
-      stdout.write("\x1B[?25h");
-      stdout.write("\x1B[0m");
-      stdout.write("\n");
-    };
-
-    const onKeypress = (_input: string, key: { name?: string; ctrl?: boolean }): void => {
-      let keyAction: MultiSelectKey | null = null;
-      if (key.ctrl && key.name === "c") {
-        keyAction = "cancel";
-      } else if (key.name === "up") {
-        keyAction = "up";
-      } else if (key.name === "down") {
-        keyAction = "down";
-      } else if (key.name === "space") {
-        keyAction = "space";
-      } else if (key.name === "return") {
-        keyAction = "enter";
-      } else if (key.name === "a") {
-        keyAction = "toggle_all";
-      }
-      if (!keyAction) {
-        return;
-      }
-
-      const reduced = reduceMultiSelectState(state, keyAction);
+  return runPrompt({
+    render: () =>
+      renderMultiSelectPrompt(options.title, options.subtitle, options.keyHint, state, options.options, withColor),
+    onKey(key) {
+      const mapped = mapKey(key);
+      if (!mapped) return null;
+      const reduced = reduceMultiSelectState(state, mapped);
       state = reduced.state;
-      if (reduced.action === "cancel") {
-        cleanup();
-        reject(new Error(options.cancelMessage));
-        return;
-      }
+      if (reduced.action === "cancel") return { action: "cancel" };
       if (reduced.action === "submit") {
         if (!hasAnySelected(state)) {
           stdout.write("\x07");
-        } else {
-          const selected: T[] = [];
-          for (let index = 0; index < state.selected.length; index += 1) {
-            if (state.selected[index]) {
-              const opt = options.options[index];
-              if (opt) {
-                selected.push(opt.id);
-              }
-            }
-          }
-          cleanup();
-          resolve(selected);
-          return;
+          return null;
         }
+        const selected: T[] = [];
+        for (let index = 0; index < state.selected.length; index += 1) {
+          if (state.selected[index]) {
+            const opt = options.options[index];
+            if (opt) selected.push(opt.id);
+          }
+        }
+        return { action: "submit", value: selected };
       }
-      redraw();
-    };
-
-    stdin.on("keypress", onKeypress);
+      return { action: "none" };
+    },
+    cancelMessage: options.cancelMessage,
   });
 }

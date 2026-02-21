@@ -1,6 +1,5 @@
-import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
-import { stdin, stdout } from "node:process";
 import { colorEnabled, style } from "../terminal";
+import { runPrompt } from "./runner";
 
 export interface ConfirmPromptOptions {
   title: string;
@@ -28,10 +27,6 @@ interface ConfirmOption {
 
 function radioMark(selected: boolean, withColor: boolean): string {
   return selected ? style("(*)", "32;1", withColor) : style("( )", "37;2", withColor);
-}
-
-function optionForCursor(cursor: ConfirmState["cursor"], options: readonly [ConfirmOption, ConfirmOption]): ConfirmOption {
-  return options[cursor];
 }
 
 function renderConfirmPrompt(
@@ -96,114 +91,41 @@ export function reduceConfirmState(
   }
 }
 
-export async function promptConfirm(options: ConfirmPromptOptions): Promise<boolean> {
-  if (!stdin.isTTY || !stdout.isTTY) {
-    throw new Error("interactive confirmation requires a TTY");
+function mapKey(key: { name?: string; ctrl?: boolean }): ConfirmKey | null {
+  if (key.ctrl && key.name === "c") return "cancel";
+  switch (key.name) {
+    case "up": return "up";
+    case "down": return "down";
+    case "left": return "left";
+    case "right": return "right";
+    case "space": return "toggle";
+    case "return": return "enter";
+    case "y": return "yes";
+    case "n": return "no";
+    default: return null;
   }
+}
 
+export function promptConfirm(options: ConfirmPromptOptions): Promise<boolean> {
   const confirmOptions: readonly [ConfirmOption, ConfirmOption] = [
-    {
-      value: true,
-      label: options.yesLabel ?? "Yes",
-      hint: options.yesHint,
-    },
-    {
-      value: false,
-      label: options.noLabel ?? "No",
-      hint: options.noHint,
-    },
+    { value: true, label: options.yesLabel ?? "Yes", hint: options.yesHint },
+    { value: false, label: options.noLabel ?? "No", hint: options.noHint },
   ];
 
   let state = createConfirmState(options.defaultValue ?? true);
-  let renderedLines = 0;
   const withColor = colorEnabled();
 
-  const redraw = (): void => {
-    if (renderedLines > 0) {
-      if (renderedLines > 1) {
-        moveCursor(stdout, 0, -(renderedLines - 1));
-      }
-      cursorTo(stdout, 0);
-    }
-
-    const lines = renderConfirmPrompt(state, confirmOptions, withColor, options.title, options.message).split("\n");
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index] ?? "";
-      clearLine(stdout, 0);
-      cursorTo(stdout, 0);
-      stdout.write(line);
-      if (index < lines.length - 1) {
-        stdout.write("\n");
-      }
-    }
-    renderedLines = lines.length;
-    clearScreenDown(stdout);
-  };
-
-  emitKeypressEvents(stdin);
-  stdin.setRawMode(true);
-  stdin.resume();
-  stdout.write("\x1B[?25l");
-  stdout.write("\n");
-  redraw();
-
-  return await new Promise<boolean>((resolve, reject) => {
-    const cleanup = (): void => {
-      stdin.off("keypress", onKeypress);
-      if (stdin.isRaw) {
-        stdin.setRawMode(false);
-      }
-      stdin.pause();
-      stdout.write("\x1B[?25h");
-      stdout.write("\x1B[0m");
-      stdout.write("\n");
-    };
-
-    const onKeypress = (_input: string, key: { name?: string; ctrl?: boolean }): void => {
-      let action: ConfirmKey | null = null;
-      if (key.ctrl && key.name === "c") {
-        action = "cancel";
-      } else if (key.name === "up") {
-        action = "up";
-      } else if (key.name === "down") {
-        action = "down";
-      } else if (key.name === "left") {
-        action = "left";
-      } else if (key.name === "right") {
-        action = "right";
-      } else if (key.name === "space") {
-        action = "toggle";
-      } else if (key.name === "return") {
-        action = "enter";
-      } else if (key.name === "y") {
-        action = "yes";
-      } else if (key.name === "n") {
-        action = "no";
-      }
-
-      if (!action) {
-        return;
-      }
-
-      const reduced = reduceConfirmState(state, action);
+  return runPrompt({
+    render: () => renderConfirmPrompt(state, confirmOptions, withColor, options.title, options.message),
+    onKey(key) {
+      const mapped = mapKey(key);
+      if (!mapped) return null;
+      const reduced = reduceConfirmState(state, mapped);
       state = reduced.state;
-
-      if (reduced.action === "cancel") {
-        cleanup();
-        reject(new Error(options.cancelMessage ?? "prompt cancelled"));
-        return;
-      }
-
-      if (reduced.action === "submit") {
-        const selected = optionForCursor(state.cursor, confirmOptions);
-        cleanup();
-        resolve(selected.value);
-        return;
-      }
-
-      redraw();
-    };
-
-    stdin.on("keypress", onKeypress);
+      if (reduced.action === "cancel") return { action: "cancel" };
+      if (reduced.action === "submit") return { action: "submit", value: confirmOptions[state.cursor].value };
+      return { action: "none" };
+    },
+    cancelMessage: options.cancelMessage ?? "prompt cancelled",
   });
 }
