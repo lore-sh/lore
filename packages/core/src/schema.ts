@@ -1,7 +1,7 @@
 import { withInitializedDatabase, getRow } from "./engine/db";
 import { TossError } from "./errors";
-import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./engine/rows";
-import { asciiCaseFold, quoteName } from "./engine/sql";
+import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
+import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
 
 export interface GetSchemaOptions {
   table?: string | undefined;
@@ -39,7 +39,7 @@ export function getSchema(options: GetSchemaOptions = {}): SchemaView {
     const descriptor = describeSchema(db);
     const selected = selectTables(descriptor.tables, options.table);
     const tables = selected.map(({ table: name, ...rest }) => {
-      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(name)}`);
+      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(name, { unsafe: true })}`);
       return { name, ...rest, rowCount: row?.c ?? 0 };
     });
 

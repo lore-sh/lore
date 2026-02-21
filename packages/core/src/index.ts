@@ -13,4 +13,4 @@ export * from "./studio";
 export * from "./sync";
 export { configureDatabase } from "./engine/db";
 export { operationPlanSchema } from "./engine/validate";
-export { deleteIfExists, isEnoent, resolveHomeDir } from "./engine/fsx";
+export { deleteIfExists, isEnoent, resolveHomeDir } from "./engine/files";

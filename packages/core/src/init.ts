@@ -1,6 +1,6 @@
 import { closeClient } from "./engine/client";
 import { configureDatabase, initializeStorage, resolveDbPath } from "./engine/db";
-import { deleteWithSidecars } from "./engine/fsx";
+import { deleteWithSidecars } from "./engine/files";
 import type { InitDatabaseOptions } from "./types";
 
 export async function removeExistingDbFiles(dbPath: string): Promise<void> {

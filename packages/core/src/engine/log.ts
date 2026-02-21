@@ -3,6 +3,8 @@ import { asc, desc, eq, sql } from "drizzle-orm";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { MAIN_REF_NAME } from "./db";
 import { createEngineDb } from "./client";
+import { captureObservedState, diffObservedState, type CapturedObservedState, type RowEffect, type SchemaEffect } from "./diff";
+import { schemaHash, stateHash } from "./inspect";
 import {
   CommitParentTable,
   CommitTable,
@@ -13,7 +15,6 @@ import {
   RefTable,
 } from "./schema.sql";
 import { TossError } from "../errors";
-import type { RowEffect, SchemaEffect } from "./observed";
 import type { CommitEntry, CommitKind, Operation } from "../types";
 
 export interface CommitWriteInput {
@@ -137,6 +138,45 @@ export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry
   return appendCommitExact(db, {
     ...input,
     commitId: computeCommitId(input),
+  });
+}
+
+export function appendCommitFromObservedChange(
+  db: Database,
+  input: {
+    operations: Operation[];
+    kind: "apply" | "revert";
+    message: string;
+    revertedTargetId: string | null;
+    beforeSchemaHash: string;
+    beforeObservedState: CapturedObservedState;
+  },
+): CommitEntry {
+  const parent = getHeadCommit(db);
+  const parentIds = parent ? [parent.commitId] : [];
+  const seq = getNextCommitSeq(db);
+  const createdAt = Date.now();
+  const afterObservedState = captureObservedState(db);
+  const captured = diffObservedState(input.beforeObservedState, afterObservedState);
+  const afterSchemaHash = schemaHash(db);
+  const afterStateHash = stateHash(db);
+  const planHash = sha256Hex(input.operations);
+
+  return appendCommit(db, {
+    seq,
+    kind: input.kind,
+    message: input.message,
+    createdAt,
+    parentIds,
+    schemaHashBefore: input.beforeSchemaHash,
+    schemaHashAfter: afterSchemaHash,
+    stateHashAfter: afterStateHash,
+    planHash,
+    inverseReady: true,
+    revertedTargetId: input.revertedTargetId,
+    operations: input.operations,
+    rowEffects: captured.rowEffects,
+    schemaEffects: captured.schemaEffects,
   });
 }
 

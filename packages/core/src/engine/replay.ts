@@ -5,8 +5,8 @@ import {
   applyRowEffectsWithOptions,
   applyUserRowAndSchemaEffects,
   assertNoForeignKeyViolations,
-} from "./observed";
-import { schemaHash, stateHash } from "./rows";
+} from "./effect";
+import { schemaHash, stateHash } from "./inspect";
 import { TossError } from "../errors";
 import { asc, eq, gt } from "drizzle-orm";
 import { createEngineDb } from "./client";

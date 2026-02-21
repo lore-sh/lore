@@ -11,12 +11,13 @@ import {
 } from "./engine/db";
 import { TossError } from "./errors";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./engine/log";
-import { describeSchema, normalizeRowObject, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/rows";
-import { asciiCaseFold, quoteName } from "./engine/sql";
+import { describeSchema, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
+import { normalizeRowObject } from "./engine/rows";
+import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
 import type { CommitEntry, CommitKind, JsonObject } from "./types";
 
 function countTableRows(db: Database, tableName: string): number {
-  return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(tableName)}`)?.c ?? 0;
+  return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`)?.c ?? 0;
 }
 
 export type StudioSortDirection = "asc" | "desc";
@@ -210,7 +211,7 @@ function tieBreakerTerms(table: SchemaTableDescriptor): OrderTerm[] {
     for (const column of primaryKeyColumns) {
       terms.push({
         key: column,
-        sql: `${quoteName(column)} ASC`,
+        sql: `${quoteIdentifier(column, { unsafe: true })} ASC`,
       });
     }
   }
@@ -233,7 +234,7 @@ function tieBreakerTerms(table: SchemaTableDescriptor): OrderTerm[] {
     for (const column of visibleColumns) {
       terms.push({
         key: column,
-        sql: `${quoteName(column)} ASC`,
+        sql: `${quoteIdentifier(column, { unsafe: true })} ASC`,
       });
     }
   }
@@ -246,7 +247,7 @@ function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, s
   if (!sortBy) {
     return ` ORDER BY ${tieBreakers.map((term) => term.sql).join(", ")}`;
   }
-  const terms = [`${quoteName(sortBy)} ${sortDir === "desc" ? "DESC" : "ASC"}`];
+  const terms = [`${quoteIdentifier(sortBy, { unsafe: true })} ${sortDir === "desc" ? "DESC" : "ASC"}`];
   for (const tieBreaker of tieBreakers) {
     if (tieBreaker.key === sortBy) {
       continue;
@@ -274,7 +275,7 @@ export function listStudioTables(): StudioTablesView {
     const tables = tableNames.map((name) => {
       const column = getRow<{ c: number }>(
         db,
-        `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteName(name)}) WHERE hidden IN (0, 2, 3)`,
+        `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteIdentifier(name, { unsafe: true })}) WHERE hidden IN (0, 2, 3)`,
       );
       const updated = getRow<{ created_at: number }>(
         db,
@@ -332,7 +333,7 @@ export function readStudioTable(options: ReadStudioTableOptions): StudioTableDat
         continue;
       }
       filters[column] = value;
-      whereParts.push(`CAST(${quoteName(column)} AS TEXT) LIKE ? ESCAPE '\\'`);
+      whereParts.push(`CAST(${quoteIdentifier(column, { unsafe: true })} AS TEXT) LIKE ? ESCAPE '\\'`);
       bindings.push(`%${escapeLikePattern(value)}%`);
     }
 
@@ -342,7 +343,11 @@ export function readStudioTable(options: ReadStudioTableOptions): StudioTableDat
     }
 
     const whereSql = whereParts.length === 0 ? "" : ` WHERE ${whereParts.join(" AND ")}`;
-    const totalRow = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteName(tableName)}${whereSql}`, ...bindings);
+    const totalRow = getRow<{ c: number }>(
+      db,
+      `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}`,
+      ...bindings,
+    );
     const totalRows = totalRow?.c ?? 0;
     const totalPages = totalRows === 0 ? 1 : Math.ceil(totalRows / pageSize);
     const page = Math.min(requestedPage, totalPages);
@@ -352,7 +357,7 @@ export function readStudioTable(options: ReadStudioTableOptions): StudioTableDat
 
     const rows = getRows<Record<string, unknown>>(
       db,
-      `SELECT * FROM ${quoteName(tableName)}${whereSql}${orderSql} LIMIT ? OFFSET ?`,
+      `SELECT * FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}${orderSql} LIMIT ? OFFSET ?`,
       ...bindings,
       pageSize,
       offset,

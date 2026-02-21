@@ -2,16 +2,9 @@ import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables, tableExists } from "./db";
 import { TossError } from "../errors";
-import { executeOperation } from "./execute";
-import { primaryKeyColumns, tableDDL, tableInfo } from "./rows";
-import { quoteIdentifier, quoteName } from "./sql";
-import type {
-  EncodedCell,
-  EncodedRow,
-  RestoreTableOperation,
-  SqlStorageClass,
-  TableSecondaryObject,
-} from "../types";
+import { primaryKeyColumns, tableDDL, tableInfo } from "./inspect";
+import { quoteIdentifier } from "./sql";
+import type { EncodedCell, EncodedRow, SqlStorageClass, TableSecondaryObject } from "../types";
 
 export interface RowEffect {
   tableName: string;
@@ -60,7 +53,7 @@ function pkKey(pk: Record<string, string>): string {
   return canonicalJson(pk);
 }
 
-function toPkWhereClause(pk: Record<string, string>): string {
+export function toPkWhereClause(pk: Record<string, string>): string {
   const keys = Object.keys(pk).sort((a, b) => a.localeCompare(b));
   if (keys.length === 0) {
     throw new TossError("REVERT_FAILED", "PK predicate must not be empty");
@@ -71,7 +64,7 @@ function toPkWhereClause(pk: Record<string, string>): string {
     if (!literal) {
       throw new TossError("REVERT_FAILED", `Missing PK literal for ${key}`);
     }
-    const quoted = quoteIdentifier(key);
+    const quoted = quoteIdentifier(key, { unsafe: true });
     parts.push(literal.toUpperCase() === "NULL" ? `${quoted} IS NULL` : `${quoted} = ${literal}`);
   }
   return parts.join(" AND ");
@@ -138,15 +131,15 @@ function buildRowSelectSql(table: string, columns: string[], pkColumns: string[]
   const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
   const parts: string[] = [];
   for (let i = 0; i < columns.length; i++) {
-    const quotedCol = quoteIdentifier(columns[i]!);
-    parts.push(`quote(${quotedCol}) AS ${quoteIdentifier(quoteAliases[i]!)}`);
-    parts.push(`hex(CAST(${quotedCol} AS BLOB)) AS ${quoteIdentifier(hexAliases[i]!)}`);
-    parts.push(`typeof(${quotedCol}) AS ${quoteIdentifier(typeAliases[i]!)}`);
+    const quotedCol = quoteIdentifier(columns[i]!, { unsafe: true });
+    parts.push(`quote(${quotedCol}) AS ${quoteIdentifier(quoteAliases[i]!, { unsafe: true })}`);
+    parts.push(`hex(CAST(${quotedCol} AS BLOB)) AS ${quoteIdentifier(hexAliases[i]!, { unsafe: true })}`);
+    parts.push(`typeof(${quotedCol}) AS ${quoteIdentifier(typeAliases[i]!, { unsafe: true })}`);
   }
 
-  const orderBy = pkColumns.map((column) => `${quoteIdentifier(column)} ASC`).join(", ");
+  const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
   const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
-  return `SELECT ${parts.join(", ")} FROM ${quoteIdentifier(table)}${whereSql} ORDER BY ${orderBy}`;
+  return `SELECT ${parts.join(", ")} FROM ${quoteIdentifier(table, { unsafe: true })}${whereSql} ORDER BY ${orderBy}`;
 }
 
 function isSystemSequenceTable(table: string): boolean {
@@ -196,7 +189,7 @@ function captureTableState(db: Database, table: string): CapturedTableState {
   );
   const references = Array.from(
     new Set(
-      getRows<{ table: string }>(db, `PRAGMA foreign_key_list(${quoteIdentifier(table)})`).map((row) => row.table),
+      getRows<{ table: string }>(db, `PRAGMA foreign_key_list(${quoteIdentifier(table, { unsafe: true })})`).map((row) => row.table),
     ),
   ).sort((a, b) => a.localeCompare(b));
 
@@ -372,7 +365,7 @@ export function diffObservedState(
   return { rowEffects, schemaEffects };
 }
 
-function dependencyOrder(
+export function dependencyOrder(
   tables: string[],
   tableRefs: Map<string, string[]>,
   mode: "parent-first" | "child-first",
@@ -447,334 +440,4 @@ export function fetchObservedRowByPk(db: Database, table: string, pk: Record<str
     return null;
   }
   return encodeRowFromResult(row, columns, quoteAliases, hexAliases, typeAliases);
-}
-
-function insertEncodedRow(db: Database, table: string, row: EncodedRow): void {
-  const columns = Object.keys(row).sort((a, b) => a.localeCompare(b));
-  if (columns.length === 0) {
-    throw new TossError("REVERT_FAILED", `Cannot insert empty encoded row for ${table}`);
-  }
-  const colSql = columns.map((column) => quoteIdentifier(column)).join(", ");
-  const valuesSql = columns
-    .map((column) => {
-      const cell = row[column];
-      if (!cell) {
-        throw new TossError("REVERT_FAILED", `Missing encoded cell for ${table}.${column}`);
-      }
-      return cell.sqlLiteral;
-    })
-    .join(", ");
-  db.run(`INSERT INTO ${quoteIdentifier(table)} (${colSql}) VALUES (${valuesSql})`);
-}
-
-function updateEncodedRow(db: Database, table: string, pk: Record<string, string>, row: EncodedRow): void {
-  const columns = Object.keys(row).sort((a, b) => a.localeCompare(b));
-  if (columns.length === 0) {
-    throw new TossError("REVERT_FAILED", `Cannot update empty encoded row for ${table}`);
-  }
-  const setSql = columns
-    .map((column) => {
-      const cell = row[column];
-      if (!cell) {
-        throw new TossError("REVERT_FAILED", `Missing encoded cell for ${table}.${column}`);
-      }
-      return `${quoteIdentifier(column)} = ${cell.sqlLiteral}`;
-    })
-    .join(", ");
-  db.run(`UPDATE ${quoteIdentifier(table)} SET ${setSql} WHERE ${toPkWhereClause(pk)}`);
-}
-
-function deleteByPk(db: Database, table: string, pk: Record<string, string>): void {
-  db.run(`DELETE FROM ${quoteIdentifier(table)} WHERE ${toPkWhereClause(pk)}`);
-}
-
-function referencedTables(db: Database, table: string): string[] {
-  if (!tableExists(db, table)) {
-    return [];
-  }
-  const rows = getRows<{ table: string }>(db, `PRAGMA foreign_key_list(${quoteIdentifier(table)})`);
-  return Array.from(new Set(rows.map((row) => row.table))).sort((a, b) => a.localeCompare(b));
-}
-
-function missingReferencedTables(db: Database, table: string): string[] {
-  return referencedTables(db, table).filter((refTable) => !tableExists(db, refTable));
-}
-
-function effectRowMode(
-  effect: RowEffect,
-  direction: "forward" | "inverse",
-): { expectedCurrent: EncodedRow | null; target: EncodedRow | null; opLabel: string } {
-  if (direction === "forward") {
-    if (effect.opKind === "insert") {
-      return { expectedCurrent: null, target: effect.afterRow, opLabel: "insert" };
-    }
-    if (effect.opKind === "update") {
-      return { expectedCurrent: effect.beforeRow, target: effect.afterRow, opLabel: "update" };
-    }
-    return { expectedCurrent: effect.beforeRow, target: null, opLabel: "delete" };
-  }
-
-  if (effect.opKind === "insert") {
-    return { expectedCurrent: effect.afterRow, target: null, opLabel: "inverse-delete" };
-  }
-  if (effect.opKind === "update") {
-    return { expectedCurrent: effect.afterRow, target: effect.beforeRow, opLabel: "inverse-update" };
-  }
-  return { expectedCurrent: null, target: effect.beforeRow, opLabel: "inverse-insert" };
-}
-
-export function applyRowEffectsWithOptions(
-  db: Database,
-  effects: RowEffect[],
-  direction: "forward" | "inverse",
-  options: {
-    disableTableTriggers: boolean;
-    includeSystemEffects?: boolean;
-    includeUserEffects?: boolean;
-    systemPolicy?: "strict" | "reconcile";
-  },
-): void {
-  const includeSystemEffects = options.includeSystemEffects ?? true;
-  const includeUserEffects = options.includeUserEffects ?? true;
-  const systemPolicy = options.systemPolicy ?? "strict";
-  const filtered = effects.filter((effect) =>
-    isSystemSideEffectTable(effect.tableName) ? includeSystemEffects : includeUserEffects,
-  );
-  const droppedTriggers = options.disableTableTriggers ? dropTriggersForTables(db, filtered) : null;
-  const ordered = direction === "forward" ? filtered : filtered.toReversed();
-  for (const effect of ordered) {
-    const { expectedCurrent, target, opLabel } = effectRowMode(effect, direction);
-    const isSystem = isSystemSideEffectTable(effect.tableName);
-    if (isSystem && systemPolicy === "reconcile") {
-      applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);
-      continue;
-    }
-    const current = fetchObservedRowByPk(db, effect.tableName, effect.pk);
-    const currentHash = rowHash(current);
-    const expectedHash = rowHash(expectedCurrent);
-    if (currentHash !== expectedHash) {
-      throw new TossError(
-        "REVERT_FAILED",
-        `Observed row mismatch during ${opLabel} on ${effect.tableName} (pk=${canonicalJson(effect.pk)})`,
-      );
-    }
-    if (!target) {
-      deleteByPk(db, effect.tableName, effect.pk);
-      continue;
-    }
-    if (!current) {
-      insertEncodedRow(db, effect.tableName, target);
-      continue;
-    }
-    updateEncodedRow(db, effect.tableName, effect.pk, target);
-  }
-  if (droppedTriggers) {
-    restoreDroppedTriggers(db, droppedTriggers);
-  }
-}
-
-function applySystemRowEffectReconciled(
-  db: Database,
-  table: string,
-  pk: Record<string, string>,
-  target: EncodedRow | null,
-): void {
-  const exists = tableExists(db, table);
-  if (!target) {
-    if (!exists) {
-      return;
-    }
-    deleteByPk(db, table, pk);
-    return;
-  }
-  if (!exists) {
-    throw new TossError("REVERT_FAILED", `System table does not exist for reconciled effect: ${table}`);
-  }
-  const current = fetchObservedRowByPk(db, table, pk);
-  if (!current) {
-    insertEncodedRow(db, table, target);
-    return;
-  }
-  updateEncodedRow(db, table, pk, target);
-}
-
-function dropTriggersForTables(
-  db: Database,
-  effects: RowEffect[],
-): Array<{
-  name: string;
-  sql: string;
-}> {
-  const touched = Array.from(new Set(effects.map((effect) => effect.tableName))).sort((a, b) => a.localeCompare(b));
-  const dropped: Array<{ name: string; sql: string }> = [];
-  for (const table of touched) {
-    const rows = getRows<{ name: string; sql: string }>(
-      db,
-      "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC",
-      table,
-    );
-    for (const row of rows) {
-      db.run(`DROP TRIGGER IF EXISTS ${quoteName(row.name)}`);
-      dropped.push({ name: row.name, sql: row.sql });
-    }
-  }
-  return dropped;
-}
-
-function restoreDroppedTriggers(
-  db: Database,
-  dropped: Array<{
-    name: string;
-    sql: string;
-  }>,
-): void {
-  for (const trigger of dropped) {
-    db.run(trigger.sql);
-  }
-}
-
-function applySingleSchemaEffect(db: Database, effect: SchemaEffect, direction: "forward" | "inverse"): void {
-  const snapshot = direction === "forward" ? effect.afterTable : effect.beforeTable;
-  if (!snapshot) {
-    executeOperation(db, { type: "drop_table", table: effect.tableName });
-    return;
-  }
-  const restore: RestoreTableOperation = {
-    type: "restore_table",
-    table: effect.tableName,
-    ddlSql: snapshot.ddlSql,
-    rows: snapshot.rows,
-    secondaryObjects: snapshot.secondaryObjects,
-  };
-  executeOperation(db, restore);
-}
-
-function orderSchemaEffectsForReplay(effects: SchemaEffect[], direction: "forward" | "inverse"): SchemaEffect[] {
-  if (effects.length <= 1) {
-    return effects;
-  }
-
-  const byTable = new Map<string, SchemaEffect>();
-  for (const effect of effects) {
-    byTable.set(effect.tableName, effect);
-  }
-
-  const restoreRefs = new Map<string, string[]>();
-  const restoreTables: string[] = [];
-  const dropRefs = new Map<string, string[]>();
-  const dropTables: string[] = [];
-
-  for (const effect of effects) {
-    const target = direction === "forward" ? effect.afterTable : effect.beforeTable;
-    if (target) {
-      restoreTables.push(effect.tableName);
-      restoreRefs.set(effect.tableName, target.references);
-      continue;
-    }
-    const current = direction === "forward" ? effect.beforeTable : effect.afterTable;
-    dropTables.push(effect.tableName);
-    dropRefs.set(effect.tableName, current?.references ?? []);
-  }
-
-  const restoreOrdered = dependencyOrder(restoreTables, restoreRefs, "parent-first");
-  const dropOrdered = dependencyOrder(dropTables, dropRefs, "child-first");
-  const orderedTables = [...restoreOrdered, ...dropOrdered];
-  return orderedTables.map((table) => byTable.get(table)).filter((effect): effect is SchemaEffect => effect !== undefined);
-}
-
-function canApplyUserRowEffectNow(db: Database, effect: RowEffect): boolean {
-  if (isSystemSideEffectTable(effect.tableName)) {
-    return false;
-  }
-  if (!tableExists(db, effect.tableName)) {
-    return false;
-  }
-  return missingReferencedTables(db, effect.tableName).length === 0;
-}
-
-export function applyUserRowAndSchemaEffects(
-  db: Database,
-  rowEffects: RowEffect[],
-  schemaEffects: SchemaEffect[],
-  direction: "forward" | "inverse",
-  options: {
-    disableTableTriggers: boolean;
-  },
-): void {
-  const pendingRows = (direction === "forward" ? rowEffects : rowEffects.toReversed()).filter(
-    (effect) => !isSystemSideEffectTable(effect.tableName),
-  );
-  const orderedSchemas = orderSchemaEffectsForReplay(schemaEffects, direction);
-  let schemaIndex = 0;
-
-  while (pendingRows.length > 0 || schemaIndex < orderedSchemas.length) {
-    while (pendingRows.length > 0 && canApplyUserRowEffectNow(db, pendingRows[0]!)) {
-      applyRowEffectsWithOptions(db, [pendingRows.shift()!], direction, {
-        disableTableTriggers: options.disableTableTriggers,
-        includeUserEffects: true,
-        includeSystemEffects: false,
-      });
-    }
-
-    if (pendingRows.length === 0) {
-      if (schemaIndex < orderedSchemas.length) {
-        applySingleSchemaEffect(db, orderedSchemas[schemaIndex]!, direction);
-        schemaIndex += 1;
-        continue;
-      }
-      break;
-    }
-
-    if (schemaIndex < orderedSchemas.length) {
-      applySingleSchemaEffect(db, orderedSchemas[schemaIndex]!, direction);
-      schemaIndex += 1;
-      continue;
-    }
-
-    const blocked = pendingRows[0]!;
-    if (!tableExists(db, blocked.tableName)) {
-      throw new TossError(
-        "REVERT_FAILED",
-        `Observed row effect blocked because target table does not exist: ${blocked.tableName}`,
-      );
-    }
-    const missingRefs = missingReferencedTables(db, blocked.tableName);
-    if (missingRefs.length > 0) {
-      throw new TossError(
-        "REVERT_FAILED",
-        `Observed row effect blocked by missing referenced table(s): ${blocked.tableName} -> ${missingRefs.join(", ")}`,
-      );
-    }
-    applyRowEffectsWithOptions(db, [blocked], direction, {
-      disableTableTriggers: options.disableTableTriggers,
-      includeUserEffects: true,
-      includeSystemEffects: false,
-    });
-    pendingRows.shift();
-  }
-}
-
-export function applySchemaEffects(db: Database, effects: SchemaEffect[], direction: "forward" | "inverse"): void {
-  const ordered = orderSchemaEffectsForReplay(effects, direction);
-  for (const effect of ordered) {
-    applySingleSchemaEffect(db, effect, direction);
-  }
-}
-
-export function assertNoForeignKeyViolations(db: Database, errorCode: string, context: string): void {
-  const rows = getRows<{
-    table: string;
-    rowid: number;
-    parent: string;
-    fkid: number;
-  }>(db, "PRAGMA foreign_key_check");
-  if (rows.length === 0) {
-    return;
-  }
-
-  const first = rows[0]!;
-  throw new TossError(
-    errorCode,
-    `${context}: foreign_key_check failed at ${first.table} rowid=${first.rowid} parent=${first.parent} fk=${first.fkid}`,
-  );
 }

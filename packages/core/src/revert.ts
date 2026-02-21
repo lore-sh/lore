@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { and, asc, eq, gt } from "drizzle-orm";
 import { canonicalJson } from "./engine/checksum";
-import { appendCommitFromObservedChange } from "./apply";
 import {
   runInSavepoint,
   runInTransactionWithDeferredForeignKeys,
@@ -12,6 +11,7 @@ import { createEngineDb } from "./engine/client";
 import { CommitTable } from "./engine/schema.sql";
 import { TossError, isTossError } from "./errors";
 import {
+  appendCommitFromObservedChange,
   getCommitById,
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
@@ -19,15 +19,17 @@ import {
   type StoredSchemaEffect,
 } from "./engine/log";
 import {
-  applyRowEffectsWithOptions,
-  applyUserRowAndSchemaEffects,
-  assertNoForeignKeyViolations,
   captureObservedState,
   fetchObservedRowByPk,
   isSystemSideEffectTable,
   rowHash,
-} from "./engine/observed";
-import { schemaHash } from "./engine/rows";
+} from "./engine/diff";
+import {
+  applyRowEffectsWithOptions,
+  applyUserRowAndSchemaEffects,
+  assertNoForeignKeyViolations,
+} from "./engine/effect";
+import { schemaHash } from "./engine/inspect";
 import type { RevertConflict, RevertResult } from "./types";
 
 export function detectSchemaConflicts(

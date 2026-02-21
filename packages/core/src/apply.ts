@@ -1,11 +1,9 @@
-import type { Database } from "bun:sqlite";
-import { sha256Hex } from "./engine/checksum";
 import { runInSavepoint, runInTransaction, withInitializedDatabase, withInitializedDatabaseAsync } from "./engine/db";
 import { isTossError } from "./errors";
 import { executeOperation } from "./engine/execute";
-import { appendCommit, getHeadCommit, getNextCommitSeq } from "./engine/log";
-import { captureObservedState, diffObservedState, type CapturedObservedState } from "./engine/observed";
-import { schemaHash, stateHash } from "./engine/rows";
+import { appendCommitFromObservedChange } from "./engine/log";
+import { captureObservedState, diffObservedState } from "./engine/diff";
+import { schemaHash } from "./engine/inspect";
 import type { CommitEntry, Operation } from "./types";
 import { parseAndValidateOperationPlan } from "./engine/validate";
 
@@ -14,45 +12,6 @@ export function readPlanInput(planRef: string): Promise<string> {
     return Bun.stdin.text();
   }
   return Bun.file(planRef).text();
-}
-
-export function appendCommitFromObservedChange(
-  db: Database,
-  input: {
-    operations: Operation[];
-    kind: "apply" | "revert";
-    message: string;
-    revertedTargetId: string | null;
-    beforeSchemaHash: string;
-    beforeObservedState: CapturedObservedState;
-  },
-): CommitEntry {
-  const parent = getHeadCommit(db);
-  const parentIds = parent ? [parent.commitId] : [];
-  const seq = getNextCommitSeq(db);
-  const createdAt = Date.now();
-  const afterObservedState = captureObservedState(db);
-  const captured = diffObservedState(input.beforeObservedState, afterObservedState);
-  const afterSchemaHash = schemaHash(db);
-  const afterStateHash = stateHash(db);
-  const planHash = sha256Hex(input.operations);
-
-  return appendCommit(db, {
-    seq,
-    kind: input.kind,
-    message: input.message,
-    createdAt,
-    parentIds,
-    schemaHashBefore: input.beforeSchemaHash,
-    schemaHashAfter: afterSchemaHash,
-    stateHashAfter: afterStateHash,
-    planHash,
-    inverseReady: true,
-    revertedTargetId: input.revertedTargetId,
-    operations: input.operations,
-    rowEffects: captured.rowEffects,
-    schemaEffects: captured.schemaEffects,
-  });
 }
 
 export async function applyPlan(planRef: string): Promise<CommitEntry> {

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { deleteIfExists, deleteWithSidecars } from "../src/engine/fsx";
-import { createTestContext, withTmpDirCleanup } from "./helpers";
+import { deleteIfExists, deleteWithSidecars } from "../../src/engine/files";
+import { createTestContext, withTmpDirCleanup } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-describe("fsx", () => {
+describe("files", () => {
   testWithTmp("deleteIfExists is idempotent under concurrent deletion", async () => {
     const { dir } = createTestContext();
     const path = `${dir}/race.tmp`;

@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
 import { configureDatabase, initDatabase } from "../src";
 import { closeClient, getClientPath } from "../src/engine/client";
-import { schemaHash } from "../src/engine/rows";
+import { schemaHash } from "../src/engine/inspect";
 
 const tmpDirScopeStorage = new AsyncLocalStorage<Set<string>>();
 

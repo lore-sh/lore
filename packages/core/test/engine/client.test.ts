@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { closeClient, getClient, initClient, openIsolatedClient, withTransaction } from "../src/engine/client";
-import { createTestContext, withTmpDirCleanup } from "./helpers";
+import { closeClient, getClient, initClient, openIsolatedClient, withTransaction } from "../../src/engine/client";
+import { createTestContext, withTmpDirCleanup } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 

@@ -15,7 +15,7 @@ import type { CommitEntry, TossStatus } from "./types";
 export function getStatus(): TossStatus {
   return withInitializedDatabase(({ db, dbPath }) => {
     const tables = listUserTables(db).map((table) => {
-      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table)}`);
+      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table, { unsafe: true })}`);
       return { name: table, count: row?.c ?? 0 };
     });
 

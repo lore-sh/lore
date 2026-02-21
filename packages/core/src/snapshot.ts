@@ -17,7 +17,7 @@ import {
 } from "./engine/db";
 import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
 import { TossError } from "./errors";
-import { deleteWalAndShm, deleteWithSidecars } from "./engine/fsx";
+import { deleteWalAndShm, deleteWithSidecars } from "./engine/files";
 import type { CommitReplayInput } from "./engine/log";
 import { loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
 import { quoteIdentifier } from "./engine/sql";

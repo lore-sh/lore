@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { createEngineDb, getClientPath, getSqlite, hasClient, initClient, withClient } from "./client";
 import { EngineMetaTable, RefTable } from "./schema.sql";
 import { TossError } from "../errors";
-import { resolveHomeDir } from "./fsx";
+import { resolveHomeDir } from "./files";
 
 export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
