@@ -32,7 +32,9 @@ import {
   detectRemoteReadState,
   ensureRemoteInitialized,
   fetchRemoteHead,
+  fetchRemoteProjectionStatus,
   fetchRemoteReplayInputsAfterSeq,
+  materializeRemoteToHead,
   normalizeToken,
   openRemoteClient,
   parseRemoteDbName,
@@ -138,6 +140,7 @@ async function runPush(action: SyncResult["action"]): Promise<SyncResult> {
     const client = openRemoteClient(config);
     try {
       await ensureRemoteInitialized(client);
+      await materializeRemoteToHead(client);
       const localHead = getHeadCommitId(db);
       const remoteHeadBefore = await fetchRemoteHead(client);
 
@@ -217,7 +220,7 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
         }
       }
 
-      const replayInputs = await fetchRemoteReplayInputsAfterSeq(client, fromSeq);
+      const replayInputs = await fetchRemoteReplayInputsAfterSeq(client, fromSeq, remoteHead);
       let pulled = 0;
       for (const replay of replayInputs) {
         if (getCommitById(db, replay.commitId)) {
@@ -368,6 +371,9 @@ export async function getRemoteStatus(): Promise<{
   remoteHead: RemoteHead | null;
   pendingCommits: number;
   hasAuthToken: boolean;
+  projectionHead: string | null;
+  projectionLagCommits: number | null;
+  projectionError: string | null;
 }> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
     const config = readSyncConfig();
@@ -380,6 +386,9 @@ export async function getRemoteStatus(): Promise<{
         remoteHead: null,
         pendingCommits: localPending,
         hasAuthToken: readAuthToken("turso") !== undefined,
+        projectionHead: null,
+        projectionLagCommits: null,
+        projectionError: null,
       };
     }
     const client = openRemoteClient(config);
@@ -392,14 +401,22 @@ export async function getRemoteStatus(): Promise<{
           remoteHead: null,
           pendingCommits: pendingCommitsFromHead(db, null),
           hasAuthToken: authTokenForPlatform(config) !== undefined,
+          projectionHead: null,
+          projectionLagCommits: 0,
+          projectionError: null,
         };
       }
+      const remoteHead = await fetchRemoteHead(client);
+      const projection = await fetchRemoteProjectionStatus(client, remoteHead);
       return {
         config,
         localHead,
-        remoteHead: await fetchRemoteHead(client),
+        remoteHead,
         pendingCommits: localPending,
         hasAuthToken: authTokenForPlatform(config) !== undefined,
+        projectionHead: projection.projectionHead,
+        projectionLagCommits: projection.projectionLagCommits,
+        projectionError: projection.projectionError,
       };
     } catch (error) {
       throw classifySyncBoundaryError(error);
@@ -448,6 +465,9 @@ export function buildSyncStatus(db: Database): TossSyncStatus {
     lastPulledCommit,
     pendingCommits,
     lastError,
+    projectionHead: null,
+    projectionLagCommits: null,
+    projectionError: null,
   };
 }
 

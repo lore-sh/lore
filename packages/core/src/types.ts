@@ -188,6 +188,9 @@ export interface TossSyncStatus {
   lastPulledCommit: string | null;
   pendingCommits: number;
   lastError: string | null;
+  projectionHead: string | null;
+  projectionLagCommits: number | null;
+  projectionError: string | null;
 }
 
 export interface StorageEstimate {

@@ -27,6 +27,9 @@ export const LAST_PULLED_COMMIT_META_KEY = "last_pulled_commit";
 export const LAST_SYNC_STATE_META_KEY = "last_sync_state";
 export const LAST_SYNC_ERROR_META_KEY = "last_sync_error";
 export const SYNC_PROTOCOL_VERSION_META_KEY = "sync_protocol_version";
+export const LAST_MATERIALIZED_COMMIT_META_KEY = "last_materialized_commit";
+export const LAST_MATERIALIZED_AT_META_KEY = "last_materialized_at";
+export const LAST_MATERIALIZED_ERROR_META_KEY = "last_materialized_error";
 export const RESETTABLE_META_DEFAULTS: ReadonlyArray<readonly [string, string]> = [];
 export const PRESERVED_META_DEFAULTS = [
   [LAST_PUSHED_COMMIT_META_KEY, ""],
@@ -34,6 +37,9 @@ export const PRESERVED_META_DEFAULTS = [
   [LAST_SYNC_STATE_META_KEY, "offline"],
   [LAST_SYNC_ERROR_META_KEY, ""],
   [SYNC_PROTOCOL_VERSION_META_KEY, DEFAULT_SYNC_PROTOCOL_VERSION],
+  [LAST_MATERIALIZED_COMMIT_META_KEY, ""],
+  [LAST_MATERIALIZED_AT_META_KEY, ""],
+  [LAST_MATERIALIZED_ERROR_META_KEY, ""],
 ] as const;
 const ENGINE_MIGRATIONS_DIR = resolve(import.meta.dir, "../../migration");
 

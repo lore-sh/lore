@@ -15,6 +15,7 @@ import {
   pushToRemote,
   readAuthToken,
   readQuery,
+  revertCommit,
   verifyDatabase,
   writeAuthToken,
   writeRemoteConfig,
@@ -74,6 +75,169 @@ describe("sync with Turso protocol", () => {
     });
   });
 
+  testWithTmp("push materializes remote projection and reports projection health", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert.json", {
+      message: "insert task",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "milk" } }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      const inserted = await applyPlan(insertPlan);
+      const pushed = await pushToRemote();
+      expect(pushed.remoteHead).toBe(inserted.commitId);
+
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionHead).toBe(inserted.commitId);
+      expect(remoteStatus.projectionLagCommits).toBe(0);
+      expect(remoteStatus.projectionError).toBeNull();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      const rows = remoteDb.query<{ id: number; title: string }, []>("SELECT id, title FROM tasks ORDER BY id").all();
+      expect(rows).toEqual([{ id: 1, title: "milk" }]);
+    } finally {
+      remoteDb.close(false);
+    }
+  });
+
+  testWithTmp("first push rebuilds projection when remote head is null and user tables already exist", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert.json", {
+      message: "insert task",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "fresh" } }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      const inserted = await applyPlan(insertPlan);
+
+      const remoteDb = new Database(remote.dbPath);
+      try {
+        remoteDb.query("CREATE TABLE legacy (id INTEGER PRIMARY KEY, note TEXT NOT NULL)").run();
+        remoteDb.query("INSERT INTO legacy(id, note) VALUES (1, 'stale')").run();
+      } finally {
+        remoteDb.close(false);
+      }
+
+      const pushed = await pushToRemote();
+      expect(pushed.pushed).toBe(2);
+      expect(pushed.remoteHead).toBe(inserted.commitId);
+
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionHead).toBe(inserted.commitId);
+      expect(remoteStatus.projectionError).toBeNull();
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const rows = remoteDbAfter.query<{ id: number; title: string }, []>("SELECT id, title FROM tasks ORDER BY id").all();
+      expect(rows).toEqual([{ id: 1, title: "fresh" }]);
+
+      const legacyTable = remoteDbAfter
+        .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table' AND name='legacy' LIMIT 1")
+        .all();
+      expect(legacyTable).toEqual([]);
+    } finally {
+      remoteDbAfter.close(false);
+    }
+  });
+
+  testWithTmp("push materialization stays stable when schema replay changes physical rowid order", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create-accounts.json", {
+      message: "create accounts",
+      operations: [
+        {
+          type: "create_table",
+          table: "accounts",
+          columns: [
+            { name: "id", type: "TEXT", primaryKey: true },
+            { name: "note", type: "TEXT" },
+          ],
+        },
+      ],
+    });
+    const insertBPlan = await writePlanFile(local.dir, "insert-b.json", {
+      message: "insert b",
+      operations: [{ type: "insert", table: "accounts", values: { id: "b", note: "first" } }],
+    });
+    const insertAPlan = await writePlanFile(local.dir, "insert-a.json", {
+      message: "insert a",
+      operations: [{ type: "insert", table: "accounts", values: { id: "a", note: "second" } }],
+    });
+    const rebuildPlan = await writePlanFile(local.dir, "drop-note.json", {
+      message: "drop note",
+      operations: [{ type: "drop_column", table: "accounts", column: "note" }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      await applyPlan(insertBPlan);
+      await applyPlan(insertAPlan);
+      const rebuilt = await applyPlan(rebuildPlan);
+
+      const pushed = await pushToRemote();
+      expect(pushed.remoteHead).toBe(rebuilt.commitId);
+
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionHead).toBe(rebuilt.commitId);
+      expect(remoteStatus.projectionLagCommits).toBe(0);
+      expect(remoteStatus.projectionError).toBeNull();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      const rows = remoteDb.query<{ id: string }, []>("SELECT id FROM accounts ORDER BY id").all();
+      expect(rows).toEqual([{ id: "a" }, { id: "b" }]);
+    } finally {
+      remoteDb.close(false);
+    }
+  });
+
   testWithTmp("repeated push is idempotent", async () => {
     const a = createTestContext();
     const remote = createTestContext();
@@ -93,16 +257,605 @@ describe("sync with Turso protocol", () => {
         },
       ],
     });
+    const insertPlan = await writePlanFile(a.dir, "insert.json", {
+      message: "insert note",
+      operations: [{ type: "insert", table: "notes", values: { id: 1, body: "hello" } }],
+    });
 
     await withDbPath(a.dbPath, async () => {
       await connectRemote({ platform: "libsql", url: remoteUrl });
       await applyPlan(createPlan);
+      await applyPlan(insertPlan);
       const first = await pushToRemote();
       const second = await pushToRemote();
-      expect(first.pushed).toBe(1);
+      expect(first.pushed).toBe(2);
       expect(second.pushed).toBe(0);
       expect(second.state).toBe("synced");
     });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      const rows = remoteDb.query<{ id: number; body: string }, []>("SELECT id, body FROM notes ORDER BY id").all();
+      expect(rows).toEqual([{ id: 1, body: "hello" }]);
+    } finally {
+      remoteDb.close(false);
+    }
+  });
+
+  testWithTmp("revert commit materializes correctly on remote", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert.json", {
+      message: "insert task",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "walk" } }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      const inserted = await applyPlan(insertPlan);
+      await pushToRemote();
+      const reverted = revertCommit(inserted.commitId);
+      expect(reverted.ok).toBe(true);
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      const rows = remoteDb.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM tasks").get();
+      expect(rows?.c ?? 0).toBe(0);
+    } finally {
+      remoteDb.close(false);
+    }
+  });
+
+  testWithTmp("projection failure keeps canonical history unchanged", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create notes",
+      operations: [
+        {
+          type: "create_table",
+          table: "notes",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "body", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert.json", {
+      message: "insert note",
+      operations: [{ type: "insert", table: "notes", values: { id: 1, body: "from-local" } }],
+    });
+
+    let initialHead: string | null = null;
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      const created = await applyPlan(createPlan);
+      initialHead = created.commitId;
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("INSERT INTO notes(id, body) VALUES (1, 'tampered')").run();
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      await applyPlan(insertPlan);
+      try {
+        await pushToRemote();
+        throw new Error("push should fail when projection precondition is broken");
+      } catch (error) {
+        expect(isTossError(error)).toBe(true);
+        if (isTossError(error)) {
+          expect(error.code).toBe("SYNC_DIVERGED");
+        }
+      }
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const head = remoteDbAfter
+        .query<{ commit_id: string | null }, []>("SELECT commit_id FROM _toss_ref WHERE name='main' LIMIT 1")
+        .get();
+      expect(head?.commit_id ?? null).toBe(initialHead);
+      const count = remoteDbAfter.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM _toss_commit").get();
+      expect(count?.c ?? 0).toBe(1);
+      const projectionError = remoteDbAfter
+        .query<{ value: string }, []>(
+          "SELECT value FROM _toss_engine_meta WHERE key='last_materialized_error' LIMIT 1",
+        )
+        .get();
+      expect((projectionError?.value ?? "").length).toBeGreaterThan(0);
+    } finally {
+      remoteDbAfter.close(false);
+    }
+  });
+
+  testWithTmp("drift on unrelated remote row is detected before push", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create notes",
+      operations: [
+        {
+          type: "create_table",
+          table: "notes",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "body", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insert1 = await writePlanFile(local.dir, "insert-1.json", {
+      message: "insert 1",
+      operations: [{ type: "insert", table: "notes", values: { id: 1, body: "a" } }],
+    });
+    const insert2 = await writePlanFile(local.dir, "insert-2.json", {
+      message: "insert 2",
+      operations: [{ type: "insert", table: "notes", values: { id: 2, body: "b" } }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      await applyPlan(insert1);
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("UPDATE notes SET body='tampered' WHERE id=1").run();
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      await applyPlan(insert2);
+      try {
+        await pushToRemote();
+        throw new Error("push should fail when projection drift exists");
+      } catch (error) {
+        expect(isTossError(error)).toBe(true);
+        if (isTossError(error)) {
+          expect(error.code).toBe("SYNC_DIVERGED");
+          expect(error.message.includes("state_hash_after mismatch")).toBe(true);
+        }
+      }
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const count = remoteDbAfter.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM _toss_commit").get();
+      expect(count?.c ?? 0).toBe(2);
+    } finally {
+      remoteDbAfter.close(false);
+    }
+  });
+
+  testWithTmp("materialization SQL runtime error is persisted to last_materialized_error", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create notes",
+      operations: [
+        {
+          type: "create_table",
+          table: "notes",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "body", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert.json", {
+      message: "insert note",
+      operations: [{ type: "insert", table: "notes", values: { id: 1, body: "ok" } }],
+    });
+
+    let createCommitId = "";
+    let insertCommitId = "";
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      const c1 = await applyPlan(createPlan);
+      const c2 = await applyPlan(insertPlan);
+      createCommitId = c1.commitId;
+      insertCommitId = c2.commitId;
+      await pushToRemote();
+    });
+
+    const tamperedAfterRow = JSON.stringify({
+      id: { storageClass: "integer", sqlLiteral: "1" },
+      body: { storageClass: "text", sqlLiteral: "BROKEN(" },
+    });
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb
+        .query("UPDATE _toss_effect_row SET after_row_json = ? WHERE commit_id = ? AND effect_index = 0")
+        .run(tamperedAfterRow, insertCommitId);
+      remoteDb
+        .query(
+          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        )
+        .run(createCommitId);
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      try {
+        await pushToRemote();
+        throw new Error("push should fail when replay SQL runtime error occurs");
+      } catch (error) {
+        expect(isTossError(error)).toBe(true);
+        if (isTossError(error)) {
+          expect(error.code).toBe("SYNC_DIVERGED");
+        }
+      }
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const projectionError = remoteDbAfter
+        .query<{ value: string }, []>(
+          "SELECT value FROM _toss_engine_meta WHERE key='last_materialized_error' LIMIT 1",
+        )
+        .get();
+      expect((projectionError?.value ?? "").startsWith("Remote projection failed:")).toBe(true);
+    } finally {
+      remoteDbAfter.close(false);
+    }
+  });
+
+  testWithTmp("remote status detects projection drift even without push", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert.json", {
+      message: "insert task",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "clean" } }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      await applyPlan(insertPlan);
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("UPDATE tasks SET title='dirty' WHERE id=1").run();
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionLagCommits).toBe(0);
+      expect(remoteStatus.projectionError).not.toBeNull();
+      expect(remoteStatus.projectionError?.includes("state_hash_after mismatch")).toBe(true);
+    });
+  });
+
+  testWithTmp("remote status flags projection checkpoint ahead of remote head", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insert1 = await writePlanFile(local.dir, "insert-1.json", {
+      message: "insert 1",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "one" } }],
+    });
+    const insert2 = await writePlanFile(local.dir, "insert-2.json", {
+      message: "insert 2",
+      operations: [{ type: "insert", table: "tasks", values: { id: 2, title: "two" } }],
+    });
+
+    let rollbackHead = "";
+    let projectionHead = "";
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      const c2 = await applyPlan(insert1);
+      const c3 = await applyPlan(insert2);
+      rollbackHead = c2.commitId;
+      projectionHead = c3.commitId;
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("UPDATE _toss_ref SET commit_id=?, updated_at=? WHERE name='main'").run(rollbackHead, Date.now());
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionHead).toBe(projectionHead);
+      expect(remoteStatus.projectionLagCommits).toBe(0);
+      expect(remoteStatus.projectionError).not.toBeNull();
+      expect(remoteStatus.projectionError?.includes("ahead of remote HEAD")).toBe(true);
+    });
+  });
+
+  testWithTmp("push rebuilds projection when checkpoint is ahead of remote head", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insert1 = await writePlanFile(local.dir, "insert-1.json", {
+      message: "insert 1",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "one" } }],
+    });
+    const insert2 = await writePlanFile(local.dir, "insert-2.json", {
+      message: "insert 2",
+      operations: [{ type: "insert", table: "tasks", values: { id: 2, title: "two" } }],
+    });
+
+    let rollbackHead = "";
+    let canonicalHead = "";
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      const c2 = await applyPlan(insert1);
+      const c3 = await applyPlan(insert2);
+      rollbackHead = c2.commitId;
+      canonicalHead = c3.commitId;
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("UPDATE _toss_ref SET commit_id=?, updated_at=? WHERE name='main'").run(rollbackHead, Date.now());
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      const pushed = await pushToRemote();
+      expect(pushed.pushed).toBe(1);
+      expect(pushed.remoteHead).toBe(canonicalHead);
+
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionHead).toBe(canonicalHead);
+      expect(remoteStatus.projectionLagCommits).toBe(0);
+      expect(remoteStatus.projectionError).toBeNull();
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const rows = remoteDbAfter
+        .query<{ id: number; title: string }, []>("SELECT id, title FROM tasks ORDER BY id")
+        .all();
+      expect(rows).toEqual([
+        { id: 1, title: "one" },
+        { id: 2, title: "two" },
+      ]);
+    } finally {
+      remoteDbAfter.close(false);
+    }
+  });
+
+  testWithTmp("materialization resumes from checkpoint before new push", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insert1 = await writePlanFile(local.dir, "insert-1.json", {
+      message: "insert 1",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "one" } }],
+    });
+    const insert2 = await writePlanFile(local.dir, "insert-2.json", {
+      message: "insert 2",
+      operations: [{ type: "insert", table: "tasks", values: { id: 2, title: "two" } }],
+    });
+    const insert3 = await writePlanFile(local.dir, "insert-3.json", {
+      message: "insert 3",
+      operations: [{ type: "insert", table: "tasks", values: { id: 3, title: "three" } }],
+    });
+
+    let checkpointCommitId = "";
+    let finalHead = "";
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      const c2 = await applyPlan(insert1);
+      checkpointCommitId = c2.commitId;
+      await applyPlan(insert2);
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("DELETE FROM tasks WHERE id = 2").run();
+      remoteDb
+        .query(
+          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        )
+        .run(checkpointCommitId);
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      const c4 = await applyPlan(insert3);
+      finalHead = c4.commitId;
+      await pushToRemote();
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionHead).toBe(finalHead);
+      expect(remoteStatus.projectionLagCommits).toBe(0);
+      expect(remoteStatus.projectionError).toBeNull();
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const rows = remoteDbAfter
+        .query<{ id: number; title: string }, []>("SELECT id, title FROM tasks ORDER BY id")
+        .all();
+      expect(rows).toEqual([
+        { id: 1, title: "one" },
+        { id: 2, title: "two" },
+        { id: 3, title: "three" },
+      ]);
+    } finally {
+      remoteDbAfter.close(false);
+    }
+  });
+
+  testWithTmp("missing checkpoint commit triggers projection rebuild", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert.json", {
+      message: "insert task",
+      operations: [{ type: "insert", table: "tasks", values: { id: 1, title: "rebuilt" } }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connectRemote({ platform: "libsql", url: remoteUrl });
+      await applyPlan(createPlan);
+      await applyPlan(insertPlan);
+      await pushToRemote();
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("DROP TABLE tasks").run();
+      remoteDb
+        .query(
+          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        )
+        .run("f".repeat(64));
+      remoteDb
+        .query(
+          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_error', 'stale') ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        )
+        .run();
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      const pushed = await pushToRemote();
+      expect(pushed.pushed).toBe(0);
+      const remoteStatus = await getRemoteStatus();
+      expect(remoteStatus.projectionLagCommits).toBe(0);
+      expect(remoteStatus.projectionError).toBeNull();
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const rows = remoteDbAfter.query<{ id: number; title: string }, []>("SELECT id, title FROM tasks ORDER BY id").all();
+      expect(rows).toEqual([{ id: 1, title: "rebuilt" }]);
+    } finally {
+      remoteDbAfter.close(false);
+    }
   });
 
   testWithTmp("connect keeps pending state until first sync", async () => {
