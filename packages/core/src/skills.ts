@@ -290,7 +290,7 @@ Present results with a short interpretation.
 | \`toss verify [--full]\` | Integrity check |
 | \`toss revert <commit_id>\` | Reverse a commit |
 
-IMPORTANT: You can run toss commands from any directory. By default, toss always uses \`~/.toss/toss.db\` (unless \`TOSS_DB_PATH\` overrides it).
+IMPORTANT: You can run toss commands from any directory. toss always uses \`~/.toss/toss.db\`.
 
 ## Examples
 

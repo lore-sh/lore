@@ -21,11 +21,15 @@ import {
   syncWithRemote,
   verifyDatabase,
 } from "@toss/core";
-import type { CommitEntry } from "@toss/core";
+import type { CommitEntry, RemotePlatform } from "@toss/core";
 import { parseStudioPortArg, startStudioServer } from "@toss/studio";
-import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { printTable, toJson } from "./format";
+import {
+  canUseConnectPrompt,
+  platformName,
+  promptRemoteConnect,
+} from "./connect-ui";
 import {
   canUseInteractivePrompt,
   parseInitArgs,
@@ -35,6 +39,7 @@ import {
   renderInitResult,
   resolveInitSelection,
 } from "./init-ui";
+import { promptConfirm } from "./prompt-ui";
 
 function usage(): string {
   return [
@@ -52,18 +57,20 @@ function usage(): string {
     "  toss revert <commit_id>",
     "  toss verify [--full]",
     "  toss recover --from-snapshot <commit_id>",
-    "  toss remote connect --url <turso_url> [--db-name <name>] [--auto-sync|--no-auto-sync]",
+    "  toss remote connect",
     "  toss remote status",
     "  toss push",
     "  toss pull",
     "  toss sync",
-    "  toss clone --url <turso_url> [--db-name <name>] [--db-path <path>] [--auto-sync|--no-auto-sync] [--force-new]",
+    "  toss clone <remote_url> [--platform <turso|libsql>] [--no-auto-sync] [--force-new]",
     "  toss studio [--port <n>] [--no-open]",
     "",
+    "Config Files:",
+    "  ~/.toss/config.json        Remote connection settings",
+    "  ~/.toss/credentials.json   Auth tokens (chmod 600)",
+    "",
     "Environment:",
-    "  TOSS_DB_PATH   Override default database path (default: ~/.toss/toss.db)",
-    "  TOSS_TURSO_URL Override configured remote URL",
-    "  TOSS_TURSO_AUTH_TOKEN or TURSO_AUTH_TOKEN for Turso auth",
+    "  TURSO_AUTH_TOKEN  Auth token fallback (CI)",
     "",
     "Init Platforms:",
     "  claude,cursor,codex,opencode,openclaw",
@@ -145,13 +152,22 @@ function parseCleanArgs(args: string[]): { yes: boolean } {
 }
 
 async function confirmClean(): Promise<boolean> {
-  const prompt = createInterface({ input: stdin, output: stdout });
   try {
-    const answer = await prompt.question("This will remove global toss integrations. Continue? [y/N] ");
-    const normalized = answer.trim().toLowerCase();
-    return normalized === "y" || normalized === "yes";
-  } finally {
-    prompt.close();
+    return await promptConfirm({
+      title: "toss clean",
+      message: "This will remove global toss integrations. Continue?",
+      defaultValue: false,
+      yesLabel: "Continue",
+      noLabel: "Cancel",
+      yesHint: "Remove shared skills and platform integration files.",
+      noHint: "Keep current global toss integration state.",
+      cancelMessage: "clean cancelled",
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "clean cancelled") {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -266,6 +282,7 @@ function runStatus(args: string[]): void {
   console.log(`Sync Configured: ${status.sync.configured ? "yes" : "no"}`);
   console.log(`Sync State: ${status.sync.state}`);
   console.log(`Pending Commits: ${status.sync.pendingCommits}`);
+  console.log(`Remote Platform: ${status.sync.remotePlatform ?? "not configured"}`);
   console.log(`Remote: ${status.sync.remoteUrl ?? "not configured"}`);
   console.log(`History Commits: ${status.storage.commitCount}`);
   console.log(`History Size Estimate: ${status.storage.estimatedHistoryBytes} bytes`);
@@ -278,44 +295,6 @@ function runStatus(args: string[]): void {
       : "HEAD: none",
   );
   console.log(rows.length === 0 ? "(no user tables)" : printTable(rows));
-}
-
-function parseRemoteConnectArgs(args: string[]): { url: string; dbName?: string | undefined; autoSync: boolean } {
-  let url: string | undefined;
-  let dbName: string | undefined;
-  let autoSync = true;
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i]!;
-    if (arg === "--url") {
-      url = args[i + 1];
-      if (!url) {
-        throw new Error("remote connect requires value for --url");
-      }
-      i += 1;
-      continue;
-    }
-    if (arg === "--db-name") {
-      dbName = args[i + 1];
-      if (!dbName) {
-        throw new Error("remote connect requires value for --db-name");
-      }
-      i += 1;
-      continue;
-    }
-    if (arg === "--auto-sync") {
-      autoSync = true;
-      continue;
-    }
-    if (arg === "--no-auto-sync") {
-      autoSync = false;
-      continue;
-    }
-    throw new Error(`remote connect does not accept argument: ${arg}`);
-  }
-  if (!url) {
-    throw new Error("remote connect requires --url <turso_url>");
-  }
-  return { url, dbName, autoSync };
 }
 
 function parseRemoteStatusArgs(args: string[]): void {
@@ -331,18 +310,19 @@ async function runRemote(args: string[]): Promise<void> {
     throw new Error("remote requires subcommand: connect | status");
   }
   if (sub === "connect") {
-    const parsed = parseRemoteConnectArgs(rest);
-    const config = await connectRemote(parsed);
-    console.log(
-      toJson({
-        status: "ok",
-        remote: {
-          url: config.remoteUrl,
-          db_name: config.remoteDbName,
-          auto_sync: config.autoSync,
-        },
-      }),
-    );
+    if (rest.length > 0) {
+      throw new Error("remote connect does not accept arguments");
+    }
+    if (!canUseConnectPrompt(stdin.isTTY === true, stdout.isTTY === true)) {
+      throw new Error("interactive terminal required. Set config files directly.");
+    }
+    const input = await promptRemoteConnect();
+    const config = await connectRemote(input);
+    console.log(`Connected to ${platformName(config.platform)} (${config.remoteDbName ?? "unknown"}).`);
+    console.log("Config saved to ~/.toss/config.json");
+    if (input.authToken !== undefined) {
+      console.log("Credentials saved to ~/.toss/credentials.json");
+    }
     return;
   }
   if (sub === "status") {
@@ -379,45 +359,35 @@ async function runSync(args: string[]): Promise<void> {
 }
 
 function parseCloneArgs(args: string[]): {
+  platform?: RemotePlatform | undefined;
   url: string;
-  dbName?: string | undefined;
-  dbPath?: string | undefined;
   autoSync: boolean;
   forceNew: boolean;
 } {
+  let platform: RemotePlatform | undefined;
   let url: string | undefined;
-  let dbName: string | undefined;
-  let dbPath: string | undefined;
   let autoSync = true;
   let forceNew = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
-    if (arg === "--url") {
-      url = args[i + 1];
-      if (!url) {
-        throw new Error("clone requires value for --url");
+    if (arg === "--platform") {
+      const value = args[i + 1];
+      if (!value) {
+        throw new Error("clone requires value for --platform");
       }
+      if (value !== "turso" && value !== "libsql") {
+        throw new Error(`clone does not accept --platform=${value}. Use turso or libsql.`);
+      }
+      platform = value;
       i += 1;
       continue;
     }
-    if (arg === "--db-name") {
-      dbName = args[i + 1];
-      if (!dbName) {
-        throw new Error("clone requires value for --db-name");
+    if (arg.startsWith("--platform=")) {
+      const value = arg.slice("--platform=".length);
+      if (value !== "turso" && value !== "libsql") {
+        throw new Error(`clone does not accept --platform=${value}. Use turso or libsql.`);
       }
-      i += 1;
-      continue;
-    }
-    if (arg === "--db-path") {
-      dbPath = args[i + 1];
-      if (!dbPath) {
-        throw new Error("clone requires value for --db-path");
-      }
-      i += 1;
-      continue;
-    }
-    if (arg === "--auto-sync") {
-      autoSync = true;
+      platform = value;
       continue;
     }
     if (arg === "--no-auto-sync") {
@@ -428,12 +398,19 @@ function parseCloneArgs(args: string[]): {
       forceNew = true;
       continue;
     }
+    if (arg.startsWith("--")) {
+      throw new Error(`clone does not accept argument: ${arg}`);
+    }
+    if (!url) {
+      url = arg;
+      continue;
+    }
     throw new Error(`clone does not accept argument: ${arg}`);
   }
   if (!url) {
-    throw new Error("clone requires --url <turso_url>");
+    throw new Error("clone requires <remote_url>");
   }
-  return { url, dbName, dbPath, autoSync, forceNew };
+  return { platform, url, autoSync, forceNew };
 }
 
 async function runClone(args: string[]): Promise<void> {

@@ -22,9 +22,6 @@ export const OP_TABLE = "_toss_op";
 export const EFFECT_ROW_TABLE = "_toss_effect_row";
 export const EFFECT_SCHEMA_TABLE = "_toss_effect_schema";
 export const SNAPSHOT_TABLE = "_toss_snapshot";
-export const REMOTE_URL_META_KEY = "remote_url";
-export const REMOTE_DB_NAME_META_KEY = "remote_db_name";
-export const REMOTE_AUTO_SYNC_META_KEY = "remote_auto_sync";
 export const LAST_PUSHED_COMMIT_META_KEY = "last_pushed_commit";
 export const LAST_PULLED_COMMIT_META_KEY = "last_pulled_commit";
 export const LAST_SYNC_STATE_META_KEY = "last_sync_state";
@@ -35,9 +32,6 @@ export const RESETTABLE_META_DEFAULTS = [
   ["snapshot_retain", String(DEFAULT_SNAPSHOT_RETAIN)],
 ] as const;
 export const PRESERVED_META_DEFAULTS = [
-  [REMOTE_URL_META_KEY, ""],
-  [REMOTE_DB_NAME_META_KEY, ""],
-  [REMOTE_AUTO_SYNC_META_KEY, "1"],
   [LAST_PUSHED_COMMIT_META_KEY, ""],
   [LAST_PULLED_COMMIT_META_KEY, ""],
   [LAST_SYNC_STATE_META_KEY, "offline"],
@@ -56,7 +50,7 @@ function defaultDbPath(): string {
 }
 
 export function resolveDbPath(pathFromArg?: string): string {
-  const candidate = pathFromArg ?? Bun.env.TOSS_DB_PATH ?? defaultDbPath();
+  const candidate = pathFromArg ?? defaultDbPath();
   return resolve(candidate);
 }
 

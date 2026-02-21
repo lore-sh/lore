@@ -7,8 +7,6 @@ import { basename, resolve } from "node:path";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
-  configureDatabase,
-  DEFAULT_SYNC_PROTOCOL_VERSION,
   EFFECT_ROW_TABLE,
   EFFECT_SCHEMA_TABLE,
   ENGINE_META_TABLE,
@@ -21,10 +19,6 @@ import {
   PRESERVED_META_DEFAULTS,
   REF_TABLE,
   RESETTABLE_META_DEFAULTS,
-  REMOTE_AUTO_SYNC_META_KEY,
-  REMOTE_DB_NAME_META_KEY,
-  REMOTE_URL_META_KEY,
-  SYNC_PROTOCOL_VERSION_META_KEY,
   getMetaValue,
   resolveDbPath,
   runInTransactionWithDeferredForeignKeys,
@@ -32,7 +26,8 @@ import {
   withInitializedDatabase,
   withInitializedDatabaseAsync,
 } from "./db";
-import { closeClient, getClientPath } from "./engine/client";
+import { clearAuthToken, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
+import { getClientPath } from "./engine/client";
 import { TossError, isTossError } from "./errors";
 import { getHeadCommit, getHeadCommitId, getCommitById } from "./log";
 import { initDatabase } from "./init";
@@ -75,13 +70,6 @@ function normalizeMetaString(value: string | null): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
-function boolFromMeta(value: string | null, fallback: boolean): boolean {
-  if (value === null) {
-    return fallback;
-  }
-  return value !== "0";
-}
-
 function parseRemoteDbName(remoteUrl: string): string | null {
   try {
     const parsed = new URL(remoteUrl);
@@ -101,6 +89,19 @@ function parseRemoteDbName(remoteUrl: string): string | null {
   } catch {
     return null;
   }
+}
+
+function inferRemotePlatform(remoteUrl: string): SyncConfig["platform"] {
+  try {
+    const parsed = new URL(remoteUrl);
+    const host = parsed.hostname.trim().toLowerCase();
+    if (host.endsWith(".turso.io")) {
+      return "turso";
+    }
+  } catch {
+    // fall through to generic libsql platform
+  }
+  return "libsql";
 }
 
 function parseRowValue(row: Row, key: string): unknown {
@@ -181,8 +182,7 @@ function classifySyncBoundaryError(error: unknown): TossError {
   return new TossError("SYNC_REMOTE_UNREACHABLE", String(error));
 }
 
-function authTokenFromEnv(): string | undefined {
-  const token = Bun.env.TOSS_TURSO_AUTH_TOKEN ?? Bun.env.TURSO_AUTH_TOKEN;
+function normalizeToken(token: string | null | undefined): string | undefined {
   if (!token) {
     return undefined;
   }
@@ -190,26 +190,35 @@ function authTokenFromEnv(): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-function openRemoteClient(config: SyncConfig): Client {
-  const authToken = authTokenFromEnv();
+function authTokenForPlatform(config: SyncConfig, override?: string | null): string | undefined {
+  if (override === null) {
+    return undefined;
+  }
+  const fromOverride = normalizeToken(override);
+  if (fromOverride) {
+    return fromOverride;
+  }
+  return readAuthToken(config.platform);
+}
+
+function openRemoteClient(config: SyncConfig, authTokenOverride?: string | null): Client {
+  const authToken = authTokenForPlatform(config, authTokenOverride);
   return createClient({
     url: config.remoteUrl,
     ...(authToken ? { authToken } : {}),
   });
 }
 
-function readSyncConfigFromDb(db: Database): SyncConfig | null {
-  const envUrl = Bun.env.TOSS_TURSO_URL?.trim();
-  const storedUrl = normalizeMetaString(getMetaValue(db, REMOTE_URL_META_KEY));
-  const remoteUrl = envUrl && envUrl.length > 0 ? envUrl : storedUrl;
-  if (!remoteUrl) {
+function readSyncConfig(): SyncConfig | null {
+  const remote = readRemoteConfig();
+  if (!remote) {
     return null;
   }
-  const storedDbName = normalizeMetaString(getMetaValue(db, REMOTE_DB_NAME_META_KEY));
   return {
-    remoteUrl,
-    remoteDbName: storedDbName ?? parseRemoteDbName(remoteUrl),
-    autoSync: boolFromMeta(getMetaValue(db, REMOTE_AUTO_SYNC_META_KEY), true),
+    platform: remote.platform,
+    remoteUrl: remote.url,
+    remoteDbName: remote.dbName ?? parseRemoteDbName(remote.url),
+    autoSync: remote.autoSync,
   };
 }
 
@@ -647,10 +656,10 @@ function statusStateForConfiguredDb(storedState: string | null, pendingCommits: 
 
 async function runPush(action: SyncResult["action"]): Promise<SyncResult> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
-    const config = readSyncConfigFromDb(db);
+    const config = readSyncConfig();
     if (!config) {
       writeSyncState(db, "offline", "Remote is not configured");
-      throw new TossError("CONFIG_ERROR", "Remote is not configured. Run `toss remote connect --url <turso-url>`.");
+      throw new TossError("CONFIG_ERROR", "Remote is not configured. Run `toss remote connect`.");
     }
 
     const client = openRemoteClient(config);
@@ -698,10 +707,10 @@ async function runPush(action: SyncResult["action"]): Promise<SyncResult> {
 
 async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
-    const config = readSyncConfigFromDb(db);
+    const config = readSyncConfig();
     if (!config) {
       writeSyncState(db, "offline", "Remote is not configured");
-      throw new TossError("CONFIG_ERROR", "Remote is not configured. Run `toss remote connect --url <turso-url>`.");
+      throw new TossError("CONFIG_ERROR", "Remote is not configured. Run `toss remote connect`.");
     }
 
     const client = openRemoteClient(config);
@@ -771,33 +780,54 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
   });
 }
 
-function syncConfigFromInputs(url: string, dbName?: string, autoSync = true): SyncConfig {
-  const trimmedUrl = url.trim();
+function syncConfigFromInputs(options: {
+  platform?: SyncConfig["platform"] | undefined;
+  url: string;
+  autoSync?: boolean | undefined;
+}): SyncConfig {
+  const trimmedUrl = options.url.trim();
   if (trimmedUrl.length === 0) {
     throw new TossError("CONFIG_ERROR", "Remote URL must not be empty");
   }
+  const platform = options.platform ?? inferRemotePlatform(trimmedUrl);
+  if (platform !== "turso" && platform !== "libsql") {
+    throw new TossError("CONFIG_ERROR", `Unsupported remote platform: ${platform}`);
+  }
   return {
+    platform,
     remoteUrl: trimmedUrl,
-    remoteDbName: dbName?.trim() || parseRemoteDbName(trimmedUrl),
-    autoSync,
+    remoteDbName: parseRemoteDbName(trimmedUrl),
+    autoSync: options.autoSync ?? true,
   };
 }
 
-export async function connectRemote(options: { url: string; dbName?: string | undefined; autoSync?: boolean | undefined }): Promise<SyncConfig> {
+export async function connectRemote(options: {
+  platform?: SyncConfig["platform"] | undefined;
+  url: string;
+  autoSync?: boolean | undefined;
+  authToken?: string | null | undefined;
+}): Promise<SyncConfig> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
-    const config = syncConfigFromInputs(options.url, options.dbName, options.autoSync ?? true);
-    const previousRemoteUrl = normalizeMetaString(getMetaValue(db, REMOTE_URL_META_KEY));
-    const previousRemoteDbName = normalizeMetaString(getMetaValue(db, REMOTE_DB_NAME_META_KEY));
-    const previousIdentity = previousRemoteUrl ? `${previousRemoteUrl}\u0000${previousRemoteDbName ?? ""}` : null;
-    const nextIdentity = `${config.remoteUrl}\u0000${config.remoteDbName ?? ""}`;
+    const config = syncConfigFromInputs(options);
+    const previousConfig = readSyncConfig();
+    const previousIdentity = previousConfig ? `${previousConfig.platform}\u0000${previousConfig.remoteUrl}\u0000${previousConfig.remoteDbName ?? ""}` : null;
+    const nextIdentity = `${config.platform}\u0000${config.remoteUrl}\u0000${config.remoteDbName ?? ""}`;
     const remoteChanged = previousIdentity !== nextIdentity;
-    const client = openRemoteClient(config);
+    const client = openRemoteClient(config, options.authToken);
     try {
       await detectRemoteReadState(client);
-      setMetaValue(db, REMOTE_URL_META_KEY, config.remoteUrl);
-      setMetaValue(db, REMOTE_DB_NAME_META_KEY, config.remoteDbName ?? "");
-      setMetaValue(db, REMOTE_AUTO_SYNC_META_KEY, config.autoSync ? "1" : "0");
-      setMetaValue(db, SYNC_PROTOCOL_VERSION_META_KEY, DEFAULT_SYNC_PROTOCOL_VERSION);
+      writeRemoteConfig({
+        platform: config.platform,
+        url: config.remoteUrl,
+        dbName: config.remoteDbName,
+        autoSync: config.autoSync,
+      });
+      const token = normalizeToken(options.authToken);
+      if (token) {
+        writeAuthToken(config.platform, token);
+      } else if (options.authToken === null) {
+        clearAuthToken(config.platform);
+      }
       if (remoteChanged) {
         writeLastPushedCommit(db, null);
         writeLastPulledCommit(db, null);
@@ -813,7 +843,7 @@ export async function connectRemote(options: { url: string; dbName?: string | un
 }
 
 export function getSyncConfig(): SyncConfig | null {
-  return withInitializedDatabase(({ db }) => readSyncConfigFromDb(db));
+  return withInitializedDatabase(() => readSyncConfig());
 }
 
 export async function pushToRemote(): Promise<SyncResult> {
@@ -840,7 +870,7 @@ export async function syncWithRemote(options: { action?: SyncResult["action"] } 
 
 export async function autoSyncAfterApply(): Promise<SyncResult | null> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
-    const config = readSyncConfigFromDb(db);
+    const config = readSyncConfig();
     if (!config || !config.autoSync) {
       return null;
     }
@@ -875,7 +905,7 @@ export async function getRemoteStatus(): Promise<{
   hasAuthToken: boolean;
 }> {
   return await withInitializedDatabaseAsync(async ({ db }) => {
-    const config = readSyncConfigFromDb(db);
+    const config = readSyncConfig();
     const localHead = getHeadCommitId(db);
     const localPending = pendingCommitsFromHead(db, normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY)));
     if (!config) {
@@ -884,7 +914,7 @@ export async function getRemoteStatus(): Promise<{
         localHead,
         remoteHead: null,
         pendingCommits: localPending,
-        hasAuthToken: authTokenFromEnv() !== undefined,
+        hasAuthToken: readAuthToken("turso") !== undefined,
       };
     }
     const client = openRemoteClient(config);
@@ -896,7 +926,7 @@ export async function getRemoteStatus(): Promise<{
           localHead,
           remoteHead: null,
           pendingCommits: pendingCommitsFromHead(db, null),
-          hasAuthToken: authTokenFromEnv() !== undefined,
+          hasAuthToken: authTokenForPlatform(config) !== undefined,
         };
       }
       return {
@@ -904,7 +934,7 @@ export async function getRemoteStatus(): Promise<{
         localHead,
         remoteHead: await fetchRemoteHead(client),
         pendingCommits: localPending,
-        hasAuthToken: authTokenFromEnv() !== undefined,
+        hasAuthToken: authTokenForPlatform(config) !== undefined,
       };
     } catch (error) {
       throw classifySyncBoundaryError(error);
@@ -915,40 +945,31 @@ export async function getRemoteStatus(): Promise<{
 }
 
 export async function cloneFromRemote(options: {
+  platform?: SyncConfig["platform"] | undefined;
   url: string;
-  dbName?: string | undefined;
-  dbPath?: string | undefined;
   autoSync?: boolean | undefined;
   forceNew?: boolean | undefined;
+  authToken?: string | null | undefined;
 }): Promise<{ dbPath: string; sync: SyncResult }> {
-  const dbPath = options.dbPath;
-  const targetDbPath = resolveDbPath(dbPath);
+  const targetDbPath = getClientPath() ?? resolveDbPath();
   const autoSync = options.autoSync ?? true;
   const forceNew = options.forceNew ?? false;
   if (!forceNew && existsSync(targetDbPath)) {
     throw new TossError("CONFIG_ERROR", `Clone target already exists: ${targetDbPath}. Use --force-new to replace it.`);
   }
-  const previousClientPath = getClientPath();
-  try {
-    const initialized = await initDatabase({ ...(dbPath ? { dbPath } : {}), forceNew, generateSkills: false });
-    await connectRemote({
-      url: options.url,
-      dbName: options.dbName,
-      autoSync,
-    });
-    const sync = await runPull("clone");
-    return { dbPath: initialized.dbPath, sync };
-  } finally {
-    if (previousClientPath === null) {
-      closeClient();
-    } else {
-      configureDatabase(previousClientPath);
-    }
-  }
+  const initialized = await initDatabase({ dbPath: targetDbPath, forceNew, generateSkills: false });
+  await connectRemote({
+    platform: options.platform,
+    url: options.url,
+    autoSync,
+    authToken: options.authToken,
+  });
+  const sync = await runPull("clone");
+  return { dbPath: initialized.dbPath, sync };
 }
 
 export function buildSyncStatus(db: Database): TossSyncStatus {
-  const config = readSyncConfigFromDb(db);
+  const config = readSyncConfig();
   const lastPushedCommit = normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY));
   const lastPulledCommit = normalizeMetaString(getMetaValue(db, LAST_PULLED_COMMIT_META_KEY));
   const storedState = normalizeMetaString(getMetaValue(db, LAST_SYNC_STATE_META_KEY));
@@ -957,6 +978,7 @@ export function buildSyncStatus(db: Database): TossSyncStatus {
   const state = config ? statusStateForConfiguredDb(storedState, pendingCommits) : "offline";
   return {
     configured: config !== null,
+    remotePlatform: config?.platform ?? null,
     remoteUrl: config?.remoteUrl ?? null,
     remoteDbName: config?.remoteDbName ?? null,
     autoSync: config?.autoSync ?? false,

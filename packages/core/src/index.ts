@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./errors";
+export * from "./config";
 export * from "./skills";
 export * from "./init";
 export * from "./commit";
@@ -12,4 +13,5 @@ export * from "./verify";
 export * from "./snapshot";
 export * from "./studio";
 export * from "./sync";
+export { configureDatabase } from "./db";
 export { operationPlanSchema } from "./validators/operation";

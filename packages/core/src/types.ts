@@ -145,7 +145,10 @@ export interface CommitEntry {
   operations: Operation[];
 }
 
+export type RemotePlatform = "turso" | "libsql";
+
 export interface SyncConfig {
+  platform: RemotePlatform;
   remoteUrl: string;
   remoteDbName: string | null;
   autoSync: boolean;
@@ -178,6 +181,7 @@ export interface SyncResult {
 
 export interface TossSyncStatus {
   configured: boolean;
+  remotePlatform: RemotePlatform | null;
   remoteUrl: string | null;
   remoteDbName: string | null;
   autoSync: boolean;

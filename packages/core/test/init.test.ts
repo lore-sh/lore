@@ -33,7 +33,6 @@ interface GlobalEnvSnapshot {
   HOME?: string | undefined;
   CODEX_HOME?: string | undefined;
   XDG_CONFIG_HOME?: string | undefined;
-  TOSS_DB_PATH?: string | undefined;
 }
 
 function captureGlobalEnv(): GlobalEnvSnapshot {
@@ -41,7 +40,6 @@ function captureGlobalEnv(): GlobalEnvSnapshot {
     HOME: process.env.HOME,
     CODEX_HOME: process.env.CODEX_HOME,
     XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
-    TOSS_DB_PATH: process.env.TOSS_DB_PATH,
   };
 }
 
@@ -61,11 +59,6 @@ function restoreGlobalEnv(snapshot: GlobalEnvSnapshot): void {
   } else {
     process.env.XDG_CONFIG_HOME = snapshot.XDG_CONFIG_HOME;
   }
-  if (snapshot.TOSS_DB_PATH === undefined) {
-    delete process.env.TOSS_DB_PATH;
-  } else {
-    process.env.TOSS_DB_PATH = snapshot.TOSS_DB_PATH;
-  }
 }
 
 async function withGlobalSkillEnv<T>(
@@ -83,7 +76,6 @@ async function withGlobalSkillEnv<T>(
   process.env.HOME = paths.home;
   process.env.CODEX_HOME = paths.codexHome;
   process.env.XDG_CONFIG_HOME = paths.xdgConfigHome;
-  delete process.env.TOSS_DB_PATH;
   try {
     return await fn(paths);
   } finally {

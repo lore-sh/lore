@@ -11,12 +11,10 @@ describe("db path resolution", () => {
     const env = {
       HOME: process.env.HOME,
       USERPROFILE: process.env.USERPROFILE,
-      TOSS_DB_PATH: process.env.TOSS_DB_PATH,
     };
 
     delete process.env.HOME;
     delete process.env.USERPROFILE;
-    delete process.env.TOSS_DB_PATH;
 
     try {
       try {
@@ -38,11 +36,6 @@ describe("db path resolution", () => {
         delete process.env.USERPROFILE;
       } else {
         process.env.USERPROFILE = env.USERPROFILE;
-      }
-      if (env.TOSS_DB_PATH === undefined) {
-        delete process.env.TOSS_DB_PATH;
-      } else {
-        process.env.TOSS_DB_PATH = env.TOSS_DB_PATH;
       }
     }
   });

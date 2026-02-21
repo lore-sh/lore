@@ -1,8 +1,8 @@
 import { clearLine, clearScreenDown, cursorTo, emitKeypressEvents, moveCursor } from "node:readline";
-import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { relative, resolve } from "node:path";
 import type { SkillPlatform } from "@toss/core";
+import { promptConfirm } from "./prompt-ui";
 
 export const DEFAULT_INIT_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "codex", "opencode", "openclaw"];
 
@@ -446,12 +446,14 @@ export async function promptPlatformSelection(): Promise<SkillPlatform[]> {
 }
 
 export async function promptHeartbeat(): Promise<boolean> {
-  const rl = createInterface({ input: stdin, output: stdout });
-  try {
-    const answer = await rl.question("Enable OpenClaw heartbeat patrol for toss data? [Y/n] ");
-    const normalized = answer.trim().toLowerCase();
-    return normalized !== "n" && normalized !== "no";
-  } finally {
-    rl.close();
-  }
+  return await promptConfirm({
+    title: "toss init - OpenClaw",
+    message: "Enable OpenClaw heartbeat patrol for toss data?",
+    defaultValue: true,
+    yesLabel: "Enable",
+    noLabel: "Disable",
+    yesHint: "Creates a heartbeat check script and scheduler scaffold.",
+    noHint: "Skips heartbeat setup and keeps standard toss skill output only.",
+    cancelMessage: "init cancelled",
+  });
 }

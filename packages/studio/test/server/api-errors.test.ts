@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { initDatabase } from "@toss/core";
+import { configureDatabase, initDatabase } from "@toss/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,17 +20,8 @@ function createTempPath(prefix: string): string {
 }
 
 async function withDbPath<T>(dbPath: string, run: () => Promise<T>): Promise<T> {
-  const previous = process.env.TOSS_DB_PATH;
-  process.env.TOSS_DB_PATH = dbPath;
-  try {
-    return await run();
-  } finally {
-    if (previous === undefined) {
-      delete process.env.TOSS_DB_PATH;
-    } else {
-      process.env.TOSS_DB_PATH = previous;
-    }
-  }
+  configureDatabase(dbPath);
+  return await run();
 }
 
 describe("studio api error mapping", () => {

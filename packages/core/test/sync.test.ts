@@ -1,58 +1,80 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmod } from "node:fs/promises";
+import { dirname } from "node:path";
 import {
   applyPlan,
   autoSyncAfterApply,
   cloneFromRemote,
+  configureDatabase,
   connectRemote,
+  getSyncConfig,
   getRemoteStatus,
   getStatus,
   initDatabase,
   isTossError,
   pullFromRemote,
   pushToRemote,
+  readAuthToken,
   readQuery,
   verifyDatabase,
+  writeAuthToken,
+  writeRemoteConfig,
 } from "../src";
-import { LAST_SYNC_STATE_META_KEY, REMOTE_AUTO_SYNC_META_KEY, REMOTE_URL_META_KEY, setMetaValue, withInitializedDatabase } from "../src/db";
+import { LAST_SYNC_STATE_META_KEY, withInitializedDatabase } from "../src/db";
 import { closeClient, getClientPath } from "../src/engine/client";
 import { createTestContext, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-const ENV_KEYS = ["TOSS_DB_PATH", "TOSS_TURSO_URL", "TOSS_TURSO_AUTH_TOKEN", "TURSO_AUTH_TOKEN"] as const;
-type EnvSnapshot = Record<string, string | undefined>;
+interface EnvSnapshot {
+  HOME?: string | undefined;
+  USERPROFILE?: string | undefined;
+  TURSO_AUTH_TOKEN?: string | undefined;
+}
 
 function captureEnv(): EnvSnapshot {
-  const snapshot: EnvSnapshot = {};
-  for (const key of ENV_KEYS) {
-    snapshot[key] = process.env[key];
-  }
-  return snapshot;
+  return {
+    HOME: process.env.HOME,
+    USERPROFILE: process.env.USERPROFILE,
+    TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
+  };
 }
 
 function restoreEnv(snapshot: EnvSnapshot): void {
-  for (const key of ENV_KEYS) {
-    if (snapshot[key] === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = snapshot[key];
-    }
+  if (snapshot.HOME === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = snapshot.HOME;
+  }
+  if (snapshot.USERPROFILE === undefined) {
+    delete process.env.USERPROFILE;
+  } else {
+    process.env.USERPROFILE = snapshot.USERPROFILE;
+  }
+  if (snapshot.TURSO_AUTH_TOKEN === undefined) {
+    delete process.env.TURSO_AUTH_TOKEN;
+  } else {
+    process.env.TURSO_AUTH_TOKEN = snapshot.TURSO_AUTH_TOKEN;
   }
 }
 
 async function withDbPath<T>(dbPath: string, run: () => Promise<T>): Promise<T> {
+  const previousClientPath = getClientPath();
   const snapshot = captureEnv();
+  const home = dirname(dbPath);
   closeClient();
-  process.env.TOSS_DB_PATH = dbPath;
-  delete process.env.TOSS_TURSO_URL;
-  delete process.env.TOSS_TURSO_AUTH_TOKEN;
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
   delete process.env.TURSO_AUTH_TOKEN;
+  configureDatabase(dbPath);
   try {
     return await run();
   } finally {
     closeClient();
+    if (previousClientPath) {
+      configureDatabase(previousClientPath);
+    }
     restoreEnv(snapshot);
   }
 }
@@ -255,19 +277,20 @@ describe("sync with Turso protocol", () => {
       await applyPlan(insertPlan);
     });
 
-    try {
-      await cloneFromRemote({
-        url: remoteUrl,
-        dbPath: existing.dbPath,
-        autoSync: false,
-      });
-      throw new Error("clone should fail when destination db already exists");
-    } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
-        expect(error.code).toBe("CONFIG_ERROR");
+    await withDbPath(existing.dbPath, async () => {
+      try {
+        await cloneFromRemote({
+          url: remoteUrl,
+          autoSync: false,
+        });
+        throw new Error("clone should fail when destination db already exists");
+      } catch (error) {
+        expect(isTossError(error)).toBe(true);
+        if (isTossError(error)) {
+          expect(error.code).toBe("CONFIG_ERROR");
+        }
       }
-    }
+    });
 
     await withDbPath(existing.dbPath, async () => {
       const rows = readQuery("SELECT id FROM local_only ORDER BY id");
@@ -505,11 +528,12 @@ describe("sync with Turso protocol", () => {
       await pushToRemote();
     });
 
-    const cloned = await cloneFromRemote({
-      url: remoteUrl,
-      dbPath: clone.dbPath,
-      autoSync: false,
-      forceNew: true,
+    const cloned = await withDbPath(clone.dbPath, async () => {
+      return await cloneFromRemote({
+        url: remoteUrl,
+        autoSync: false,
+        forceNew: true,
+      });
     });
     expect(cloned.dbPath).toBe(clone.dbPath);
     expect(cloned.sync.pulled).toBeGreaterThan(0);
@@ -519,17 +543,16 @@ describe("sync with Turso protocol", () => {
       expect(verify.ok).toBe(true);
       const rows = readQuery("SELECT id, title FROM books");
       expect(rows).toEqual([{ id: 1, title: "Deep Work" }]);
+      expect(getSyncConfig()?.platform).toBe("libsql");
     });
   });
 
-  testWithTmp("clone restores previous db client context in long-lived process", async () => {
+  testWithTmp("clone allows explicit platform override", async () => {
     const source = createTestContext();
     const clone = createTestContext();
     const remote = createTestContext();
-    const stable = createTestContext();
     const remoteUrl = remoteUrlFor(remote.dbPath);
     await initDatabase({ dbPath: source.dbPath });
-    await initDatabase({ dbPath: stable.dbPath });
 
     const createPlan = await writePlanFile(source.dir, "create.json", {
       message: "create notes",
@@ -548,51 +571,37 @@ describe("sync with Turso protocol", () => {
       await pushToRemote();
     });
 
-    await withDbPath(stable.dbPath, async () => {
-      const before = getStatus();
-      expect(before.dbPath).toBe(stable.dbPath);
-      expect(getClientPath()).toBe(stable.dbPath);
+    await withDbPath(clone.dbPath, async () => {
       await cloneFromRemote({
+        platform: "turso",
         url: remoteUrl,
-        dbPath: clone.dbPath,
         autoSync: false,
         forceNew: true,
       });
-      expect(getClientPath()).toBe(stable.dbPath);
-      const status = getStatus();
-      expect(status.dbPath).toBe(stable.dbPath);
+      expect(getSyncConfig()?.platform).toBe("turso");
     });
   });
 
-  testWithTmp("clone restores previous db client context when initialization fails", async () => {
-    const stable = createTestContext();
+  testWithTmp("connect with null authToken clears stored platform token", async () => {
+    const local = createTestContext();
     const remote = createTestContext();
     const remoteUrl = remoteUrlFor(remote.dbPath);
-    await initDatabase({ dbPath: stable.dbPath });
+    await initDatabase({ dbPath: local.dbPath });
 
-    const blockerFile = `${stable.dir}/blocker`;
-    await Bun.write(blockerFile, "not-a-directory");
-    const invalidClonePath = `${blockerFile}/clone.db`;
+    await withDbPath(local.dbPath, async () => {
+      writeAuthToken("libsql", "stale-token");
+      expect(readAuthToken("libsql")).toBe("stale-token");
 
-    await withDbPath(stable.dbPath, async () => {
-      const before = getStatus();
-      expect(before.dbPath).toBe(stable.dbPath);
-      expect(getClientPath()).toBe(stable.dbPath);
-      let failed = false;
-      try {
-        await cloneFromRemote({
-          url: remoteUrl,
-          dbPath: invalidClonePath,
-          autoSync: false,
-          forceNew: true,
-        });
-      } catch {
-        failed = true;
-      }
-      expect(failed).toBe(true);
-      expect(getClientPath()).toBe(stable.dbPath);
-      const status = getStatus();
-      expect(status.dbPath).toBe(stable.dbPath);
+      await connectRemote({
+        platform: "libsql",
+        url: remoteUrl,
+        autoSync: false,
+        authToken: null,
+      });
+
+      expect(readAuthToken("libsql")).toBeUndefined();
+      const status = await getRemoteStatus();
+      expect(status.hasAuthToken).toBe(false);
     });
   });
 
@@ -612,9 +621,11 @@ describe("sync with Turso protocol", () => {
 
     await withDbPath(ctx.dbPath, async () => {
       await applyPlan(createPlan);
-      withInitializedDatabase(({ db }) => {
-        setMetaValue(db, REMOTE_URL_META_KEY, "libsql://not-existing-host.invalid");
-        setMetaValue(db, REMOTE_AUTO_SYNC_META_KEY, "1");
+      writeRemoteConfig({
+        platform: "turso",
+        url: "libsql://not-existing-host.invalid",
+        dbName: null,
+        autoSync: true,
       });
       const sync = await autoSyncAfterApply();
       expect(sync).not.toBeNull();
