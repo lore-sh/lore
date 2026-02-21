@@ -6,7 +6,9 @@ import { runSchema, runPlan, runApply, runRead } from "./commands/data";
 import { runStatus, runHistory, runRevert, runVerify, runRecover } from "./commands/local";
 import { runStudio } from "./commands/studio";
 
-function usage(): string {
+type CommandHandler = (args: string[]) => void | Promise<void>;
+
+export function usage(): string {
   return [
     "toss CLI",
     "",
@@ -43,77 +45,54 @@ function usage(): string {
   ].join("\n");
 }
 
-async function main(): Promise<void> {
-  const args = Bun.argv.slice(2);
+const commands = new Map<string, CommandHandler>([
+  ["init", runInit],
+  ["clean", runClean],
+  ["schema", runSchema],
+  ["plan", runPlan],
+  ["apply", runApply],
+  ["read", runRead],
+  ["status", runStatus],
+  ["history", runHistory],
+  ["revert", runRevert],
+  ["verify", runVerify],
+  ["recover", runRecover],
+  ["remote", runRemote],
+  ["push", runPush],
+  ["pull", runPull],
+  ["sync", runSync],
+  ["clone", runClone],
+  ["studio", runStudio],
+]);
+
+export function getCommandHandler(command: string): CommandHandler | null {
+  return commands.get(command) ?? null;
+}
+
+export async function runCli(args: string[]): Promise<void> {
   const command = args[0];
   if (!command || command === "--help" || command === "-h") {
     console.log(usage());
     return;
   }
-  const rest = args.slice(1);
-  switch (command) {
-    case "init":
-      await runInit(rest);
-      return;
-    case "clean":
-      await runClean(rest);
-      return;
-    case "schema":
-      runSchema(rest);
-      return;
-    case "plan":
-      await runPlan(rest);
-      return;
-    case "apply":
-      await runApply(rest);
-      return;
-    case "read":
-      runRead(rest);
-      return;
-    case "status":
-      runStatus(rest);
-      return;
-    case "history":
-      runHistory(rest);
-      return;
-    case "revert":
-      runRevert(rest);
-      return;
-    case "verify":
-      runVerify(rest);
-      return;
-    case "recover":
-      await runRecover(rest);
-      return;
-    case "remote":
-      await runRemote(rest);
-      return;
-    case "push":
-      await runPush(rest);
-      return;
-    case "pull":
-      await runPull(rest);
-      return;
-    case "sync":
-      await runSync(rest);
-      return;
-    case "clone":
-      await runClone(rest);
-      return;
-    case "studio":
-      runStudio(rest);
-      return;
-    default:
-      throw new Error(`Unknown command: ${command}`);
+  const handler = getCommandHandler(command);
+  if (!handler) {
+    throw new Error(`Unknown command: ${command}`);
   }
+  return handler(args.slice(1));
 }
 
-main().catch((error: unknown) => {
+export function formatError(error: unknown): string {
   if (isTossError(error)) {
-    console.error(`Error [${error.code}]: ${error.message}`);
-    process.exit(1);
+    return `Error [${error.code}]: ${error.message}`;
   }
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`Error: ${message}`);
-  process.exit(1);
-});
+  return `Error: ${message}`;
+}
+
+if (import.meta.main) {
+  runCli(Bun.argv.slice(2)).catch((error: unknown) => {
+    console.error(formatError(error));
+    process.exit(1);
+  });
+}
