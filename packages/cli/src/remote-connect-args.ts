@@ -13,26 +13,35 @@ function isPlatform(value: string): value is RemotePlatform {
   return value === "turso" || value === "libsql";
 }
 
-function requireOptionValue(args: string[], index: number, option: string): string {
-  const value = args[index + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`remote connect requires a value for ${option}`);
-  }
-  return value;
-}
-
-function requireInlineOptionValue(value: string, option: string): string {
-  if (value.length === 0) {
-    throw new Error(`remote connect requires a value for ${option}`);
-  }
-  return value;
-}
-
 function parsePlatformValue(value: string): RemotePlatform {
   if (!isPlatform(value)) {
     throw new Error(`remote connect does not accept --platform=${value}. Use turso or libsql.`);
   }
   return value;
+}
+
+function consumeOption(
+  args: string[],
+  index: number,
+  arg: string,
+  name: string,
+): { value: string; skip: number } | null {
+  if (arg === name) {
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error(`remote connect requires a value for ${name}`);
+    }
+    return { value, skip: 1 };
+  }
+  const prefix = `${name}=`;
+  if (arg.startsWith(prefix)) {
+    const value = arg.slice(prefix.length);
+    if (value.length === 0) {
+      throw new Error(`remote connect requires a value for ${name}`);
+    }
+    return { value, skip: 0 };
+  }
+  return null;
 }
 
 export function parseRemoteConnectArgs(args: string[]): ParsedRemoteConnectArgs {
@@ -43,31 +52,22 @@ export function parseRemoteConnectArgs(args: string[]): ParsedRemoteConnectArgs 
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
-    if (arg === "--platform") {
-      platform = parsePlatformValue(requireOptionValue(args, i, "--platform"));
-      i += 1;
+    const platformOpt = consumeOption(args, i, arg, "--platform");
+    if (platformOpt) {
+      platform = parsePlatformValue(platformOpt.value);
+      i += platformOpt.skip;
       continue;
     }
-    if (arg.startsWith("--platform=")) {
-      platform = parsePlatformValue(requireInlineOptionValue(arg.slice("--platform=".length), "--platform"));
+    const urlOpt = consumeOption(args, i, arg, "--url");
+    if (urlOpt) {
+      url = urlOpt.value;
+      i += urlOpt.skip;
       continue;
     }
-    if (arg === "--url") {
-      url = requireOptionValue(args, i, "--url");
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--url=")) {
-      url = requireInlineOptionValue(arg.slice("--url=".length), "--url");
-      continue;
-    }
-    if (arg === "--token") {
-      token = requireOptionValue(args, i, "--token");
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--token=")) {
-      token = requireInlineOptionValue(arg.slice("--token=".length), "--token");
+    const tokenOpt = consumeOption(args, i, arg, "--token");
+    if (tokenOpt) {
+      token = tokenOpt.value;
+      i += tokenOpt.skip;
       continue;
     }
     if (arg === "--clear-token") {

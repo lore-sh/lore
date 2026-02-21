@@ -119,6 +119,29 @@ describe("sync with Turso protocol", () => {
     });
   });
 
+  testWithTmp("connect rejects unsupported platform from untyped input", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDatabase({ dbPath: local.dbPath });
+
+    await withDbPath(local.dbPath, async () => {
+      try {
+        await connectRemote({
+          platform: "unsupported" as unknown as "libsql",
+          url: remoteUrl,
+        });
+        throw new Error("connect should fail for unsupported platform");
+      } catch (error) {
+        expect(isTossError(error)).toBe(true);
+        if (isTossError(error)) {
+          expect(error.code).toBe("CONFIG_ERROR");
+        }
+      }
+      expect(getSyncConfig()).toBeNull();
+    });
+  });
+
   testWithTmp("fresh replica pull becomes synced when local and remote heads match", async () => {
     const source = createTestContext();
     const replica = createTestContext();
@@ -475,8 +498,8 @@ describe("sync with Turso protocol", () => {
 
     const cloned = await withDbPath(clone.dbPath, async () => {
       return await cloneFromRemote({
-          platform: "libsql",
-          url: remoteUrl,
+        platform: "libsql",
+        url: remoteUrl,
         forceNew: true,
       });
     });

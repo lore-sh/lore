@@ -119,12 +119,8 @@ async function runInit(args: string[]): Promise<void> {
   const skillPlatforms = resolved.interactive ? await promptPlatformSelection() : resolved.platforms;
 
   let openclawHeartbeat = false;
-  if (!parsed.noSkills && skillPlatforms.includes("openclaw")) {
-    if (parsed.noHeartbeat) {
-      openclawHeartbeat = false;
-    } else {
-      openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
-    }
+  if (!parsed.noSkills && !parsed.noHeartbeat && skillPlatforms.includes("openclaw")) {
+    openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
   }
 
   const result = await initDatabase({
@@ -400,6 +396,13 @@ async function runSync(args: string[]): Promise<void> {
   console.log(toJson({ status: "ok", ...result }));
 }
 
+function parseClonePlatform(value: string): RemotePlatform {
+  if (value !== "turso" && value !== "libsql") {
+    throw new Error(`clone does not accept --platform=${value}. Use turso or libsql.`);
+  }
+  return value;
+}
+
 function parseCloneArgs(args: string[]): {
   platform: RemotePlatform;
   url: string;
@@ -415,19 +418,12 @@ function parseCloneArgs(args: string[]): {
       if (!value) {
         throw new Error("clone requires value for --platform");
       }
-      if (value !== "turso" && value !== "libsql") {
-        throw new Error(`clone does not accept --platform=${value}. Use turso or libsql.`);
-      }
-      platform = value;
+      platform = parseClonePlatform(value);
       i += 1;
       continue;
     }
     if (arg.startsWith("--platform=")) {
-      const value = arg.slice("--platform=".length);
-      if (value !== "turso" && value !== "libsql") {
-        throw new Error(`clone does not accept --platform=${value}. Use turso or libsql.`);
-      }
-      platform = value;
+      platform = parseClonePlatform(arg.slice("--platform=".length));
       continue;
     }
     if (arg === "--force-new") {

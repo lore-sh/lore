@@ -24,7 +24,6 @@ async function applyPlanAndSnapshot(planPath: string) {
   return commit;
 }
 
-
 describe("snapshot / recover", () => {
   testWithTmp("recover promotion failure preserves configured db path", async () => {
     const { dir, dbPath } = createTestContext();
@@ -49,7 +48,6 @@ describe("snapshot / recover", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    
     const create = await writePlanFile(dir, "create.json", {
       message: "create logs",
       operations: [
@@ -91,7 +89,6 @@ describe("snapshot / recover", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    
     const create = await writePlanFile(dir, "create-safe-recover.json", {
       message: "create table",
       operations: [
@@ -147,7 +144,6 @@ describe("snapshot / recover", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    
     const create = await writePlanFile(dir, "create-snap-clean.json", {
       message: "create snapshots table",
       operations: [
@@ -181,7 +177,6 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO external_data(id, body) VALUES(1, 'stable')");
     direct.close(false);
 
-    
     const create = await writePlanFile(dir, "create-orders.json", {
       message: "create orders",
       operations: [
@@ -218,7 +213,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay does not re-fire triggers already captured in observed effects", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    
+
     const create = await writePlanFile(dir, "create-ledger-tables.json", {
       message: "create ledger tables",
       operations: [
@@ -281,7 +276,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay interleaves schema before blocked row effects in revert commit", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    
+
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
     direct.run("CREATE TABLE parent_created_later (id INTEGER PRIMARY KEY, body TEXT NOT NULL)");
@@ -336,7 +331,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay succeeds for first AUTOINCREMENT insert commit", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    
+
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_replay (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.close(false);
@@ -372,7 +367,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay succeeds for drop_table on AUTOINCREMENT table", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    
+
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_schema (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
     direct.run("INSERT INTO auto_schema(body) VALUES ('a')");
@@ -408,7 +403,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay restores FK-related schema effects in dependency-safe order", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    
+
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
     direct.run("CREATE TABLE z_parent (id INTEGER PRIMARY KEY, body TEXT NOT NULL)");
@@ -461,7 +456,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay of self-FK schema rebuild revert preserves FK targets", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    
+
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
     direct.run(`
@@ -514,7 +509,7 @@ describe("snapshot / recover", () => {
   testWithTmp("snapshot replay preserves TEXT bytes with embedded NUL", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    
+
     const create = await writePlanFile(dir, "create-text-nul-recover.json", {
       message: "create text nul replay table",
       operations: [

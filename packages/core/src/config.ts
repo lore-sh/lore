@@ -76,11 +76,11 @@ function parseNonEmptyString(value: unknown, fieldPath: string): string {
   return normalized;
 }
 
-function parsePlatform(value: unknown): RemotePlatform {
+export function parseRemotePlatform(value: unknown, fieldPath = "platform"): RemotePlatform {
   if (value === "turso" || value === "libsql") {
     return value;
   }
-  throw new TossError("CONFIG_ERROR", "remote.platform must be one of: turso, libsql");
+  throw new TossError("CONFIG_ERROR", `${fieldPath} must be one of: turso, libsql`);
 }
 
 function parseRemoteConfigFromUnknown(value: unknown): RemoteConfig | null {
@@ -93,7 +93,7 @@ function parseRemoteConfigFromUnknown(value: unknown): RemoteConfig | null {
   }
   const remote = parsed.remote;
   return {
-    platform: parsePlatform(remote.platform),
+    platform: parseRemotePlatform(remote.platform, "remote.platform"),
     url: parseNonEmptyString(remote.url, "remote.url"),
   };
 }
@@ -142,9 +142,10 @@ export function readRemoteConfig(): RemoteConfig | null {
 }
 
 export function writeRemoteConfig(remote: RemoteConfig): void {
+  const platform = parseRemotePlatform(remote.platform, "remote.platform");
   writeJsonFile(resolveConfigPath(), {
     remote: {
-      platform: remote.platform,
+      platform,
       url: remote.url,
     },
   });
@@ -180,17 +181,19 @@ function normalizeEnvToken(token: string | undefined): string | undefined {
 }
 
 export function readAuthToken(platform: RemotePlatform): string | undefined {
+  const normalizedPlatform = parseRemotePlatform(platform);
   const credentials = readCredentials();
-  if (platform === "turso") {
+  if (normalizedPlatform === "turso") {
     return tokenFromEntry(credentials.turso, "credentials.turso.token") ?? normalizeEnvToken(Bun.env.TURSO_AUTH_TOKEN);
   }
   return tokenFromEntry(credentials.libsql, "credentials.libsql.token");
 }
 
 export function writeAuthToken(platform: RemotePlatform, token: string): void {
+  const normalizedPlatform = parseRemotePlatform(platform);
   const credentials = readCredentials();
-  const normalized = parseNonEmptyString(token, `${platform} token`);
-  if (platform === "turso") {
+  const normalized = parseNonEmptyString(token, `${normalizedPlatform} token`);
+  if (normalizedPlatform === "turso") {
     credentials.turso = { token: normalized };
   } else {
     credentials.libsql = { token: normalized };
@@ -199,8 +202,9 @@ export function writeAuthToken(platform: RemotePlatform, token: string): void {
 }
 
 export function clearAuthToken(platform: RemotePlatform): void {
+  const normalizedPlatform = parseRemotePlatform(platform);
   const credentials = readCredentials();
-  if (platform === "turso") {
+  if (normalizedPlatform === "turso") {
     delete credentials.turso;
   } else {
     delete credentials.libsql;

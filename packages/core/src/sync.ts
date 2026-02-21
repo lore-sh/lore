@@ -26,7 +26,7 @@ import {
   withInitializedDatabase,
   withInitializedDatabaseAsync,
 } from "./db";
-import { clearAuthToken, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
+import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import { getClientPath } from "./engine/client";
 import { TossError, isTossError } from "./errors";
 import { getHeadCommit, getHeadCommitId, getCommitById } from "./log";
@@ -759,13 +759,10 @@ function syncConfigFromInputs(options: {
   platform: SyncConfig["platform"];
   url: string;
 }): SyncConfig {
+  const platform = parseRemotePlatform(options.platform);
   const trimmedUrl = options.url.trim();
   if (trimmedUrl.length === 0) {
     throw new TossError("CONFIG_ERROR", "Remote URL must not be empty");
-  }
-  const platform = options.platform;
-  if (platform !== "turso" && platform !== "libsql") {
-    throw new TossError("CONFIG_ERROR", `Unsupported remote platform: ${platform}`);
   }
   return {
     platform,

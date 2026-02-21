@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import {
+  isTossError,
   readAuthToken,
   readRemoteConfig,
   resolveConfigPath,
@@ -26,6 +27,25 @@ describe("config", () => {
         url: "libsql://mydb-xxx.turso.io",
       });
       expect(resolveConfigPath()).toBe(`${dir}/.toss/config.json`);
+    });
+  });
+
+  testWithTmp("writeRemoteConfig rejects unsupported platform from untyped input", () => {
+    const { dir } = createTestContext();
+    withTestHome(dir, () => {
+      try {
+        writeRemoteConfig({
+          platform: "unsupported" as unknown as "turso",
+          url: "libsql://mydb-xxx.turso.io",
+        });
+        throw new Error("writeRemoteConfig should reject unsupported platform");
+      } catch (error) {
+        expect(isTossError(error)).toBe(true);
+        if (isTossError(error)) {
+          expect(error.code).toBe("CONFIG_ERROR");
+        }
+      }
+      expect(readRemoteConfig()).toBeNull();
     });
   });
 
