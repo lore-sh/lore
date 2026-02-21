@@ -3,8 +3,7 @@ import type { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate as migrateLibsql } from "drizzle-orm/libsql/migrator";
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
@@ -159,10 +158,6 @@ function parseJson<T>(value: unknown, label: string): T {
   }
 }
 
-function parseSyncConflict(kind: SyncConflict["kind"], message: string, localHead: string | null, remoteHead: string | null): SyncConflict {
-  return { kind, message, localHead, remoteHead };
-}
-
 function classifySyncBoundaryError(error: unknown): TossError {
   if (isTossError(error)) {
     return error;
@@ -302,9 +297,6 @@ async function ensureRemoteInitialized(client: Client): Promise<void> {
   );
 }
 
-async function ensureRemoteReadable(client: Client): Promise<RemoteReadState> {
-  return await detectRemoteReadState(client);
-}
 
 async function fetchRemoteHead(executor: SqlExecutor): Promise<RemoteHead> {
   const result = await executor.execute({
@@ -349,10 +341,6 @@ async function remoteCommitSeq(client: Client, commitId: string): Promise<number
     return null;
   }
   return parseInteger(parseRowValue(row, "seq"), "_toss_commit.seq");
-}
-
-function normalizeOpJson(operation: Operation): string {
-  return canonicalJson(operation);
 }
 
 async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput): Promise<void> {
@@ -401,7 +389,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
         VALUES (?, ?, ?, ?)
         ON CONFLICT(commit_id, op_index) DO NOTHING
       `,
-      args: [replay.commitId, i, operation.type, normalizeOpJson(operation)],
+      args: [replay.commitId, i, operation.type, canonicalJson(operation)],
     });
   }
 
@@ -651,10 +639,7 @@ function statusStateForConfiguredDb(storedState: string | null, pendingCommits: 
   if (storedState === "conflict") {
     return "conflict";
   }
-  if (pendingCommits > 0) {
-    return "pending";
-  }
-  if (storedState === "pending") {
+  if (pendingCommits > 0 || storedState === "pending") {
     return "pending";
   }
   return "synced";
@@ -675,14 +660,9 @@ async function runPush(action: SyncResult["action"]): Promise<SyncResult> {
       const remoteHeadBefore = await fetchRemoteHead(client);
 
       if (remoteHeadBefore.commitId && !getCommitById(db, remoteHeadBefore.commitId)) {
-        const conflict = parseSyncConflict(
-          "non_fast_forward",
-          `Remote HEAD ${remoteHeadBefore.commitId} is unknown locally. Pull before push.`,
-          localHead,
-          remoteHeadBefore.commitId,
-        );
-        writeSyncState(db, "conflict", conflict.message);
-        throw new TossError("SYNC_NON_FAST_FORWARD", conflict.message);
+        const message = `Remote HEAD ${remoteHeadBefore.commitId} is unknown locally. Pull before push.`;
+        writeSyncState(db, "conflict", message);
+        throw new TossError("SYNC_NON_FAST_FORWARD", message);
       }
 
       const fromSeq = remoteHeadBefore.commitId ? (findCommitSeq(db, remoteHeadBefore.commitId) ?? 0) : 0;
@@ -727,7 +707,7 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
     const client = openRemoteClient(config);
     try {
       const localHead = getHeadCommitId(db);
-      const remoteState = await ensureRemoteReadable(client);
+      const remoteState = await detectRemoteReadState(client);
       if (remoteState === "empty") {
         writeLastPulledCommit(db, null);
         writeLastPushedCommit(db, null);
@@ -749,14 +729,9 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
           writeSyncState(db, state, null);
           return buildSyncResult(action, state, 0, 0, localHead, remoteHead.commitId);
         } else if (remoteHead.commitId !== null) {
-          const conflict = parseSyncConflict(
-            "diverged",
-            `Local HEAD ${localHead} is not present on remote, and remote HEAD ${remoteHead.commitId} is not present locally.`,
-            localHead,
-            remoteHead.commitId,
-          );
-          writeSyncState(db, "conflict", conflict.message);
-          throw new TossError("SYNC_DIVERGED", conflict.message);
+          const message = `Local HEAD ${localHead} is not present on remote, and remote HEAD ${remoteHead.commitId} is not present locally.`;
+          writeSyncState(db, "conflict", message);
+          throw new TossError("SYNC_DIVERGED", message);
         }
       }
 
@@ -818,7 +793,7 @@ export async function connectRemote(options: { url: string; dbName?: string | un
     const remoteChanged = previousIdentity !== nextIdentity;
     const client = openRemoteClient(config);
     try {
-      await ensureRemoteReadable(client);
+      await detectRemoteReadState(client);
       setMetaValue(db, REMOTE_URL_META_KEY, config.remoteUrl);
       setMetaValue(db, REMOTE_DB_NAME_META_KEY, config.remoteDbName ?? "");
       setMetaValue(db, REMOTE_AUTO_SYNC_META_KEY, config.autoSync ? "1" : "0");
@@ -874,14 +849,18 @@ export async function autoSyncAfterApply(): Promise<SyncResult | null> {
     } catch (error) {
       const mapped = classifySyncBoundaryError(error);
       const localHead = getHeadCommitId(db);
-      const conflict =
-        mapped.code === "SYNC_NON_FAST_FORWARD" || mapped.code === "SYNC_DIVERGED"
-          ? parseSyncConflict(mapped.code === "SYNC_DIVERGED" ? "diverged" : "non_fast_forward", mapped.message, localHead, null)
-          : undefined;
-      const state: SyncState = conflict ? "conflict" : "pending";
+      const isConflict = mapped.code === "SYNC_NON_FAST_FORWARD" || mapped.code === "SYNC_DIVERGED";
+      const state: SyncState = isConflict ? "conflict" : "pending";
       writeSyncState(db, state, mapped.message);
       return buildSyncResult("auto_sync", state, 0, 0, localHead, null, {
-        conflict,
+        conflict: isConflict
+          ? {
+              kind: mapped.code === "SYNC_DIVERGED" ? "diverged" : "non_fast_forward",
+              message: mapped.message,
+              localHead,
+              remoteHead: null,
+            }
+          : undefined,
         error: mapped.message,
       });
     }
@@ -910,7 +889,7 @@ export async function getRemoteStatus(): Promise<{
     }
     const client = openRemoteClient(config);
     try {
-      const remoteState = await ensureRemoteReadable(client);
+      const remoteState = await detectRemoteReadState(client);
       if (remoteState === "empty") {
         return {
           config,

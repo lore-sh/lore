@@ -3,10 +3,6 @@ import { getRow, setMetaValue, withInitializedDatabase } from "./db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./log";
 import type { VerifyResult } from "./types";
 
-export function putMeta(db: Database, key: string, value: string): void {
-  setMetaValue(db, key, value);
-}
-
 export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {
   return withInitializedDatabase(({ db }) => {
     const mode = options.full ? "full" : "quick";
@@ -44,11 +40,11 @@ export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {
     }
 
     const checkedAt = new Date().toISOString();
-    putMeta(db, "last_verified_at", checkedAt);
+    setMetaValue(db, "last_verified_at", checkedAt);
     const ok = issues.length === 0;
-    putMeta(db, "last_verified_ok", ok ? "1" : "0");
+    setMetaValue(db, "last_verified_ok", ok ? "1" : "0");
     if (ok) {
-      putMeta(db, "last_verified_ok_at", checkedAt);
+      setMetaValue(db, "last_verified_ok_at", checkedAt);
     }
 
     return {

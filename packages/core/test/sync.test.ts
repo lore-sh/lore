@@ -21,42 +21,24 @@ import { createTestContext, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-interface EnvSnapshot {
-  TOSS_DB_PATH?: string | undefined;
-  TOSS_TURSO_URL?: string | undefined;
-  TOSS_TURSO_AUTH_TOKEN?: string | undefined;
-  TURSO_AUTH_TOKEN?: string | undefined;
-}
+const ENV_KEYS = ["TOSS_DB_PATH", "TOSS_TURSO_URL", "TOSS_TURSO_AUTH_TOKEN", "TURSO_AUTH_TOKEN"] as const;
+type EnvSnapshot = Record<string, string | undefined>;
 
 function captureEnv(): EnvSnapshot {
-  return {
-    TOSS_DB_PATH: process.env.TOSS_DB_PATH,
-    TOSS_TURSO_URL: process.env.TOSS_TURSO_URL,
-    TOSS_TURSO_AUTH_TOKEN: process.env.TOSS_TURSO_AUTH_TOKEN,
-    TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN,
-  };
+  const snapshot: EnvSnapshot = {};
+  for (const key of ENV_KEYS) {
+    snapshot[key] = process.env[key];
+  }
+  return snapshot;
 }
 
 function restoreEnv(snapshot: EnvSnapshot): void {
-  if (snapshot.TOSS_DB_PATH === undefined) {
-    delete process.env.TOSS_DB_PATH;
-  } else {
-    process.env.TOSS_DB_PATH = snapshot.TOSS_DB_PATH;
-  }
-  if (snapshot.TOSS_TURSO_URL === undefined) {
-    delete process.env.TOSS_TURSO_URL;
-  } else {
-    process.env.TOSS_TURSO_URL = snapshot.TOSS_TURSO_URL;
-  }
-  if (snapshot.TOSS_TURSO_AUTH_TOKEN === undefined) {
-    delete process.env.TOSS_TURSO_AUTH_TOKEN;
-  } else {
-    process.env.TOSS_TURSO_AUTH_TOKEN = snapshot.TOSS_TURSO_AUTH_TOKEN;
-  }
-  if (snapshot.TURSO_AUTH_TOKEN === undefined) {
-    delete process.env.TURSO_AUTH_TOKEN;
-  } else {
-    process.env.TURSO_AUTH_TOKEN = snapshot.TURSO_AUTH_TOKEN;
+  for (const key of ENV_KEYS) {
+    if (snapshot[key] === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = snapshot[key];
+    }
   }
 }
 
