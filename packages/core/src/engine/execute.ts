@@ -389,6 +389,5 @@ export function executeOperation(db: Database, operation: Operation): void {
 }
 
 export function executeReadSql(db: Database, sql: string): Record<string, unknown>[] {
-  const statement = db.query<Record<string, unknown>, []>(sql);
-  return statement.all();
+  return db.query<Record<string, unknown>, []>(sql).all();
 }

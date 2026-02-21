@@ -257,8 +257,8 @@ export function resolveInitSelection(parsed: ParsedInitArgs, isTty: boolean): Re
   return { interactive: true, platforms: [...DEFAULT_INIT_PLATFORMS] };
 }
 
-export async function promptPlatformSelection(): Promise<SkillPlatform[]> {
-  return await promptMultiSelect({
+export function promptPlatformSelection(): Promise<SkillPlatform[]> {
+  return promptMultiSelect({
     title: "toss init - Platform Installer",
     subtitle: "Select target platforms and confirm to generate skill integrations.",
     keyHint: "Keys: Up/Down move | Space toggle checkbox | a all/none | Enter confirm | Ctrl+C cancel",
@@ -268,8 +268,8 @@ export async function promptPlatformSelection(): Promise<SkillPlatform[]> {
   });
 }
 
-export async function promptHeartbeat(): Promise<boolean> {
-  return await promptConfirm({
+export function promptHeartbeat(): Promise<boolean> {
+  return promptConfirm({
     title: "toss init - OpenClaw",
     message: "Enable OpenClaw heartbeat patrol for toss data?",
     defaultValue: true,

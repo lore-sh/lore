@@ -4,7 +4,5 @@ import { validateReadSql } from "./engine/sql";
 
 export function readQuery(sqlInput: string): Record<string, unknown>[] {
   const sql = validateReadSql(sqlInput);
-  return withInitializedDatabase(({ db }) => {
-    return executeReadSql(db, sql);
-  });
+  return withInitializedDatabase(({ db }) => executeReadSql(db, sql));
 }

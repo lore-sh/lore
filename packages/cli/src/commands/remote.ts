@@ -131,8 +131,8 @@ function normalizeRequired(input: string, label: string): string {
   return normalized;
 }
 
-async function promptPlatformSelection(): Promise<RemotePlatform> {
-  return await promptRadioSelection({
+function promptPlatformSelection(): Promise<RemotePlatform> {
+  return promptRadioSelection({
     title: "toss remote connect",
     subtitle: "Select platform.",
     options: PLATFORM_OPTIONS,

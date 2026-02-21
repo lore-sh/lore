@@ -52,7 +52,7 @@ function renderConfirmPrompt(
     const pointer = selected ? style(">>", "1;36", withColor) : "  ";
     const label = selected ? style(option.label, "1", withColor) : option.label;
     lines.push(`${pointer} ${radioMark(selected, withColor)} ${label}`);
-    if (option.hint && option.hint.trim().length > 0) {
+    if (option.hint?.trim()) {
       lines.push(`   ${style(option.hint, "2", withColor)}`);
     }
   }

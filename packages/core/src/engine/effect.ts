@@ -164,36 +164,29 @@ function applySystemRowEffectReconciled(
   updateEncodedRow(db, table, pk, target);
 }
 
-function dropTriggersForTables(
-  db: Database,
-  effects: RowEffect[],
-): Array<{
+interface DroppedTrigger {
   name: string;
   sql: string;
-}> {
+}
+
+function dropTriggersForTables(db: Database, effects: RowEffect[]): DroppedTrigger[] {
   const touched = Array.from(new Set(effects.map((effect) => effect.tableName))).sort((a, b) => a.localeCompare(b));
-  const dropped: Array<{ name: string; sql: string }> = [];
+  const dropped: DroppedTrigger[] = [];
   for (const table of touched) {
-    const rows = getRows<{ name: string; sql: string }>(
+    const rows = getRows<DroppedTrigger>(
       db,
       "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC",
       table,
     );
     for (const row of rows) {
       db.run(`DROP TRIGGER IF EXISTS ${quoteIdentifier(row.name, { unsafe: true })}`);
-      dropped.push({ name: row.name, sql: row.sql });
+      dropped.push(row);
     }
   }
   return dropped;
 }
 
-function restoreDroppedTriggers(
-  db: Database,
-  dropped: Array<{
-    name: string;
-    sql: string;
-  }>,
-): void {
+function restoreDroppedTriggers(db: Database, dropped: DroppedTrigger[]): void {
   for (const trigger of dropped) {
     db.run(trigger.sql);
   }

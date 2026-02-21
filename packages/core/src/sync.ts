@@ -311,12 +311,12 @@ export function getSyncConfig(): SyncConfig | null {
   return withInitializedDatabase(() => readSyncConfig());
 }
 
-export async function pushToRemote(): Promise<SyncResult> {
-  return await runPush("push");
+export function pushToRemote(): Promise<SyncResult> {
+  return runPush("push");
 }
 
-export async function pullFromRemote(): Promise<SyncResult> {
-  return await runPull("pull");
+export function pullFromRemote(): Promise<SyncResult> {
+  return runPull("pull");
 }
 
 export async function syncWithRemote(options: { action?: SyncResult["action"] } = {}): Promise<SyncResult> {

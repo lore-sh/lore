@@ -6,11 +6,8 @@ import { quoteIdentifier } from "./sql";
 import type { JsonObject, JsonPrimitive } from "../types";
 
 export function serializeValue(value: JsonPrimitive): JsonPrimitive {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      return null;
-    }
-    return value;
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return null;
   }
   return value;
 }
@@ -69,7 +66,7 @@ export function fetchRowsByWhere(
 
 export function fetchAllRows(db: Database, table: string): JsonObject[] {
   const rows = getRows<Record<string, unknown>>(db, `SELECT * FROM ${quoteIdentifier(table)} ORDER BY rowid ASC`);
-  return rows.map((row) => normalizeRowObject(row));
+  return rows.map(normalizeRowObject);
 }
 
 export function pkFromRow(db: Database, table: string, row: Record<string, unknown>): Record<string, JsonPrimitive> {

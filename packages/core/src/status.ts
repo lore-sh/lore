@@ -52,7 +52,5 @@ export function getStatus(): TossStatus {
 }
 
 export function getHistory(): CommitEntry[] {
-  return withInitializedDatabase(({ db }) => {
-    return listCommits(db, true);
-  });
+  return withInitializedDatabase(({ db }) => listCommits(db, true));
 }

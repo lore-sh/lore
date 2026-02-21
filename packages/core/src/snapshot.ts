@@ -138,9 +138,9 @@ export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
 }
 
 export function listSnapshots(): SnapshotEntry[] {
-  return withInitializedDatabase(({ db }) => {
-    return createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
-  });
+  return withInitializedDatabase(({ db }) =>
+    createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all(),
+  );
 }
 
 export async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
