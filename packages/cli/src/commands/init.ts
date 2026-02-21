@@ -3,6 +3,7 @@ import { stdin, stdout } from "node:process";
 import type { SkillPlatform } from "@toss/core";
 import { initDatabase } from "@toss/core";
 import { cleanSkills, generateSkills } from "../skills";
+import type { GeneratedPlatform } from "../skills";
 import { promptConfirm } from "../prompts/confirm";
 import { promptMultiSelect } from "../prompts/multiselect";
 import type { MultiSelectOption } from "../prompts/multiselect";
@@ -42,8 +43,6 @@ export interface ResolvedInitSelection {
   interactive: boolean;
   platforms: SkillPlatform[];
 }
-
-type GeneratedPlatform = SkillPlatform | "shared";
 
 export interface InitGeneratedFile {
   platform: GeneratedPlatform;

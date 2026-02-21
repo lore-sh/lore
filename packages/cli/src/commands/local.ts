@@ -27,8 +27,11 @@ export function runStatus(args: string[]): void {
   console.log(`Snapshots: ${status.snapshotCount}`);
   console.log(`Last Verified At: ${status.lastVerifiedAt ?? "never"}`);
   let verifiedLabel = "unknown";
-  if (status.lastVerifiedOk === true) verifiedLabel = "yes";
-  else if (status.lastVerifiedOk === false) verifiedLabel = "no";
+  if (status.lastVerifiedOk === true) {
+    verifiedLabel = "yes";
+  } else if (status.lastVerifiedOk === false) {
+    verifiedLabel = "no";
+  }
   console.log(`Last Verified OK: ${verifiedLabel}`);
   console.log(`Sync Configured: ${status.sync.configured ? "yes" : "no"}`);
   console.log(`Sync State: ${status.sync.state}`);

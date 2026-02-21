@@ -16,7 +16,7 @@ const AGENTS_BLOCKS: ManagedBlock[] = [{ start: AGENTS_BLOCK_START, end: AGENTS_
 const CLAUDE_BLOCKS: ManagedBlock[] = [{ start: CLAUDE_BLOCK_START, end: CLAUDE_BLOCK_END }];
 const HEARTBEAT_BLOCKS: ManagedBlock[] = [{ start: HEARTBEAT_BLOCK_START, end: HEARTBEAT_BLOCK_END }];
 
-type GeneratedPlatform = SkillPlatform | "shared";
+export type GeneratedPlatform = SkillPlatform | "shared";
 
 interface ManagedBlock {
   start: string;

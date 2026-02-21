@@ -176,7 +176,7 @@ function parseRemoteStatusArgs(args: string[]): void {
 }
 
 export function parseClonePlatform(value: string): RemotePlatform {
-  if (value !== "turso" && value !== "libsql") {
+  if (!isPlatform(value)) {
     throw new Error(`clone does not accept --platform=${value}. Use turso or libsql.`);
   }
   return value;
