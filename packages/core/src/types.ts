@@ -140,8 +140,8 @@ export interface CommitEntry {
   schemaHashAfter: string;
   stateHashAfter: string;
   planHash: string;
-  inverseReady: boolean;
-  revertedTargetId: string | null;
+  revertible: boolean;
+  revertTargetId: string | null;
   operations: Operation[];
 }
 

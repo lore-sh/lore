@@ -19,14 +19,14 @@ const opTypeValues = [
 ] as const;
 const opKindValues = ["insert", "update", "delete"] as const;
 
-export const EngineMetaTable = sqliteTable(
-  "_toss_engine_meta",
+export const MetaTable = sqliteTable(
+  "_toss_meta",
   {
     key: text("key").primaryKey(),
     value: text("value").notNull(),
   },
   (table) => [
-    check("chk_toss_engine_meta_key_non_empty", sql`length(${table.key}) > 0`),
+    check("chk_toss_meta_key_non_empty", sql`length(${table.key}) > 0`),
   ],
 );
 
@@ -43,27 +43,27 @@ export const CommitTable = sqliteTable(
     schemaHashAfter: text("schema_hash_after").notNull(),
     stateHashAfter: text("state_hash_after").notNull(),
     planHash: text("plan_hash").notNull(),
-    inverseReady: integer("inverse_ready").notNull(),
-    revertedTargetId: text("reverted_target_id"),
+    revertible: integer("revertible").notNull(),
+    revertTargetId: text("revert_target_id"),
   },
   (table) => [
     foreignKey({
-      columns: [table.revertedTargetId],
+      columns: [table.revertTargetId],
       foreignColumns: [table.commitId],
     }).onDelete("set null"),
     check("chk_toss_commit_seq_positive", sql`${table.seq} > 0`),
     check("chk_toss_commit_message_non_empty", sql`length(trim(${table.message})) > 0`),
     check("chk_toss_commit_created_at_non_negative", sql`${table.createdAt} >= 0`),
     check("chk_toss_commit_parent_count_non_negative", sql`${table.parentCount} >= 0`),
-    check("chk_toss_commit_inverse_ready_bool", sql`${table.inverseReady} in (0, 1)`),
+    check("chk_toss_commit_revertible_bool", sql`${table.revertible} in (0, 1)`),
     check("chk_toss_commit_id_hash_len", sql`length(${table.commitId}) = 64`),
     check("chk_toss_commit_schema_before_hash_len", sql`length(${table.schemaHashBefore}) = 64`),
     check("chk_toss_commit_schema_after_hash_len", sql`length(${table.schemaHashAfter}) = 64`),
     check("chk_toss_commit_state_hash_len", sql`length(${table.stateHashAfter}) = 64`),
     check("chk_toss_commit_plan_hash_len", sql`length(${table.planHash}) = 64`),
     check(
-      "chk_toss_commit_reverted_target_hash_len_or_null",
-      sql`${table.revertedTargetId} is null or length(${table.revertedTargetId}) = 64`,
+      "chk_toss_commit_revert_target_hash_len_or_null",
+      sql`${table.revertTargetId} is null or length(${table.revertTargetId}) = 64`,
     ),
   ],
 );
@@ -118,7 +118,7 @@ export const ReflogTable = sqliteTable(
     createdAt: integer("created_at").notNull().default(nowDefault),
   },
   (table) => [
-    index("idx_toss_reflog_ref_id").on(table.refName, table.id),
+    index("idx_toss_reflog_ref_name_id").on(table.refName, table.id),
     check("chk_toss_reflog_created_at_non_negative", sql`${table.createdAt} >= 0`),
     check("chk_toss_reflog_old_commit_id_hash_len_or_null", sql`${table.oldCommitId} is null or length(${table.oldCommitId}) = 64`),
     check("chk_toss_reflog_new_commit_id_hash_len_or_null", sql`${table.newCommitId} is null or length(${table.newCommitId}) = 64`),
@@ -142,8 +142,8 @@ export const OpTable = sqliteTable(
   ],
 );
 
-export const EffectRowTable = sqliteTable(
-  "_toss_effect_row",
+export const RowEffectTable = sqliteTable(
+  "_toss_row_effect",
   {
     commitId: text("commit_id")
       .notNull()
@@ -152,77 +152,77 @@ export const EffectRowTable = sqliteTable(
     tableName: text("table_name").notNull(),
     pkJson: text("pk_json").notNull(),
     opKind: text("op_kind", { enum: opKindValues }).notNull(),
-    beforeRowJson: text("before_row_json"),
-    afterRowJson: text("after_row_json"),
+    beforeJson: text("before_json"),
+    afterJson: text("after_json"),
     beforeHash: text("before_hash"),
     afterHash: text("after_hash"),
   },
   (table) => [
     primaryKey({ columns: [table.commitId, table.effectIndex] }),
-    index("idx_toss_effect_row_table_pk").on(table.tableName, table.pkJson),
-    check("chk_toss_effect_row_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
-    check("chk_toss_effect_row_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
-    check("chk_toss_effect_row_pk_json_valid", sql`json_valid(${table.pkJson})`),
+    index("idx_toss_row_effect_table_pk").on(table.tableName, table.pkJson),
+    check("chk_toss_row_effect_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
+    check("chk_toss_row_effect_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
+    check("chk_toss_row_effect_pk_json_valid", sql`json_valid(${table.pkJson})`),
     check(
-      "chk_toss_effect_row_before_json_valid_or_null",
-      sql`${table.beforeRowJson} is null or json_valid(${table.beforeRowJson})`,
+      "chk_toss_row_effect_before_json_valid_or_null",
+      sql`${table.beforeJson} is null or json_valid(${table.beforeJson})`,
     ),
     check(
-      "chk_toss_effect_row_after_json_valid_or_null",
-      sql`${table.afterRowJson} is null or json_valid(${table.afterRowJson})`,
+      "chk_toss_row_effect_after_json_valid_or_null",
+      sql`${table.afterJson} is null or json_valid(${table.afterJson})`,
     ),
     check(
-      "chk_toss_effect_row_before_hash_len_or_null",
+      "chk_toss_row_effect_before_hash_len_or_null",
       sql`${table.beforeHash} is null or length(${table.beforeHash}) = 64`,
     ),
     check(
-      "chk_toss_effect_row_after_hash_len_or_null",
+      "chk_toss_row_effect_after_hash_len_or_null",
       sql`${table.afterHash} is null or length(${table.afterHash}) = 64`,
     ),
     check(
-      "chk_toss_effect_row_before_hash_pairing",
-      sql`(${table.beforeHash} is null) = (${table.beforeRowJson} is null)`,
+      "chk_toss_row_effect_before_hash_pairing",
+      sql`(${table.beforeHash} is null) = (${table.beforeJson} is null)`,
     ),
     check(
-      "chk_toss_effect_row_after_hash_pairing",
-      sql`(${table.afterHash} is null) = (${table.afterRowJson} is null)`,
+      "chk_toss_row_effect_after_hash_pairing",
+      sql`(${table.afterHash} is null) = (${table.afterJson} is null)`,
     ),
     check(
-      "chk_toss_effect_row_op_shape",
-      sql`(${table.opKind} = 'insert' and ${table.beforeRowJson} is null and ${table.afterRowJson} is not null)
-        or (${table.opKind} = 'update' and ${table.beforeRowJson} is not null and ${table.afterRowJson} is not null)
-        or (${table.opKind} = 'delete' and ${table.beforeRowJson} is not null and ${table.afterRowJson} is null)`,
+      "chk_toss_row_effect_op_shape",
+      sql`(${table.opKind} = 'insert' and ${table.beforeJson} is null and ${table.afterJson} is not null)
+        or (${table.opKind} = 'update' and ${table.beforeJson} is not null and ${table.afterJson} is not null)
+        or (${table.opKind} = 'delete' and ${table.beforeJson} is not null and ${table.afterJson} is null)`,
     ),
   ],
 );
 
-export const EffectSchemaTable = sqliteTable(
-  "_toss_effect_schema",
+export const SchemaEffectTable = sqliteTable(
+  "_toss_schema_effect",
   {
     commitId: text("commit_id")
       .notNull()
       .references(() => CommitTable.commitId, { onDelete: "cascade" }),
     effectIndex: integer("effect_index").notNull(),
     tableName: text("table_name").notNull(),
-    beforeTableJson: text("before_table_json"),
-    afterTableJson: text("after_table_json"),
+    beforeJson: text("before_json"),
+    afterJson: text("after_json"),
   },
   (table) => [
     primaryKey({ columns: [table.commitId, table.effectIndex] }),
-    index("idx_toss_effect_schema_table_column").on(table.tableName),
-    check("chk_toss_effect_schema_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
-    check("chk_toss_effect_schema_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
+    index("idx_toss_schema_effect_table_name").on(table.tableName),
+    check("chk_toss_schema_effect_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
+    check("chk_toss_schema_effect_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
     check(
-      "chk_toss_effect_schema_before_json_valid_or_null",
-      sql`${table.beforeTableJson} is null or json_valid(${table.beforeTableJson})`,
+      "chk_toss_schema_effect_before_json_valid_or_null",
+      sql`${table.beforeJson} is null or json_valid(${table.beforeJson})`,
     ),
     check(
-      "chk_toss_effect_schema_after_json_valid_or_null",
-      sql`${table.afterTableJson} is null or json_valid(${table.afterTableJson})`,
+      "chk_toss_schema_effect_after_json_valid_or_null",
+      sql`${table.afterJson} is null or json_valid(${table.afterJson})`,
     ),
     check(
-      "chk_toss_effect_schema_some_side_exists",
-      sql`${table.beforeTableJson} is not null or ${table.afterTableJson} is not null`,
+      "chk_toss_schema_effect_some_side_exists",
+      sql`${table.beforeJson} is not null or ${table.afterJson} is not null`,
     ),
   ],
 );

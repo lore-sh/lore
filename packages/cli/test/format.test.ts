@@ -24,8 +24,8 @@ describe("format", () => {
       schemaHashBefore: "hash0",
       schemaHashAfter: "hash2",
       planHash: "plan0",
-      inverseReady: true,
-      revertedTargetId: null,
+      revertible: true,
+      revertTargetId: null,
       operations: [],
     };
     const result = summarizeCommit(entry);
@@ -33,6 +33,6 @@ describe("format", () => {
     expect(result.seq).toBe(1);
     expect(result.kind).toBe("apply");
     expect(result.parent_ids).toEqual(["parent1"]);
-    expect(result.inverse_ready).toBe(true);
+    expect(result.revertible).toBe(true);
   });
 });

@@ -38,7 +38,7 @@ export function summarizeCommit(entry: CommitEntry): Record<string, unknown> {
     parent_ids: entry.parentIds,
     state_hash_after: entry.stateHashAfter,
     schema_hash_after: entry.schemaHashAfter,
-    inverse_ready: entry.inverseReady,
-    reverted_target_id: entry.revertedTargetId,
+    revertible: entry.revertible,
+    revert_target_id: entry.revertTargetId,
   };
 }

@@ -74,9 +74,9 @@ export function runHistory(args: string[]): void {
           created_at_unix_ms: entry.createdAt,
           kind: entry.kind,
           parent: entry.parentIds.join(","),
-          reverted_target: entry.revertedTargetId ?? "",
+          revert_target: entry.revertTargetId ?? "",
           state_hash: entry.stateHashAfter,
-          inverse_ready: entry.inverseReady,
+          revertible: entry.revertible,
           message: entry.message,
         }
       : {

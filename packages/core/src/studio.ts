@@ -2,8 +2,8 @@ import type { Database } from "bun:sqlite";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
-  EFFECT_ROW_TABLE,
-  EFFECT_SCHEMA_TABLE,
+  ROW_EFFECT_TABLE,
+  SCHEMA_EFFECT_TABLE,
   getRow,
   getRows,
   listUserTables,
@@ -283,9 +283,9 @@ export function listStudioTables(): StudioTablesView {
           SELECT c.created_at
           FROM ${COMMIT_TABLE} AS c
           JOIN (
-            SELECT commit_id FROM ${EFFECT_ROW_TABLE} WHERE table_name = ?
+            SELECT commit_id FROM ${ROW_EFFECT_TABLE} WHERE table_name = ?
             UNION
-            SELECT commit_id FROM ${EFFECT_SCHEMA_TABLE} WHERE table_name = ?
+            SELECT commit_id FROM ${SCHEMA_EFFECT_TABLE} WHERE table_name = ?
           ) AS touched
             ON touched.commit_id = c.commit_id
           ORDER BY c.seq DESC

@@ -219,14 +219,14 @@ export function revertCommit(commitId: string): RevertResult {
       if (!targetCommit) {
         throw new TossError("NOT_FOUND", `Commit not found: ${commitId}`);
       }
-      if (!targetCommit.inverseReady) {
+      if (!targetCommit.revertible) {
         throw new TossError("REVERT_UNSUPPORTED", `Commit ${commitId} has no inverse metadata`);
       }
 
       const already = createEngineDb(db)
         .select({ commitId: CommitTable.commitId })
         .from(CommitTable)
-        .where(and(eq(CommitTable.kind, "revert"), eq(CommitTable.revertedTargetId, commitId)))
+        .where(and(eq(CommitTable.kind, "revert"), eq(CommitTable.revertTargetId, commitId)))
         .limit(1)
         .get();
       if (already) {
@@ -263,7 +263,7 @@ export function revertCommit(commitId: string): RevertResult {
         operations: [],
         kind: "revert",
         message: `Revert ${targetCommit.commitId}: ${targetCommit.message}`,
-        revertedTargetId: targetCommit.commitId,
+        revertTargetId: targetCommit.commitId,
         beforeSchemaHash,
         beforeObservedState,
       });

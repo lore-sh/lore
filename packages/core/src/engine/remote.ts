@@ -5,9 +5,9 @@ import { basename, resolve } from "node:path";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
-  EFFECT_ROW_TABLE,
-  EFFECT_SCHEMA_TABLE,
-  ENGINE_META_TABLE,
+  ROW_EFFECT_TABLE,
+  SCHEMA_EFFECT_TABLE,
+  META_TABLE,
   LAST_MATERIALIZED_AT_META_KEY,
   LAST_MATERIALIZED_COMMIT_META_KEY,
   LAST_MATERIALIZED_ERROR_META_KEY,
@@ -29,13 +29,13 @@ import type { EncodedCell, EncodedRow, Operation, RemoteHead, SyncConfig } from 
 
 const ENGINE_MIGRATION_DIR = resolve(import.meta.dir, "../../migration");
 const REMOTE_REQUIRED_READ_TABLES = [
-  ENGINE_META_TABLE,
+  META_TABLE,
   COMMIT_TABLE,
   COMMIT_PARENT_TABLE,
   REF_TABLE,
   OP_TABLE,
-  EFFECT_ROW_TABLE,
-  EFFECT_SCHEMA_TABLE,
+  ROW_EFFECT_TABLE,
+  SCHEMA_EFFECT_TABLE,
 ];
 
 const SQLITE_SEQUENCE_TABLE = "sqlite_sequence";
@@ -304,27 +304,27 @@ export async function detectRemoteReadState(client: Client): Promise<RemoteReadS
 
 function metaInsertStatement(key: string, value: string): { sql: string; args: InArgs } {
   return {
-    sql: "INSERT INTO _toss_engine_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
+    sql: "INSERT INTO _toss_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
     args: [key, value],
   };
 }
 
 async function getRemoteMetaValue(executor: SqlExecutor, key: string): Promise<string | null> {
   const result = await executor.execute({
-    sql: "SELECT value FROM _toss_engine_meta WHERE key = ? LIMIT 1",
+    sql: "SELECT value FROM _toss_meta WHERE key = ? LIMIT 1",
     args: [key],
   });
   const row = rowsFrom(result)[0];
   if (!row) {
     return null;
   }
-  return parseString(parseRowValue(row, "value"), "_toss_engine_meta.value");
+  return parseString(parseRowValue(row, "value"), "_toss_meta.value");
 }
 
 async function setRemoteMetaValue(executor: SqlExecutor, key: string, value: string): Promise<void> {
   await executor.execute({
     sql: `
-      INSERT INTO _toss_engine_meta(key, value)
+      INSERT INTO _toss_meta(key, value)
       VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `,
@@ -1417,7 +1417,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
       INSERT INTO _toss_commit(
         commit_id, seq, kind, message, created_at, parent_count,
         schema_hash_before, schema_hash_after, state_hash_after, plan_hash,
-        inverse_ready, reverted_target_id
+        revertible, revert_target_id
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(commit_id) DO NOTHING
@@ -1433,8 +1433,8 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
       replay.schemaHashAfter,
       replay.stateHashAfter,
       replay.planHash,
-      replay.inverseReady ? 1 : 0,
-      replay.revertedTargetId,
+      replay.revertible ? 1 : 0,
+      replay.revertTargetId,
     ],
   });
 
@@ -1463,13 +1463,13 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
 
   for (let i = 0; i < replay.rowEffects.length; i += 1) {
     const effect = replay.rowEffects[i]!;
-    const beforeRowJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
-    const afterRowJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
+    const beforeJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
+    const afterJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
     await tx.execute({
       sql: `
-        INSERT INTO _toss_effect_row(
+        INSERT INTO _toss_row_effect(
           commit_id, effect_index, table_name, pk_json, op_kind,
-          before_row_json, after_row_json, before_hash, after_hash
+          before_json, after_json, before_hash, after_hash
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(commit_id, effect_index) DO NOTHING
@@ -1480,10 +1480,10 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
         effect.tableName,
         canonicalJson(effect.pk),
         effect.opKind,
-        beforeRowJson,
-        afterRowJson,
-        beforeRowJson ? sha256Hex(beforeRowJson) : null,
-        afterRowJson ? sha256Hex(afterRowJson) : null,
+        beforeJson,
+        afterJson,
+        beforeJson ? sha256Hex(beforeJson) : null,
+        afterJson ? sha256Hex(afterJson) : null,
       ],
     });
   }
@@ -1492,8 +1492,8 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
     const effect = replay.schemaEffects[i]!;
     await tx.execute({
       sql: `
-        INSERT INTO _toss_effect_schema(
-          commit_id, effect_index, table_name, before_table_json, after_table_json
+        INSERT INTO _toss_schema_effect(
+          commit_id, effect_index, table_name, before_json, after_json
         )
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(commit_id, effect_index) DO NOTHING
@@ -1576,7 +1576,7 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
       SELECT
         commit_id, seq, kind, message, created_at, parent_count,
         schema_hash_before, schema_hash_after, state_hash_after, plan_hash,
-        inverse_ready, reverted_target_id
+        revertible, revert_target_id
       FROM _toss_commit
       WHERE commit_id = ?
       LIMIT 1
@@ -1614,41 +1614,41 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
 
   const rowEffectsResult = await executor.execute({
     sql: `
-      SELECT table_name, pk_json, op_kind, before_row_json, after_row_json
-      FROM _toss_effect_row
+      SELECT table_name, pk_json, op_kind, before_json, after_json
+      FROM _toss_row_effect
       WHERE commit_id = ?
       ORDER BY effect_index ASC
     `,
     args: [commitId],
   });
   const rowEffects = rowsFrom(rowEffectsResult).map((row) => ({
-    tableName: parseString(parseRowValue(row, "table_name"), "_toss_effect_row.table_name"),
-    pk: parseJson<Record<string, string>>(parseRowValue(row, "pk_json"), "_toss_effect_row.pk_json"),
-    opKind: parseOpKind(parseString(parseRowValue(row, "op_kind"), "_toss_effect_row.op_kind")),
-    beforeRow: parseRowValue(row, "before_row_json")
-      ? parseJson<CommitReplayInput["rowEffects"][number]["beforeRow"]>(parseRowValue(row, "before_row_json"), "_toss_effect_row.before_row_json")
+    tableName: parseString(parseRowValue(row, "table_name"), "_toss_row_effect.table_name"),
+    pk: parseJson<Record<string, string>>(parseRowValue(row, "pk_json"), "_toss_row_effect.pk_json"),
+    opKind: parseOpKind(parseString(parseRowValue(row, "op_kind"), "_toss_row_effect.op_kind")),
+    beforeRow: parseRowValue(row, "before_json")
+      ? parseJson<CommitReplayInput["rowEffects"][number]["beforeRow"]>(parseRowValue(row, "before_json"), "_toss_row_effect.before_json")
       : null,
-    afterRow: parseRowValue(row, "after_row_json")
-      ? parseJson<CommitReplayInput["rowEffects"][number]["afterRow"]>(parseRowValue(row, "after_row_json"), "_toss_effect_row.after_row_json")
+    afterRow: parseRowValue(row, "after_json")
+      ? parseJson<CommitReplayInput["rowEffects"][number]["afterRow"]>(parseRowValue(row, "after_json"), "_toss_row_effect.after_json")
       : null,
   }));
 
   const schemaEffectsResult = await executor.execute({
     sql: `
-      SELECT table_name, before_table_json, after_table_json
-      FROM _toss_effect_schema
+      SELECT table_name, before_json, after_json
+      FROM _toss_schema_effect
       WHERE commit_id = ?
       ORDER BY effect_index ASC
     `,
     args: [commitId],
   });
   const schemaEffects = rowsFrom(schemaEffectsResult).map((row) => ({
-    tableName: parseString(parseRowValue(row, "table_name"), "_toss_effect_schema.table_name"),
-    beforeTable: parseRowValue(row, "before_table_json")
-      ? parseJson<CommitReplayInput["schemaEffects"][number]["beforeTable"]>(parseRowValue(row, "before_table_json"), "_toss_effect_schema.before_table_json")
+    tableName: parseString(parseRowValue(row, "table_name"), "_toss_schema_effect.table_name"),
+    beforeTable: parseRowValue(row, "before_json")
+      ? parseJson<CommitReplayInput["schemaEffects"][number]["beforeTable"]>(parseRowValue(row, "before_json"), "_toss_schema_effect.before_json")
       : null,
-    afterTable: parseRowValue(row, "after_table_json")
-      ? parseJson<CommitReplayInput["schemaEffects"][number]["afterTable"]>(parseRowValue(row, "after_table_json"), "_toss_effect_schema.after_table_json")
+    afterTable: parseRowValue(row, "after_json")
+      ? parseJson<CommitReplayInput["schemaEffects"][number]["afterTable"]>(parseRowValue(row, "after_json"), "_toss_schema_effect.after_json")
       : null,
   }));
 
@@ -1663,8 +1663,8 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
     schemaHashAfter: parseString(parseRowValue(commitRow, "schema_hash_after"), "_toss_commit.schema_hash_after"),
     stateHashAfter: parseString(parseRowValue(commitRow, "state_hash_after"), "_toss_commit.state_hash_after"),
     planHash: parseString(parseRowValue(commitRow, "plan_hash"), "_toss_commit.plan_hash"),
-    inverseReady: parseInteger(parseRowValue(commitRow, "inverse_ready"), "_toss_commit.inverse_ready") === 1,
-    revertedTargetId: parseNullableString(parseRowValue(commitRow, "reverted_target_id"), "_toss_commit.reverted_target_id"),
+    revertible: parseInteger(parseRowValue(commitRow, "revertible"), "_toss_commit.revertible") === 1,
+    revertTargetId: parseNullableString(parseRowValue(commitRow, "revert_target_id"), "_toss_commit.revert_target_id"),
     operations,
     rowEffects,
     schemaEffects,

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { createEngineDb, getClientPath, getSqlite, hasClient, initClient, withClient } from "./client";
-import { EngineMetaTable, RefTable } from "./schema.sql";
+import { MetaTable, RefTable } from "./schema.sql";
 import { TossError } from "../errors";
 import { resolveHomeDir } from "./files";
 
@@ -13,14 +13,14 @@ export const DEFAULT_SNAPSHOT_INTERVAL = 100;
 export const DEFAULT_SNAPSHOT_RETAIN = 20;
 export const DEFAULT_SYNC_PROTOCOL_VERSION = "1";
 export const MAIN_REF_NAME = "main";
-export const ENGINE_META_TABLE = "_toss_engine_meta";
+export const META_TABLE = "_toss_meta";
 export const COMMIT_TABLE = "_toss_commit";
 export const COMMIT_PARENT_TABLE = "_toss_commit_parent";
 export const REF_TABLE = "_toss_ref";
 export const REFLOG_TABLE = "_toss_reflog";
 export const OP_TABLE = "_toss_op";
-export const EFFECT_ROW_TABLE = "_toss_effect_row";
-export const EFFECT_SCHEMA_TABLE = "_toss_effect_schema";
+export const ROW_EFFECT_TABLE = "_toss_row_effect";
+export const SCHEMA_EFFECT_TABLE = "_toss_schema_effect";
 export const SNAPSHOT_TABLE = "_toss_snapshot";
 export const LAST_PUSHED_COMMIT_META_KEY = "last_pushed_commit";
 export const LAST_PULLED_COMMIT_META_KEY = "last_pulled_commit";
@@ -30,6 +30,8 @@ export const SYNC_PROTOCOL_VERSION_META_KEY = "sync_protocol_version";
 export const LAST_MATERIALIZED_COMMIT_META_KEY = "last_materialized_commit";
 export const LAST_MATERIALIZED_AT_META_KEY = "last_materialized_at";
 export const LAST_MATERIALIZED_ERROR_META_KEY = "last_materialized_error";
+export const LAST_VERIFIED_AT_META_KEY = "last_verified_at";
+export const LAST_VERIFIED_OK_META_KEY = "last_verified_ok";
 export const RESETTABLE_META_DEFAULTS: ReadonlyArray<readonly [string, string]> = [];
 export const PRESERVED_META_DEFAULTS = [
   [LAST_PUSHED_COMMIT_META_KEY, ""],
@@ -123,15 +125,15 @@ export function initializeStorage(): void {
   withClient((db) => {
     migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
     for (const [key, value] of RESETTABLE_META_DEFAULTS) {
-      db.insert(EngineMetaTable)
+      db.insert(MetaTable)
         .values({ key, value })
-        .onConflictDoUpdate({ target: EngineMetaTable.key, set: { value } })
+        .onConflictDoUpdate({ target: MetaTable.key, set: { value } })
         .run();
     }
     for (const [key, value] of PRESERVED_META_DEFAULTS) {
-      db.insert(EngineMetaTable)
+      db.insert(MetaTable)
         .values({ key, value })
-        .onConflictDoNothing({ target: EngineMetaTable.key })
+        .onConflictDoNothing({ target: MetaTable.key })
         .run();
     }
     db.insert(RefTable)
@@ -148,8 +150,8 @@ export function tableExists(db: Database, name: string): boolean {
 
 export function isInitialized(db: Database): boolean {
   const requiredTables = [
-    ENGINE_META_TABLE, COMMIT_TABLE, COMMIT_PARENT_TABLE, REF_TABLE,
-    REFLOG_TABLE, OP_TABLE, EFFECT_ROW_TABLE, EFFECT_SCHEMA_TABLE, SNAPSHOT_TABLE,
+    META_TABLE, COMMIT_TABLE, COMMIT_PARENT_TABLE, REF_TABLE,
+    REFLOG_TABLE, OP_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, SNAPSHOT_TABLE,
   ];
   if (requiredTables.some((table) => !tableExists(db, table))) {
     return false;
@@ -222,7 +224,7 @@ export function listUserTables(db: Database): string[] {
 }
 
 export function getMetaValue(db: Database, key: string): string | null {
-  const row = getRow<{ value?: string }>(db, `SELECT value FROM ${ENGINE_META_TABLE} WHERE key=?`, key);
+  const row = getRow<{ value?: string }>(db, `SELECT value FROM ${META_TABLE} WHERE key=?`, key);
   return row?.value ?? null;
 }
 
@@ -236,10 +238,10 @@ export function normalizeMetaString(value: string | null): string | null {
 
 export function setMetaValue(db: Database, key: string, value: string): void {
   createEngineDb(db)
-    .insert(EngineMetaTable)
+    .insert(MetaTable)
     .values({ key, value })
     .onConflictDoUpdate({
-      target: EngineMetaTable.key,
+      target: MetaTable.key,
       set: { value },
     })
     .run();

@@ -29,7 +29,7 @@ export async function applyPlan(planRef: string): Promise<CommitEntry> {
         operations: plan.operations,
         kind: "apply",
         message: plan.message,
-        revertedTargetId: null,
+        revertTargetId: null,
         beforeSchemaHash,
         beforeObservedState,
       });

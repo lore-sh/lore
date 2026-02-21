@@ -8,8 +8,8 @@ import { schemaHash, stateHash } from "./inspect";
 import {
   CommitParentTable,
   CommitTable,
-  EffectRowTable,
-  EffectSchemaTable,
+  RowEffectTable,
+  SchemaEffectTable,
   OpTable,
   ReflogTable,
   RefTable,
@@ -27,8 +27,8 @@ export interface CommitWriteInput {
   schemaHashAfter: string;
   stateHashAfter: string;
   planHash: string;
-  inverseReady: boolean;
-  revertedTargetId: string | null;
+  revertible: boolean;
+  revertTargetId: string | null;
   operations: Operation[];
   rowEffects: RowEffect[];
   schemaEffects: SchemaEffect[];
@@ -67,8 +67,8 @@ function decodeCommit(db: Database, row: CommitRow): CommitEntry {
     schemaHashAfter: row.schemaHashAfter,
     stateHashAfter: row.stateHashAfter,
     planHash: row.planHash,
-    inverseReady: row.inverseReady === 1,
-    revertedTargetId: row.revertedTargetId,
+    revertible: row.revertible === 1,
+    revertTargetId: row.revertTargetId,
     operations: operations.map((operation) => JSON.parse(operation.opJson) as Operation),
   };
 }
@@ -122,8 +122,8 @@ function commitHashPayload(input: CommitWriteInput): Record<string, unknown> {
     schemaHashAfter: input.schemaHashAfter,
     stateHashAfter: input.stateHashAfter,
     planHash: input.planHash,
-    inverseReady: input.inverseReady,
-    revertedTargetId: input.revertedTargetId,
+    revertible: input.revertible,
+    revertTargetId: input.revertTargetId,
     operations: input.operations,
     rowEffects,
     schemaEffects,
@@ -147,7 +147,7 @@ export function appendCommitFromObservedChange(
     operations: Operation[];
     kind: "apply" | "revert";
     message: string;
-    revertedTargetId: string | null;
+    revertTargetId: string | null;
     beforeSchemaHash: string;
     beforeObservedState: CapturedObservedState;
   },
@@ -172,8 +172,8 @@ export function appendCommitFromObservedChange(
     schemaHashAfter: afterSchemaHash,
     stateHashAfter: afterStateHash,
     planHash,
-    inverseReady: true,
-    revertedTargetId: input.revertedTargetId,
+    revertible: true,
+    revertTargetId: input.revertTargetId,
     operations: input.operations,
     rowEffects: captured.rowEffects,
     schemaEffects: captured.schemaEffects,
@@ -208,8 +208,8 @@ export function appendCommitExact(
       schemaHashAfter: input.schemaHashAfter,
       stateHashAfter: input.stateHashAfter,
       planHash: input.planHash,
-      inverseReady: input.inverseReady ? 1 : 0,
-      revertedTargetId: input.revertedTargetId,
+      revertible: input.revertible ? 1 : 0,
+      revertTargetId: input.revertTargetId,
     })
     .run();
 
@@ -227,20 +227,20 @@ export function appendCommitExact(
 
   for (let i = 0; i < input.rowEffects.length; i += 1) {
     const effect = input.rowEffects[i]!;
-    const beforeRowJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
-    const afterRowJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
+    const beforeJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
+    const afterJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
     engineDb
-      .insert(EffectRowTable)
+      .insert(RowEffectTable)
       .values({
         commitId,
         effectIndex: i,
         tableName: effect.tableName,
         pkJson: canonicalJson(effect.pk),
         opKind: effect.opKind,
-        beforeRowJson,
-        afterRowJson,
-        beforeHash: beforeRowJson ? sha256Hex(beforeRowJson) : null,
-        afterHash: afterRowJson ? sha256Hex(afterRowJson) : null,
+        beforeJson,
+        afterJson,
+        beforeHash: beforeJson ? sha256Hex(beforeJson) : null,
+        afterHash: afterJson ? sha256Hex(afterJson) : null,
       })
       .run();
   }
@@ -248,13 +248,13 @@ export function appendCommitExact(
   for (let i = 0; i < input.schemaEffects.length; i += 1) {
     const effect = input.schemaEffects[i]!;
     engineDb
-      .insert(EffectSchemaTable)
+      .insert(SchemaEffectTable)
       .values({
         commitId,
         effectIndex: i,
         tableName: effect.tableName,
-        beforeTableJson: effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
-        afterTableJson: effect.afterTable ? canonicalJson(effect.afterTable) : null,
+        beforeJson: effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
+        afterJson: effect.afterTable ? canonicalJson(effect.afterTable) : null,
       })
       .run();
   }
@@ -318,17 +318,17 @@ export type StoredSchemaEffect = SchemaEffect;
 export function getRowEffectsByCommitId(db: Database, commitId: string): StoredRowEffect[] {
   const rows = createEngineDb(db)
     .select()
-    .from(EffectRowTable)
-    .where(eq(EffectRowTable.commitId, commitId))
-    .orderBy(asc(EffectRowTable.effectIndex))
+    .from(RowEffectTable)
+    .where(eq(RowEffectTable.commitId, commitId))
+    .orderBy(asc(RowEffectTable.effectIndex))
     .all();
 
   return rows.map((row) => ({
     tableName: row.tableName,
     pk: JSON.parse(row.pkJson) as Record<string, string>,
     opKind: row.opKind,
-    beforeRow: row.beforeRowJson ? (JSON.parse(row.beforeRowJson) as RowEffect["beforeRow"]) : null,
-    afterRow: row.afterRowJson ? (JSON.parse(row.afterRowJson) as RowEffect["afterRow"]) : null,
+    beforeRow: row.beforeJson ? (JSON.parse(row.beforeJson) as RowEffect["beforeRow"]) : null,
+    afterRow: row.afterJson ? (JSON.parse(row.afterJson) as RowEffect["afterRow"]) : null,
     beforeHash: row.beforeHash,
     afterHash: row.afterHash,
   }));
@@ -337,15 +337,15 @@ export function getRowEffectsByCommitId(db: Database, commitId: string): StoredR
 export function getSchemaEffectsByCommitId(db: Database, commitId: string): StoredSchemaEffect[] {
   const rows = createEngineDb(db)
     .select()
-    .from(EffectSchemaTable)
-    .where(eq(EffectSchemaTable.commitId, commitId))
-    .orderBy(asc(EffectSchemaTable.effectIndex))
+    .from(SchemaEffectTable)
+    .where(eq(SchemaEffectTable.commitId, commitId))
+    .orderBy(asc(SchemaEffectTable.effectIndex))
     .all();
 
   return rows.map((row) => ({
     tableName: row.tableName,
-    beforeTable: row.beforeTableJson ? (JSON.parse(row.beforeTableJson) as SchemaEffect["beforeTable"]) : null,
-    afterTable: row.afterTableJson ? (JSON.parse(row.afterTableJson) as SchemaEffect["afterTable"]) : null,
+    beforeTable: row.beforeJson ? (JSON.parse(row.beforeJson) as SchemaEffect["beforeTable"]) : null,
+    afterTable: row.afterJson ? (JSON.parse(row.afterJson) as SchemaEffect["afterTable"]) : null,
   }));
 }
 
@@ -358,17 +358,17 @@ export function estimateCommitSizeBytes(db: Database, commitId: string): number 
     .get()?.n ?? 0;
   const rowEffectBytes = engineDb
     .select({
-      n: sql<number>`coalesce(sum(length(${EffectRowTable.pkJson}) + coalesce(length(${EffectRowTable.beforeRowJson}), 0) + coalesce(length(${EffectRowTable.afterRowJson}), 0)), 0)`,
+      n: sql<number>`coalesce(sum(length(${RowEffectTable.pkJson}) + coalesce(length(${RowEffectTable.beforeJson}), 0) + coalesce(length(${RowEffectTable.afterJson}), 0)), 0)`,
     })
-    .from(EffectRowTable)
-    .where(eq(EffectRowTable.commitId, commitId))
+    .from(RowEffectTable)
+    .where(eq(RowEffectTable.commitId, commitId))
     .get()?.n ?? 0;
   const schemaEffectBytes = engineDb
     .select({
-      n: sql<number>`coalesce(sum(coalesce(length(${EffectSchemaTable.beforeTableJson}), 0) + coalesce(length(${EffectSchemaTable.afterTableJson}), 0)), 0)`,
+      n: sql<number>`coalesce(sum(coalesce(length(${SchemaEffectTable.beforeJson}), 0) + coalesce(length(${SchemaEffectTable.afterJson}), 0)), 0)`,
     })
-    .from(EffectSchemaTable)
-    .where(eq(EffectSchemaTable.commitId, commitId))
+    .from(SchemaEffectTable)
+    .where(eq(SchemaEffectTable.commitId, commitId))
     .get()?.n ?? 0;
   const commitMessageBytes = engineDb
     .select({ n: sql<number>`coalesce(length(${CommitTable.message}), 0)` })
@@ -387,15 +387,15 @@ export function estimateHistorySizeBytes(db: Database): number {
     .get()?.n ?? 0;
   const rowEffectBytes = engineDb
     .select({
-      n: sql<number>`coalesce(sum(length(${EffectRowTable.pkJson}) + coalesce(length(${EffectRowTable.beforeRowJson}), 0) + coalesce(length(${EffectRowTable.afterRowJson}), 0)), 0)`,
+      n: sql<number>`coalesce(sum(length(${RowEffectTable.pkJson}) + coalesce(length(${RowEffectTable.beforeJson}), 0) + coalesce(length(${RowEffectTable.afterJson}), 0)), 0)`,
     })
-    .from(EffectRowTable)
+    .from(RowEffectTable)
     .get()?.n ?? 0;
   const schemaEffectBytes = engineDb
     .select({
-      n: sql<number>`coalesce(sum(coalesce(length(${EffectSchemaTable.beforeTableJson}), 0) + coalesce(length(${EffectSchemaTable.afterTableJson}), 0)), 0)`,
+      n: sql<number>`coalesce(sum(coalesce(length(${SchemaEffectTable.beforeJson}), 0) + coalesce(length(${SchemaEffectTable.afterJson}), 0)), 0)`,
     })
-    .from(EffectSchemaTable)
+    .from(SchemaEffectTable)
     .get()?.n ?? 0;
   const commitMessageBytes = engineDb
     .select({ n: sql<number>`coalesce(sum(length(${CommitTable.message})), 0)` })

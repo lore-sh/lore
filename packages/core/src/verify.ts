@@ -1,5 +1,11 @@
 import type { Database } from "bun:sqlite";
-import { getRow, setMetaValue, withInitializedDatabase } from "./engine/db";
+import {
+  LAST_VERIFIED_AT_META_KEY,
+  LAST_VERIFIED_OK_META_KEY,
+  getRow,
+  setMetaValue,
+  withInitializedDatabase,
+} from "./engine/db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
 import type { VerifyResult } from "./types";
 
@@ -40,9 +46,9 @@ export function verifyDatabase(options: { full?: boolean } = {}): VerifyResult {
     }
 
     const checkedAt = new Date().toISOString();
-    setMetaValue(db, "last_verified_at", checkedAt);
+    setMetaValue(db, LAST_VERIFIED_AT_META_KEY, checkedAt);
     const ok = issues.length === 0;
-    setMetaValue(db, "last_verified_ok", ok ? "1" : "0");
+    setMetaValue(db, LAST_VERIFIED_OK_META_KEY, ok ? "1" : "0");
 
     return {
       ok,

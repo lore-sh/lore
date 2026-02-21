@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ea25c857-f7de-4007-a53d-354dfb7f92f2",
+  "id": "16e188d6-9256-49bd-ad99-558c55311c66",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "_toss_commit_parent": {
@@ -164,15 +164,15 @@
           "notNull": true,
           "autoincrement": false
         },
-        "inverse_ready": {
-          "name": "inverse_ready",
+        "revertible": {
+          "name": "revertible",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "reverted_target_id": {
-          "name": "reverted_target_id",
+        "revert_target_id": {
+          "name": "revert_target_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -189,12 +189,12 @@
         }
       },
       "foreignKeys": {
-        "_toss_commit_reverted_target_id__toss_commit_commit_id_fk": {
-          "name": "_toss_commit_reverted_target_id__toss_commit_commit_id_fk",
+        "_toss_commit_revert_target_id__toss_commit_commit_id_fk": {
+          "name": "_toss_commit_revert_target_id__toss_commit_commit_id_fk",
           "tableFrom": "_toss_commit",
           "tableTo": "_toss_commit",
           "columnsFrom": [
-            "reverted_target_id"
+            "revert_target_id"
           ],
           "columnsTo": [
             "commit_id"
@@ -222,9 +222,9 @@
           "name": "chk_toss_commit_parent_count_non_negative",
           "value": "\"_toss_commit\".\"parent_count\" >= 0"
         },
-        "chk_toss_commit_inverse_ready_bool": {
-          "name": "chk_toss_commit_inverse_ready_bool",
-          "value": "\"_toss_commit\".\"inverse_ready\" in (0, 1)"
+        "chk_toss_commit_revertible_bool": {
+          "name": "chk_toss_commit_revertible_bool",
+          "value": "\"_toss_commit\".\"revertible\" in (0, 1)"
         },
         "chk_toss_commit_id_hash_len": {
           "name": "chk_toss_commit_id_hash_len",
@@ -246,255 +246,14 @@
           "name": "chk_toss_commit_plan_hash_len",
           "value": "length(\"_toss_commit\".\"plan_hash\") = 64"
         },
-        "chk_toss_commit_reverted_target_hash_len_or_null": {
-          "name": "chk_toss_commit_reverted_target_hash_len_or_null",
-          "value": "\"_toss_commit\".\"reverted_target_id\" is null or length(\"_toss_commit\".\"reverted_target_id\") = 64"
+        "chk_toss_commit_revert_target_hash_len_or_null": {
+          "name": "chk_toss_commit_revert_target_hash_len_or_null",
+          "value": "\"_toss_commit\".\"revert_target_id\" is null or length(\"_toss_commit\".\"revert_target_id\") = 64"
         }
       }
     },
-    "_toss_effect_row": {
-      "name": "_toss_effect_row",
-      "columns": {
-        "commit_id": {
-          "name": "commit_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "effect_index": {
-          "name": "effect_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "table_name": {
-          "name": "table_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "pk_json": {
-          "name": "pk_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "op_kind": {
-          "name": "op_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "before_row_json": {
-          "name": "before_row_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "after_row_json": {
-          "name": "after_row_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "before_hash": {
-          "name": "before_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "after_hash": {
-          "name": "after_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idx_toss_effect_row_table_pk": {
-          "name": "idx_toss_effect_row_table_pk",
-          "columns": [
-            "table_name",
-            "pk_json"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "_toss_effect_row_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_effect_row_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_effect_row",
-          "tableTo": "_toss_commit",
-          "columnsFrom": [
-            "commit_id"
-          ],
-          "columnsTo": [
-            "commit_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "_toss_effect_row_commit_id_effect_index_pk": {
-          "columns": [
-            "commit_id",
-            "effect_index"
-          ],
-          "name": "_toss_effect_row_commit_id_effect_index_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "chk_toss_effect_row_effect_index_non_negative": {
-          "name": "chk_toss_effect_row_effect_index_non_negative",
-          "value": "\"_toss_effect_row\".\"effect_index\" >= 0"
-        },
-        "chk_toss_effect_row_table_name_non_empty": {
-          "name": "chk_toss_effect_row_table_name_non_empty",
-          "value": "length(trim(\"_toss_effect_row\".\"table_name\")) > 0"
-        },
-        "chk_toss_effect_row_pk_json_valid": {
-          "name": "chk_toss_effect_row_pk_json_valid",
-          "value": "json_valid(\"_toss_effect_row\".\"pk_json\")"
-        },
-        "chk_toss_effect_row_before_json_valid_or_null": {
-          "name": "chk_toss_effect_row_before_json_valid_or_null",
-          "value": "\"_toss_effect_row\".\"before_row_json\" is null or json_valid(\"_toss_effect_row\".\"before_row_json\")"
-        },
-        "chk_toss_effect_row_after_json_valid_or_null": {
-          "name": "chk_toss_effect_row_after_json_valid_or_null",
-          "value": "\"_toss_effect_row\".\"after_row_json\" is null or json_valid(\"_toss_effect_row\".\"after_row_json\")"
-        },
-        "chk_toss_effect_row_before_hash_len_or_null": {
-          "name": "chk_toss_effect_row_before_hash_len_or_null",
-          "value": "\"_toss_effect_row\".\"before_hash\" is null or length(\"_toss_effect_row\".\"before_hash\") = 64"
-        },
-        "chk_toss_effect_row_after_hash_len_or_null": {
-          "name": "chk_toss_effect_row_after_hash_len_or_null",
-          "value": "\"_toss_effect_row\".\"after_hash\" is null or length(\"_toss_effect_row\".\"after_hash\") = 64"
-        },
-        "chk_toss_effect_row_before_hash_pairing": {
-          "name": "chk_toss_effect_row_before_hash_pairing",
-          "value": "(\"_toss_effect_row\".\"before_hash\" is null) = (\"_toss_effect_row\".\"before_row_json\" is null)"
-        },
-        "chk_toss_effect_row_after_hash_pairing": {
-          "name": "chk_toss_effect_row_after_hash_pairing",
-          "value": "(\"_toss_effect_row\".\"after_hash\" is null) = (\"_toss_effect_row\".\"after_row_json\" is null)"
-        },
-        "chk_toss_effect_row_op_shape": {
-          "name": "chk_toss_effect_row_op_shape",
-          "value": "(\"_toss_effect_row\".\"op_kind\" = 'insert' and \"_toss_effect_row\".\"before_row_json\" is null and \"_toss_effect_row\".\"after_row_json\" is not null)\n        or (\"_toss_effect_row\".\"op_kind\" = 'update' and \"_toss_effect_row\".\"before_row_json\" is not null and \"_toss_effect_row\".\"after_row_json\" is not null)\n        or (\"_toss_effect_row\".\"op_kind\" = 'delete' and \"_toss_effect_row\".\"before_row_json\" is not null and \"_toss_effect_row\".\"after_row_json\" is null)"
-        }
-      }
-    },
-    "_toss_effect_schema": {
-      "name": "_toss_effect_schema",
-      "columns": {
-        "commit_id": {
-          "name": "commit_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "effect_index": {
-          "name": "effect_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "table_name": {
-          "name": "table_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "before_table_json": {
-          "name": "before_table_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "after_table_json": {
-          "name": "after_table_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idx_toss_effect_schema_table_column": {
-          "name": "idx_toss_effect_schema_table_column",
-          "columns": [
-            "table_name"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "_toss_effect_schema_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_effect_schema_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_effect_schema",
-          "tableTo": "_toss_commit",
-          "columnsFrom": [
-            "commit_id"
-          ],
-          "columnsTo": [
-            "commit_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "_toss_effect_schema_commit_id_effect_index_pk": {
-          "columns": [
-            "commit_id",
-            "effect_index"
-          ],
-          "name": "_toss_effect_schema_commit_id_effect_index_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "chk_toss_effect_schema_effect_index_non_negative": {
-          "name": "chk_toss_effect_schema_effect_index_non_negative",
-          "value": "\"_toss_effect_schema\".\"effect_index\" >= 0"
-        },
-        "chk_toss_effect_schema_table_name_non_empty": {
-          "name": "chk_toss_effect_schema_table_name_non_empty",
-          "value": "length(trim(\"_toss_effect_schema\".\"table_name\")) > 0"
-        },
-        "chk_toss_effect_schema_before_json_valid_or_null": {
-          "name": "chk_toss_effect_schema_before_json_valid_or_null",
-          "value": "\"_toss_effect_schema\".\"before_table_json\" is null or json_valid(\"_toss_effect_schema\".\"before_table_json\")"
-        },
-        "chk_toss_effect_schema_after_json_valid_or_null": {
-          "name": "chk_toss_effect_schema_after_json_valid_or_null",
-          "value": "\"_toss_effect_schema\".\"after_table_json\" is null or json_valid(\"_toss_effect_schema\".\"after_table_json\")"
-        },
-        "chk_toss_effect_schema_some_side_exists": {
-          "name": "chk_toss_effect_schema_some_side_exists",
-          "value": "\"_toss_effect_schema\".\"before_table_json\" is not null or \"_toss_effect_schema\".\"after_table_json\" is not null"
-        }
-      }
-    },
-    "_toss_engine_meta": {
-      "name": "_toss_engine_meta",
+    "_toss_meta": {
+      "name": "_toss_meta",
       "columns": {
         "key": {
           "name": "key",
@@ -516,9 +275,9 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_engine_meta_key_non_empty": {
-          "name": "chk_toss_engine_meta_key_non_empty",
-          "value": "length(\"_toss_engine_meta\".\"key\") > 0"
+        "chk_toss_meta_key_non_empty": {
+          "name": "chk_toss_meta_key_non_empty",
+          "value": "length(\"_toss_meta\".\"key\") > 0"
         }
       }
     },
@@ -698,8 +457,8 @@
         }
       },
       "indexes": {
-        "idx_toss_reflog_ref_id": {
-          "name": "idx_toss_reflog_ref_id",
+        "idx_toss_reflog_ref_name_id": {
+          "name": "idx_toss_reflog_ref_name_id",
           "columns": [
             "ref_name",
             "id"
@@ -762,6 +521,247 @@
         "chk_toss_reflog_new_commit_id_hash_len_or_null": {
           "name": "chk_toss_reflog_new_commit_id_hash_len_or_null",
           "value": "\"_toss_reflog\".\"new_commit_id\" is null or length(\"_toss_reflog\".\"new_commit_id\") = 64"
+        }
+      }
+    },
+    "_toss_row_effect": {
+      "name": "_toss_row_effect",
+      "columns": {
+        "commit_id": {
+          "name": "commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "effect_index": {
+          "name": "effect_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "table_name": {
+          "name": "table_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pk_json": {
+          "name": "pk_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "op_kind": {
+          "name": "op_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "before_json": {
+          "name": "before_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_json": {
+          "name": "after_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "before_hash": {
+          "name": "before_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_hash": {
+          "name": "after_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_toss_row_effect_table_pk": {
+          "name": "idx_toss_row_effect_table_pk",
+          "columns": [
+            "table_name",
+            "pk_json"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "_toss_row_effect_commit_id__toss_commit_commit_id_fk": {
+          "name": "_toss_row_effect_commit_id__toss_commit_commit_id_fk",
+          "tableFrom": "_toss_row_effect",
+          "tableTo": "_toss_commit",
+          "columnsFrom": [
+            "commit_id"
+          ],
+          "columnsTo": [
+            "commit_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "_toss_row_effect_commit_id_effect_index_pk": {
+          "columns": [
+            "commit_id",
+            "effect_index"
+          ],
+          "name": "_toss_row_effect_commit_id_effect_index_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_toss_row_effect_effect_index_non_negative": {
+          "name": "chk_toss_row_effect_effect_index_non_negative",
+          "value": "\"_toss_row_effect\".\"effect_index\" >= 0"
+        },
+        "chk_toss_row_effect_table_name_non_empty": {
+          "name": "chk_toss_row_effect_table_name_non_empty",
+          "value": "length(trim(\"_toss_row_effect\".\"table_name\")) > 0"
+        },
+        "chk_toss_row_effect_pk_json_valid": {
+          "name": "chk_toss_row_effect_pk_json_valid",
+          "value": "json_valid(\"_toss_row_effect\".\"pk_json\")"
+        },
+        "chk_toss_row_effect_before_json_valid_or_null": {
+          "name": "chk_toss_row_effect_before_json_valid_or_null",
+          "value": "\"_toss_row_effect\".\"before_json\" is null or json_valid(\"_toss_row_effect\".\"before_json\")"
+        },
+        "chk_toss_row_effect_after_json_valid_or_null": {
+          "name": "chk_toss_row_effect_after_json_valid_or_null",
+          "value": "\"_toss_row_effect\".\"after_json\" is null or json_valid(\"_toss_row_effect\".\"after_json\")"
+        },
+        "chk_toss_row_effect_before_hash_len_or_null": {
+          "name": "chk_toss_row_effect_before_hash_len_or_null",
+          "value": "\"_toss_row_effect\".\"before_hash\" is null or length(\"_toss_row_effect\".\"before_hash\") = 64"
+        },
+        "chk_toss_row_effect_after_hash_len_or_null": {
+          "name": "chk_toss_row_effect_after_hash_len_or_null",
+          "value": "\"_toss_row_effect\".\"after_hash\" is null or length(\"_toss_row_effect\".\"after_hash\") = 64"
+        },
+        "chk_toss_row_effect_before_hash_pairing": {
+          "name": "chk_toss_row_effect_before_hash_pairing",
+          "value": "(\"_toss_row_effect\".\"before_hash\" is null) = (\"_toss_row_effect\".\"before_json\" is null)"
+        },
+        "chk_toss_row_effect_after_hash_pairing": {
+          "name": "chk_toss_row_effect_after_hash_pairing",
+          "value": "(\"_toss_row_effect\".\"after_hash\" is null) = (\"_toss_row_effect\".\"after_json\" is null)"
+        },
+        "chk_toss_row_effect_op_shape": {
+          "name": "chk_toss_row_effect_op_shape",
+          "value": "(\"_toss_row_effect\".\"op_kind\" = 'insert' and \"_toss_row_effect\".\"before_json\" is null and \"_toss_row_effect\".\"after_json\" is not null)\n        or (\"_toss_row_effect\".\"op_kind\" = 'update' and \"_toss_row_effect\".\"before_json\" is not null and \"_toss_row_effect\".\"after_json\" is not null)\n        or (\"_toss_row_effect\".\"op_kind\" = 'delete' and \"_toss_row_effect\".\"before_json\" is not null and \"_toss_row_effect\".\"after_json\" is null)"
+        }
+      }
+    },
+    "_toss_schema_effect": {
+      "name": "_toss_schema_effect",
+      "columns": {
+        "commit_id": {
+          "name": "commit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "effect_index": {
+          "name": "effect_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "table_name": {
+          "name": "table_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "before_json": {
+          "name": "before_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_json": {
+          "name": "after_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_toss_schema_effect_table_name": {
+          "name": "idx_toss_schema_effect_table_name",
+          "columns": [
+            "table_name"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "_toss_schema_effect_commit_id__toss_commit_commit_id_fk": {
+          "name": "_toss_schema_effect_commit_id__toss_commit_commit_id_fk",
+          "tableFrom": "_toss_schema_effect",
+          "tableTo": "_toss_commit",
+          "columnsFrom": [
+            "commit_id"
+          ],
+          "columnsTo": [
+            "commit_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "_toss_schema_effect_commit_id_effect_index_pk": {
+          "columns": [
+            "commit_id",
+            "effect_index"
+          ],
+          "name": "_toss_schema_effect_commit_id_effect_index_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "chk_toss_schema_effect_effect_index_non_negative": {
+          "name": "chk_toss_schema_effect_effect_index_non_negative",
+          "value": "\"_toss_schema_effect\".\"effect_index\" >= 0"
+        },
+        "chk_toss_schema_effect_table_name_non_empty": {
+          "name": "chk_toss_schema_effect_table_name_non_empty",
+          "value": "length(trim(\"_toss_schema_effect\".\"table_name\")) > 0"
+        },
+        "chk_toss_schema_effect_before_json_valid_or_null": {
+          "name": "chk_toss_schema_effect_before_json_valid_or_null",
+          "value": "\"_toss_schema_effect\".\"before_json\" is null or json_valid(\"_toss_schema_effect\".\"before_json\")"
+        },
+        "chk_toss_schema_effect_after_json_valid_or_null": {
+          "name": "chk_toss_schema_effect_after_json_valid_or_null",
+          "value": "\"_toss_schema_effect\".\"after_json\" is null or json_valid(\"_toss_schema_effect\".\"after_json\")"
+        },
+        "chk_toss_schema_effect_some_side_exists": {
+          "name": "chk_toss_schema_effect_some_side_exists",
+          "value": "\"_toss_schema_effect\".\"before_json\" is not null or \"_toss_schema_effect\".\"after_json\" is not null"
         }
       }
     },

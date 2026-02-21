@@ -387,7 +387,7 @@ describe("sync with Turso protocol", () => {
       expect(count?.c ?? 0).toBe(1);
       const projectionError = remoteDbAfter
         .query<{ value: string }, []>(
-          "SELECT value FROM _toss_engine_meta WHERE key='last_materialized_error' LIMIT 1",
+          "SELECT value FROM _toss_meta WHERE key='last_materialized_error' LIMIT 1",
         )
         .get();
       expect((projectionError?.value ?? "").length).toBeGreaterThan(0);
@@ -503,11 +503,11 @@ describe("sync with Turso protocol", () => {
     const remoteDb = new Database(remote.dbPath);
     try {
       remoteDb
-        .query("UPDATE _toss_effect_row SET after_row_json = ? WHERE commit_id = ? AND effect_index = 0")
+        .query("UPDATE _toss_row_effect SET after_json = ? WHERE commit_id = ? AND effect_index = 0")
         .run(tamperedAfterRow, insertCommitId);
       remoteDb
         .query(
-          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run(createCommitId);
     } finally {
@@ -530,7 +530,7 @@ describe("sync with Turso protocol", () => {
     try {
       const projectionError = remoteDbAfter
         .query<{ value: string }, []>(
-          "SELECT value FROM _toss_engine_meta WHERE key='last_materialized_error' LIMIT 1",
+          "SELECT value FROM _toss_meta WHERE key='last_materialized_error' LIMIT 1",
         )
         .get();
       expect((projectionError?.value ?? "").startsWith("Remote projection failed:")).toBe(true);
@@ -761,7 +761,7 @@ describe("sync with Turso protocol", () => {
       remoteDb.query("DELETE FROM tasks WHERE id = 2").run();
       remoteDb
         .query(
-          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run(checkpointCommitId);
     } finally {
@@ -829,12 +829,12 @@ describe("sync with Turso protocol", () => {
       remoteDb.query("DROP TABLE tasks").run();
       remoteDb
         .query(
-          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run("f".repeat(64));
       remoteDb
         .query(
-          "INSERT INTO _toss_engine_meta(key, value) VALUES ('last_materialized_error', 'stale') ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_error', 'stale') ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run();
     } finally {
@@ -1358,7 +1358,7 @@ describe("sync with Turso protocol", () => {
 });
 
 function getMetaValueOrThrow(db: Database, key: string): string {
-  const row = db.query<{ value: string }, [string]>("SELECT value FROM _toss_engine_meta WHERE key = ? LIMIT 1").get(key);
+  const row = db.query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1").get(key);
   if (!row) {
     throw new Error(`missing meta key: ${key}`);
   }
