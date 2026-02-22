@@ -430,10 +430,54 @@ describe("studio api", () => {
     await applyPlan(createCalendarPath);
     await applyPlan(insertExpensesPath);
 
-    const history = listStudioTableHistory("expenses", { limit: 10 });
+    const history = listStudioTableHistory("expenses", { limit: 10, page: 1 });
     expect(history).toHaveLength(2);
     expect(history.map((entry) => entry.message)).toEqual(["insert expenses", "create expenses"]);
     expect(history.every((entry) => entry.affectedTables.includes("expenses"))).toBe(true);
+  });
+
+  testWithTmp("table history supports page and validates table existence", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    await applyPlan(
+      await writePlanFile(dir, "studio-table-history-page-create.json", {
+        message: "create expenses",
+        operations: [
+          {
+            type: "create_table",
+            table: "expenses",
+            columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+          },
+        ],
+      }),
+    );
+    await applyPlan(
+      await writePlanFile(dir, "studio-table-history-page-insert-1.json", {
+        message: "insert expenses 1",
+        operations: [{ type: "insert", table: "expenses", values: { id: 1 } }],
+      }),
+    );
+    await applyPlan(
+      await writePlanFile(dir, "studio-table-history-page-insert-2.json", {
+        message: "insert expenses 2",
+        operations: [{ type: "insert", table: "expenses", values: { id: 2 } }],
+      }),
+    );
+
+    const secondPage = listStudioTableHistory("expenses", { limit: 1, page: 2 });
+    expect(secondPage).toHaveLength(1);
+    expect(secondPage[0]?.message).toBe("insert expenses 1");
+
+    try {
+      listStudioTableHistory("missing_table", { limit: 10, page: 1 });
+      throw new Error("listStudioTableHistory should fail for unknown tables");
+    } catch (error) {
+      expect(isTossError(error)).toBe(true);
+      if (isTossError(error)) {
+        expect(error.code).toBe("NOT_FOUND");
+      }
+    }
   });
 
   testWithTmp("generated columns are visible in metadata and usable for sort/filter", async () => {

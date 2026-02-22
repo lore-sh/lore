@@ -1,10 +1,17 @@
 import { isTossError } from "@toss/core";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { join } from "node:path";
 import { createHistoryRoutes } from "./routes/history";
 import { createRevertRoutes } from "./routes/revert";
 import { createStatusRoutes } from "./routes/status";
 import { createTableRoutes } from "./routes/tables";
+
+export interface StudioApiError {
+  code: string;
+  message: string;
+  details?: unknown;
+}
 
 function statusFromTossCode(code: string): number {
   switch (code) {
@@ -35,13 +42,24 @@ function clientAssetRoot(): string {
   return join(import.meta.dir, "../../dist/client");
 }
 
-function jsonResponse(payload: Record<string, unknown>, status: number): Response {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
+function jsonError(code: string, message: string, status: number, details?: unknown): Response {
+  const payload: StudioApiError = {
+    code,
+    message,
+  };
+  if (details !== undefined) {
+    payload.details = details;
+  }
+
+  return new Response(
+    JSON.stringify(payload),
+    {
+      status,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+      },
     },
-  });
+  );
 }
 
 async function loadAsset(path: string): Promise<Response | null> {
@@ -59,54 +77,75 @@ export function isAssetRequestPath(path: string): boolean {
 
 export function createStudioApi() {
   return new Hono()
-    .route("/", createTableRoutes())
-    .route("/", createHistoryRoutes())
-    .route("/", createRevertRoutes())
+    .basePath("/api")
+    .route("/tables", createTableRoutes())
+    .route("/commits", createHistoryRoutes())
+    .route("/commits", createRevertRoutes())
     .route("/", createStatusRoutes());
 }
 
 export function createStudioApp() {
   const api = createStudioApi();
-  const app = new Hono().route("/", api).get("*", async (c) => {
-    if (c.req.path.startsWith("/api/")) {
-      return c.json({ error: "NOT_FOUND", message: "API route not found" }, 404);
-    }
+  const app = new Hono()
+    .route("/", api)
+    .all("/api/*", (c) => {
+      return c.json(
+        {
+          code: "NOT_FOUND",
+          message: "API route not found",
+        } satisfies StudioApiError,
+        404,
+      );
+    })
+    .get("*", async (c) => {
+      const exactAsset = await loadAsset(c.req.path);
+      if (exactAsset) {
+        return exactAsset;
+      }
+      if (isAssetRequestPath(c.req.path)) {
+        return c.text("Asset not found", 404);
+      }
 
-    const exactAsset = await loadAsset(c.req.path);
-    if (exactAsset) {
-      return exactAsset;
-    }
-    if (isAssetRequestPath(c.req.path)) {
-      return c.text("Asset not found", 404);
-    }
+      const indexAsset = await loadAsset("/index.html");
+      if (indexAsset) {
+        return indexAsset;
+      }
 
-    const indexAsset = await loadAsset("/index.html");
-    if (indexAsset) {
-      return indexAsset;
-    }
-
-    return c.text("Studio client bundle not found. Run `bun run --cwd packages/studio build:client` first.", 500);
-  });
+      return c.text("Studio client bundle not found. Run `bun run --cwd packages/studio build:client` first.", 500);
+    });
 
   app.onError((error) => {
     if (isTossError(error)) {
-      return jsonResponse(
+      return jsonError(error.code, error.message, statusFromTossCode(error.code));
+    }
+
+    if (error instanceof HTTPException) {
+      const message = error.message || "HTTP exception";
+      if (error.status === 400 && message.toLowerCase().includes("malformed json")) {
+        return jsonError("VALIDATION_ERROR", "Request validation failed", 400, [
+          {
+            message,
+          },
+        ]);
+      }
+      if (error.status >= 400 && error.status < 500) {
+        return jsonError("INVALID_OPERATION", message, error.status);
+      }
+      return jsonError("INTERNAL", message, 500);
+    }
+
+    if (error instanceof SyntaxError) {
+      return jsonError("VALIDATION_ERROR", "Request validation failed", 400, [
         {
-          error: error.code,
           message: error.message,
         },
-        statusFromTossCode(error.code),
-      );
+      ]);
     }
+
     const message = error instanceof Error ? error.message : String(error);
-    return jsonResponse(
-      {
-        error: "INTERNAL",
-        message,
-      },
-      500,
-    );
+    return jsonError("INTERNAL", message, 500);
   });
+
   return app;
 }
 

@@ -38,7 +38,7 @@ describe("studio api error mapping", () => {
     });
 
     expect(status).toBe(400);
-    expect(body).toContain('"error":"NOT_INITIALIZED"');
+    expect(body).toContain('"code":"NOT_INITIALIZED"');
   });
 
   test("returns NOT_FOUND as 404 for missing table", async () => {
@@ -51,7 +51,7 @@ describe("studio api error mapping", () => {
     });
 
     expect(status).toBe(404);
-    expect(body).toContain('"error":"NOT_FOUND"');
+    expect(body).toContain('"code":"NOT_FOUND"');
   });
 
   test("removes legacy /api/schema endpoint", async () => {
@@ -59,7 +59,7 @@ describe("studio api error mapping", () => {
     const response = await app.request("/api/schema");
 
     expect(response.status).toBe(404);
-    expect(await response.text()).toContain('"error":"NOT_FOUND"');
+    expect(await response.text()).toContain('"code":"NOT_FOUND"');
   });
 
   test("returns ALREADY_REVERTED as 409", async () => {
@@ -82,13 +82,13 @@ describe("studio api error mapping", () => {
       expect(first.ok).toBe(true);
 
       const app = createStudioApp();
-      const response = await app.request(`/api/revert/${commit.commitId}`, {
+      const response = await app.request(`/api/commits/${commit.commitId}/revert`, {
         method: "POST",
       });
       return { status: response.status, body: await response.text() };
     });
 
     expect(status).toBe(409);
-    expect(body).toContain('"error":"ALREADY_REVERTED"');
+    expect(body).toContain('"code":"ALREADY_REVERTED"');
   });
 });

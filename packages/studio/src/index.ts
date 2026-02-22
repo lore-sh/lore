@@ -1,4 +1,4 @@
-export { createStudioApi, createStudioApp, type StudioApi } from "./server/app";
+export { createStudioApi, createStudioApp, type StudioApi, type StudioApiError } from "./server/app";
 export { startStudioServer, type StartedStudioServer } from "./server/index";
 export { DEFAULT_STUDIO_PORT, normalizeStudioPort, parseStudioPort, parseStudioPortArg } from "./server/port";
 export type { StartStudioServerOptions } from "./server/types";

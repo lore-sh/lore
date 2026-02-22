@@ -1,75 +1,122 @@
+import { zValidator } from "@hono/zod-validator";
 import { getStudioTableSchema, listStudioTableHistory, listStudioTables, readStudioTable } from "@toss/core";
 import { Hono } from "hono";
-import { validator } from "hono/validator";
-import { parsePositiveInt, singleValue } from "./query";
+import { z } from "zod";
 
-function parseFilters(query: Record<string, string | string[] | undefined>): Record<string, string> {
-  const filters: Record<string, string> = {};
-  for (const [key, value] of Object.entries(query)) {
-    if (!key.startsWith("filters.")) {
-      continue;
-    }
-    const column = key.slice("filters.".length).trim();
-    if (column.length === 0) {
-      continue;
-    }
-    const raw = singleValue(value);
-    if (!raw) {
-      continue;
-    }
-    const normalized = raw.trim();
-    if (normalized.length === 0) {
-      continue;
-    }
-    filters[column] = normalized;
+const tableParamSchema = z.object({
+  name: z.string().trim().min(1),
+});
+
+const positiveIntSchema = z.coerce.number().int().min(1);
+
+const tableRowsQuerySchema = z.object({
+  page: positiveIntSchema.optional(),
+  pageSize: positiveIntSchema.optional(),
+  sortBy: z.string().trim().min(1).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional(),
+  filters: z.record(z.string(), z.string()).optional(),
+});
+
+const tableHistoryQuerySchema = z.object({
+  limit: positiveIntSchema.optional(),
+  page: positiveIntSchema.optional(),
+});
+
+function validationError(issues: z.ZodIssue[]): { code: string; message: string; details: z.ZodIssue[] } {
+  return {
+    code: "VALIDATION_ERROR",
+    message: "Request validation failed",
+    details: issues,
+  };
+}
+
+function normalizeFilters(filters: Record<string, string> | undefined): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  if (!filters) {
+    return normalized;
   }
-  return filters;
+
+  for (const [column, value] of Object.entries(filters)) {
+    const key = column.trim();
+    const text = value.trim();
+    if (key.length === 0 || text.length === 0) {
+      continue;
+    }
+    normalized[key] = text;
+  }
+
+  return normalized;
 }
 
 export function createTableRoutes() {
-  const tableQuery = validator("query", (query) => {
-    const page = parsePositiveInt(singleValue(query.page));
-    const pageSize = parsePositiveInt(singleValue(query.pageSize));
-    const sortBy = singleValue(query.sortBy);
-    const sortDir: "asc" | "desc" = singleValue(query.sortDir) === "desc" ? "desc" : "asc";
-    return {
-      page,
-      pageSize,
-      sortBy: typeof sortBy === "string" && sortBy.trim().length > 0 ? sortBy : undefined,
-      sortDir,
-      filters: parseFilters(query),
-    };
-  });
-  const historyQuery = validator("query", (query) => ({
-    limit: parsePositiveInt(singleValue(query.limit)),
-  }));
-
   return new Hono()
-    .get("/api/tables", (c) => {
-      return c.json(listStudioTables());
+    .get("/", (c) => {
+      return c.json(listStudioTables(), 200);
     })
-    .get("/api/tables/:name", tableQuery, (c) => {
-      const query = c.req.valid("query");
-      return c.json(
-        readStudioTable({
-          table: c.req.param("name"),
-          page: query.page,
-          pageSize: query.pageSize,
-          sortBy: query.sortBy,
-          sortDir: query.sortDir,
-          filters: query.filters,
-        }),
-      );
-    })
-    .get("/api/tables/:name/schema", (c) => {
-      return c.json(getStudioTableSchema(c.req.param("name")));
-    })
-    .get("/api/tables/:name/history", historyQuery, (c) => {
-      const query = c.req.valid("query");
-      return c.json(
-        listStudioTableHistory(c.req.param("name"), {
-          limit: query.limit,
-        }),
-      );
-    });
+    .post(
+      "/:name/rows/query",
+      zValidator("param", tableParamSchema, (result, c) => {
+        if (!result.success) {
+          return c.json(validationError(result.error.issues), 400);
+        }
+      }),
+      zValidator("json", tableRowsQuerySchema, (result, c) => {
+        if (!result.success) {
+          return c.json(validationError(result.error.issues), 400);
+        }
+      }),
+      (c) => {
+        const param = c.req.valid("param");
+        const query = c.req.valid("json");
+
+        return c.json(
+          readStudioTable({
+            table: param.name,
+            page: query.page,
+            pageSize: query.pageSize,
+            sortBy: query.sortBy,
+            sortDir: query.sortDir,
+            filters: normalizeFilters(query.filters),
+          }),
+          200,
+        );
+      },
+    )
+    .get(
+      "/:name/schema",
+      zValidator("param", tableParamSchema, (result, c) => {
+        if (!result.success) {
+          return c.json(validationError(result.error.issues), 400);
+        }
+      }),
+      (c) => {
+        const param = c.req.valid("param");
+        return c.json(getStudioTableSchema(param.name), 200);
+      },
+    )
+    .get(
+      "/:name/history",
+      zValidator("param", tableParamSchema, (result, c) => {
+        if (!result.success) {
+          return c.json(validationError(result.error.issues), 400);
+        }
+      }),
+      zValidator("query", tableHistoryQuerySchema, (result, c) => {
+        if (!result.success) {
+          return c.json(validationError(result.error.issues), 400);
+        }
+      }),
+      (c) => {
+        const param = c.req.valid("param");
+        const query = c.req.valid("query");
+
+        return c.json(
+          listStudioTableHistory(param.name, {
+            limit: query.limit,
+            page: query.page,
+          }),
+          200,
+        );
+      },
+    );
 }

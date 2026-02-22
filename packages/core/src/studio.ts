@@ -546,6 +546,7 @@ export function listStudioTableHistory(
   table: string,
   options: {
     limit?: number | undefined;
+    page?: number | undefined;
   } = {},
 ): StudioHistoryEntry[] {
   return withInitializedDatabase(({ db }) => {
@@ -555,6 +556,8 @@ export function listStudioTableHistory(
     }
     const tableName = resolveTableName(listUserTables(db), rawTableName);
     const max = normalizePageSize(options.limit);
+    const page = normalizePage(options.page);
+    const offset = (page - 1) * max;
     const rows = getRows<{
       commit_id: string;
       seq: number;
@@ -573,10 +576,12 @@ export function listStudioTableHistory(
         )
         ORDER BY c.seq DESC
         LIMIT ?
+        OFFSET ?
       `,
       tableName,
       tableName,
       max,
+      offset,
     );
     return rows.map((row) => toStudioHistoryEntry(db, row));
   });

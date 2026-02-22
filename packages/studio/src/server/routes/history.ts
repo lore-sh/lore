@@ -1,34 +1,62 @@
-import { getStudioCommitDetail, listStudioHistory, type CommitKind } from "@toss/core";
+import { zValidator } from "@hono/zod-validator";
+import { getStudioCommitDetail, listStudioHistory } from "@toss/core";
 import { Hono } from "hono";
-import { validator } from "hono/validator";
-import { parsePositiveInt, singleValue } from "./query";
+import { z } from "zod";
+
+const positiveIntSchema = z.coerce.number().int().min(1);
+
+const commitIdParamSchema = z.object({
+  id: z.string().trim().min(1),
+});
+
+const commitsQuerySchema = z.object({
+  limit: positiveIntSchema.optional(),
+  page: positiveIntSchema.optional(),
+  kind: z.enum(["apply", "revert"]).optional(),
+  table: z.string().trim().min(1).optional(),
+});
+
+function validationError(issues: z.ZodIssue[]): { code: string; message: string; details: z.ZodIssue[] } {
+  return {
+    code: "VALIDATION_ERROR",
+    message: "Request validation failed",
+    details: issues,
+  };
+}
 
 export function createHistoryRoutes() {
-  const historyQuery = validator("query", (query) => {
-    const rawKind = singleValue(query.kind);
-    const kind: CommitKind | undefined = rawKind === "apply" || rawKind === "revert" ? rawKind : undefined;
-    const rawTable = singleValue(query.table);
-    return {
-      limit: parsePositiveInt(singleValue(query.limit)),
-      page: parsePositiveInt(singleValue(query.page)),
-      kind,
-      table: typeof rawTable === "string" && rawTable.trim().length > 0 ? rawTable : undefined,
-    };
-  });
-
   return new Hono()
-    .get("/api/history", historyQuery, (c) => {
-      const query = c.req.valid("query");
-      return c.json(
-        listStudioHistory({
-          limit: query.limit,
-          page: query.page,
-          kind: query.kind,
-          table: query.table,
-        }),
-      );
-    })
-    .get("/api/history/:id", (c) => {
-      return c.json(getStudioCommitDetail(c.req.param("id")));
-    });
+    .get(
+      "/",
+      zValidator("query", commitsQuerySchema, (result, c) => {
+        if (!result.success) {
+          return c.json(validationError(result.error.issues), 400);
+        }
+      }),
+      (c) => {
+        const query = c.req.valid("query");
+
+        return c.json(
+          listStudioHistory({
+            limit: query.limit,
+            page: query.page,
+            kind: query.kind,
+            table: query.table,
+          }),
+          200,
+        );
+      },
+    )
+    .get(
+      "/:id",
+      zValidator("param", commitIdParamSchema, (result, c) => {
+        if (!result.success) {
+          return c.json(validationError(result.error.issues), 400);
+        }
+      }),
+      (c) => {
+        const param = c.req.valid("param");
+        return c.json(getStudioCommitDetail(param.id), 200);
+      },
+    );
 }

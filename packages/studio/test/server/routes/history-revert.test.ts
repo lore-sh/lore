@@ -31,7 +31,7 @@ async function withDbPath<T>(dbPath: string, run: () => Promise<T>): Promise<T> 
 }
 
 describe("studio history and revert routes", () => {
-  test("GET /api/history supports kind/table/page", async () => {
+  test("GET /api/commits supports kind/table/page", async () => {
     const dbPath = createTempPath("studio-history-route-");
     await withDbPath(dbPath, async () => {
       await initDatabase({ dbPath });
@@ -75,7 +75,7 @@ describe("studio history and revert routes", () => {
       );
 
       const app = createStudioApp();
-      const response = await app.request("/api/history?kind=apply&table=expenses&limit=1&page=2");
+      const response = await app.request("/api/commits?kind=apply&table=expenses&limit=1&page=2");
       expect(response.status).toBe(200);
       const payload = await response.json();
       expect(Array.isArray(payload)).toBe(true);
@@ -125,7 +125,20 @@ describe("studio history and revert routes", () => {
     });
   });
 
-  test("POST /api/revert/:id returns success and conflict", async () => {
+  test("GET /api/tables/:name/history returns NOT_FOUND for unknown table", async () => {
+    const dbPath = createTempPath("studio-table-history-missing-route-");
+    await withDbPath(dbPath, async () => {
+      await initDatabase({ dbPath });
+      const app = createStudioApp();
+      const response = await app.request("/api/tables/missing/history?limit=10&page=1");
+
+      expect(response.status).toBe(404);
+      const payload = await response.json();
+      expect(payload.code).toBe("NOT_FOUND");
+    });
+  });
+
+  test("POST /api/commits/:id/revert returns success and conflict", async () => {
     const dbPath = createTempPath("studio-revert-route-");
     await withDbPath(dbPath, async () => {
       await initDatabase({ dbPath });
@@ -161,13 +174,13 @@ describe("studio history and revert routes", () => {
 
       const app = createStudioApp();
 
-      const conflictResponse = await app.request(`/api/revert/${insert.commitId}`, { method: "POST" });
-      expect(conflictResponse.status).toBe(200);
+      const conflictResponse = await app.request(`/api/commits/${insert.commitId}/revert`, { method: "POST" });
+      expect(conflictResponse.status).toBe(409);
       const conflictBody = await conflictResponse.json();
       expect(conflictBody.ok).toBe(false);
       expect(conflictBody.conflicts.length).toBeGreaterThan(0);
 
-      const okResponse = await app.request(`/api/revert/${update.commitId}`, { method: "POST" });
+      const okResponse = await app.request(`/api/commits/${update.commitId}/revert`, { method: "POST" });
       expect(okResponse.status).toBe(200);
       const okBody = await okResponse.json();
       expect(okBody.ok).toBe(true);
