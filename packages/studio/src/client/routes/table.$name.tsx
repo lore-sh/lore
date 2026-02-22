@@ -2,6 +2,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query";
 import { CommitEntry } from "../components/commit-entry";
 import { DataGrid } from "../components/data-grid";
+import { QueryBoundary } from "../components/query-boundary";
 import {
   tableDataQueryOptions,
   tableHistoryQueryOptions,
@@ -18,13 +19,6 @@ import {
 
 function tabClass(active: boolean): string {
   return active ? "ui-tab ui-tab-active" : "ui-tab";
-}
-
-function queryErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }
 
 export function TablePage() {
@@ -106,12 +100,8 @@ export function TablePage() {
     ...tableHistoryQueryOptions(name, 50),
     enabled: currentTab === "history",
   });
-  const data = dataQuery.data ?? null;
-  const schema = schemaQuery.data ?? null;
-  const history = historyQuery.data ?? null;
-
-  const rowCount = data?.totalRows ?? schema?.rowCount ?? 0;
-  const columnCount = data?.columns.length ?? schema?.columns.filter((column) => !column.hidden).length ?? 0;
+  const rowCount = dataQuery.data?.totalRows ?? schemaQuery.data?.rowCount ?? 0;
+  const columnCount = dataQuery.data?.columns.length ?? schemaQuery.data?.columns.filter((column) => !column.hidden).length ?? 0;
 
   return (
     <section className="ui-stack-4">
@@ -127,74 +117,75 @@ export function TablePage() {
         <button type="button" className={tabClass(currentTab === "history")} onClick={() => setTab("history")}>History</button>
       </nav>
 
-      {currentTab === "data" && data ? (
-        <DataGrid
-          data={data}
-          search={search}
-          onSort={toggleSort}
-          onFilter={setFilter}
-          onPage={setPage}
-          onPageSize={setPageSize}
-        />
-      ) : currentTab === "data" && dataQuery.isError ? (
-        <p className="ui-error">{queryErrorMessage(dataQuery.error)}</p>
-      ) : currentTab === "data" ? (
-        <p className="ui-muted">Loading data...</p>
-      ) : null}
-
-      {currentTab === "schema" && schema ? (
-        <section className="ui-surface">
-          <table className="ui-grid">
-            <thead>
-              <tr>
-                <th>COLUMN</th>
-                <th>TYPE</th>
-                <th>CONSTRAINTS</th>
-                <th>DEFAULT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {schema.columns
-                .filter((column) => !column.hidden)
-                .map((column) => {
-                  const constraints = [column.primaryKey ? "PK" : null, column.notNull ? "NOT NULL" : null, column.unique ? "UNIQUE" : null]
-                    .filter((part): part is string => part !== null)
-                    .join(", ");
-                  return (
-                    <tr key={column.name}>
-                      <td>{column.name}</td>
-                      <td>{column.type || "ANY"}</td>
-                      <td>{constraints || "-"}</td>
-                      <td>{column.defaultValue ?? "-"}</td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
-        </section>
-      ) : currentTab === "schema" && schemaQuery.isError ? (
-        <p className="ui-error">{queryErrorMessage(schemaQuery.error)}</p>
-      ) : currentTab === "schema" ? (
-        <p className="ui-muted">Loading schema...</p>
-      ) : null}
-
-      {currentTab === "history" ? (
-        <section className="ui-surface">
-          {historyQuery.isPending ? (
-            <p className="ui-muted">Loading history...</p>
-          ) : historyQuery.isError ? (
-            <p className="ui-error">{queryErrorMessage(historyQuery.error)}</p>
-          ) : history && history.length > 0 ? (
-            <ul className="ui-timeline">
-              {history.map((commit) => (
-                <CommitEntry key={commit.commitId} commit={commit} showAffectedTables={false} enableRevert />
-              ))}
-            </ul>
-          ) : (
-            <p className="ui-empty">No history for this table.</p>
+      {currentTab === "data" && (
+        <QueryBoundary query={dataQuery} loadingLabel="Loading data..." staleErrorLabel="Failed to refresh data, showing cached result">
+          {(tableData) => (
+            <DataGrid
+              data={tableData}
+              search={search}
+              onSort={toggleSort}
+              onFilter={setFilter}
+              onPage={setPage}
+              onPageSize={setPageSize}
+            />
           )}
-        </section>
-      ) : null}
+        </QueryBoundary>
+      )}
+
+      {currentTab === "schema" && (
+        <QueryBoundary query={schemaQuery} loadingLabel="Loading schema..." staleErrorLabel="Failed to refresh schema, showing cached result">
+          {(schemaData) => (
+            <section className="ui-surface">
+              <table className="ui-grid">
+                <thead>
+                  <tr>
+                    <th>COLUMN</th>
+                    <th>TYPE</th>
+                    <th>CONSTRAINTS</th>
+                    <th>DEFAULT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schemaData.columns
+                    .filter((column) => !column.hidden)
+                    .map((column) => {
+                      const constraints = [column.primaryKey ? "PK" : null, column.notNull ? "NOT NULL" : null, column.unique ? "UNIQUE" : null]
+                        .filter((part): part is string => part !== null)
+                        .join(", ");
+                      return (
+                        <tr key={column.name}>
+                          <td>{column.name}</td>
+                          <td>{column.type || "ANY"}</td>
+                          <td>{constraints || "-"}</td>
+                          <td>{column.defaultValue ?? "-"}</td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </section>
+          )}
+        </QueryBoundary>
+      )}
+
+      {currentTab === "history" && (
+        <QueryBoundary query={historyQuery} loadingLabel="Loading history..." staleErrorLabel="Failed to refresh history, showing cached result">
+          {(historyData) =>
+          historyData.length > 0 ? (
+            <section className="ui-surface">
+              <ul className="ui-timeline">
+                {historyData.map((commit) => (
+                  <CommitEntry key={commit.commitId} commit={commit} showAffectedTables={false} enableRevert />
+                ))}
+              </ul>
+            </section>
+          ) : (
+            <section className="ui-surface">
+              <p className="ui-empty">No history for this table.</p>
+            </section>
+          )}
+        </QueryBoundary>
+      )}
     </section>
   );
 }

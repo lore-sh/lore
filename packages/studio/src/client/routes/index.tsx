@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import type { StudioHistoryEntry, StudioTableSummary } from "@toss/core";
 import { CommitEntry } from "../components/commit-entry";
 import { TableRow } from "../components/table-row";
 import { formatBytes, formatRelativeTime } from "../lib/time";
@@ -13,6 +14,49 @@ function dbLabel(path: string): string {
 
 function totalRows(rowCounts: number[]): number {
   return rowCounts.reduce((sum, count) => sum + count, 0);
+}
+
+function ActivitySection({ history }: { history: StudioHistoryEntry[] }) {
+  return (
+    <section className="ui-surface">
+      <header className="ui-section-head">
+        <h2 className="ui-title">Activity</h2>
+      </header>
+      {history.length === 0 ? (
+        <p className="ui-empty">No commits yet.</p>
+      ) : (
+        <ul className="ui-timeline">
+          {history.map((commit) => (
+            <CommitEntry key={commit.commitId} commit={commit} enableRevert />
+          ))}
+        </ul>
+      )}
+      <div className="ui-section-foot">
+        <Link to="/timeline" search={{ page: 1, kind: "all" }} className="ui-link">
+          View all in Timeline
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+function TablesSection({ tables }: { tables: StudioTableSummary[] }) {
+  return (
+    <section id="tables" className="ui-surface">
+      <header className="ui-section-head">
+        <h2 className="ui-title">Tables</h2>
+      </header>
+      {tables.length === 0 ? (
+        <p className="ui-empty">No tables yet. Data will appear here as you use toss.</p>
+      ) : (
+        <ul className="ui-table-list">
+          {tables.map((table) => (
+            <TableRow key={table.name} table={table} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 export function DashboardPage() {
@@ -30,77 +74,13 @@ export function DashboardPage() {
 
       {compactLayout ? (
         <div className="ui-overview-grid">
-          <section className="ui-surface">
-            <header className="ui-section-head">
-              <h2 className="ui-title">Activity</h2>
-            </header>
-            {history.length === 0 ? (
-              <p className="ui-empty">No commits yet.</p>
-            ) : (
-              <ul className="ui-timeline">
-                {history.map((commit) => (
-                  <CommitEntry key={commit.commitId} commit={commit} enableRevert />
-                ))}
-              </ul>
-            )}
-            <div className="ui-section-foot">
-              <Link to="/timeline" search={{ page: 1, kind: "all" }} className="ui-link">
-                View all in Timeline
-              </Link>
-            </div>
-          </section>
-
-          <section id="tables" className="ui-surface">
-            <header className="ui-section-head">
-              <h2 className="ui-title">Tables</h2>
-            </header>
-            {tableRows.length === 0 ? (
-              <p className="ui-empty">No tables yet. Data will appear here as you use toss.</p>
-            ) : (
-              <ul className="ui-table-list">
-                {tableRows.map((table) => (
-                  <TableRow key={table.name} table={table} />
-                ))}
-              </ul>
-            )}
-          </section>
+          <ActivitySection history={history} />
+          <TablesSection tables={tableRows} />
         </div>
       ) : (
         <>
-          <section id="tables" className="ui-surface">
-            <header className="ui-section-head">
-              <h2 className="ui-title">Tables</h2>
-            </header>
-            {tableRows.length === 0 ? (
-              <p className="ui-empty">No tables yet. Data will appear here as you use toss.</p>
-            ) : (
-              <ul className="ui-table-list">
-                {tableRows.map((table) => (
-                  <TableRow key={table.name} table={table} />
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section className="ui-surface">
-            <header className="ui-section-head">
-              <h2 className="ui-title">Activity</h2>
-            </header>
-            {history.length === 0 ? (
-              <p className="ui-empty">No commits yet.</p>
-            ) : (
-              <ul className="ui-timeline">
-                {history.map((commit) => (
-                  <CommitEntry key={commit.commitId} commit={commit} enableRevert />
-                ))}
-              </ul>
-            )}
-            <div className="ui-section-foot">
-              <Link to="/timeline" search={{ page: 1, kind: "all" }} className="ui-link">
-                View all in Timeline
-              </Link>
-            </div>
-          </section>
+          <TablesSection tables={tableRows} />
+          <ActivitySection history={history} />
         </>
       )}
 

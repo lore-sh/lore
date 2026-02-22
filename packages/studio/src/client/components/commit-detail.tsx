@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RevertConflict } from "@toss/core";
 import { useState } from "react";
+import { QueryBoundary } from "./query-boundary";
 import { revertCommitById } from "../lib/api";
 import {
   renderOperationLine,
@@ -9,6 +10,17 @@ import {
   renderSchemaEffectLine,
 } from "../lib/commit-render";
 import { commitDetailQueryOptions } from "../lib/queries";
+
+function diffKindClass(kind: "add" | "remove" | "neutral"): string {
+  switch (kind) {
+    case "add":
+      return "ui-diff-add";
+    case "remove":
+      return "ui-diff-remove";
+    case "neutral":
+      return "ui-diff-neutral";
+  }
+}
 
 interface CommitDetailProps {
   commitId: string;
@@ -76,85 +88,81 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
     },
   });
 
-  if (detail.isPending) {
-    return <p className="ui-muted">Loading detail...</p>;
-  }
-  if (detail.isError) {
-    const message = detail.error instanceof Error ? detail.error.message : String(detail.error);
-    return <p className="ui-error">{message}</p>;
-  }
-
-  const commit = detail.data.commit;
-
   return (
-    <div className="ui-commit-detail">
-      <section>
-        <p className="ui-label">Operations</p>
-        {commit.operations.length === 0 ? (
-          <p className="ui-soft">No operations</p>
-        ) : (
-          <ul className="ui-list-tight">
-            {commit.operations.map((operation, index) => (
-              <li key={`${operation.type}-${index}`} className="ui-mono ui-line">
-                {renderOperationLine(operation)}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <QueryBoundary query={detail} loadingLabel="Loading detail..." staleErrorLabel="Failed to refresh detail, showing cached result">
+      {(detailData) => {
+        const commit = detailData.commit;
+        return (
+          <div className="ui-commit-detail">
+            <section>
+              <p className="ui-label">Operations</p>
+              {commit.operations.length === 0 ? (
+                <p className="ui-soft">No operations</p>
+              ) : (
+                <ul className="ui-list-tight">
+                  {commit.operations.map((operation, index) => (
+                    <li key={`${operation.type}-${index}`} className="ui-mono ui-line">
+                      {renderOperationLine(operation)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-      <section>
-        <p className="ui-label">Effects</p>
-        <div className="ui-stack-2">
-          {detail.data.rowEffects.map((effect, index) => (
-            <div key={`${effect.tableName}-${index}`} className="ui-effect-block">
-              <p className="ui-soft">
-                {effect.tableName}
-                {renderPkLabel(effect.pk).length > 0 ? ` · ${renderPkLabel(effect.pk)}` : ""}
-              </p>
-              <div className="ui-diff">
-                {renderRowEffectLines(effect).map((line, lineIndex) => (
-                  <div key={lineIndex} className={line.kind === "add" ? "ui-diff-add" : "ui-diff-remove"}>
-                    {line.text}
+            <section>
+              <p className="ui-label">Effects</p>
+              <div className="ui-stack-2">
+                {detailData.rowEffects.map((effect, index) => (
+                  <div key={`${effect.tableName}-${index}`} className="ui-effect-block">
+                    <p className="ui-soft">
+                      {effect.tableName}
+                      {renderPkLabel(effect.pk).length > 0 ? ` · ${renderPkLabel(effect.pk)}` : ""}
+                    </p>
+                    <div className="ui-diff">
+                      {renderRowEffectLines(effect).map((line, lineIndex) => (
+                        <div key={lineIndex} className={line.kind === "add" ? "ui-diff-add" : "ui-diff-remove"}>
+                          {line.text}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
-              </div>
-            </div>
-          ))}
 
-          {detail.data.schemaEffects.map((effect, index) => {
-            const line = renderSchemaEffectLine(effect);
-            const className = line.kind === "add" ? "ui-diff-add" : line.kind === "remove" ? "ui-diff-remove" : "ui-diff-neutral";
-            return (
-              <div key={`${effect.tableName}-${index}`} className={className}>
-                {line.text}
+                {detailData.schemaEffects.map((effect, index) => {
+                  const line = renderSchemaEffectLine(effect);
+                  return (
+                    <div key={`${effect.tableName}-${index}`} className={diffKindClass(line.kind)}>
+                      {line.text}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-      </section>
+            </section>
 
-      {enableRevert && commit.revertible ? (
-        <div className="ui-stack-2">
-          <button
-            type="button"
-            className="ui-btn-primary"
-            disabled={mutation.isPending}
-            onClick={() => {
-              const confirmed = window.confirm(`Revert commit ${commit.commitId.slice(0, 12)}: ${commit.message}?`);
-              if (!confirmed) {
-                return;
-              }
-              mutation.mutate();
-            }}
-          >
-            {mutation.isPending ? "Reverting..." : "Revert this commit"}
-          </button>
-          {revertError ? <p className="ui-error">{revertError}</p> : null}
-          {success ? <p className="ui-ok">{success}</p> : null}
-          <ConflictList conflicts={conflicts} />
-        </div>
-      ) : null}
-    </div>
+            {enableRevert && commit.revertible ? (
+              <div className="ui-stack-2">
+                <button
+                  type="button"
+                  className="ui-btn-primary"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    const confirmed = window.confirm(`Revert commit ${commit.commitId.slice(0, 12)}: ${commit.message}?`);
+                    if (!confirmed) {
+                      return;
+                    }
+                    mutation.mutate();
+                  }}
+                >
+                  {mutation.isPending ? "Reverting..." : "Revert this commit"}
+                </button>
+                {revertError ? <p className="ui-error">{revertError}</p> : null}
+                {success ? <p className="ui-ok">{success}</p> : null}
+                <ConflictList conflicts={conflicts} />
+              </div>
+            ) : null}
+          </div>
+        );
+      }}
+    </QueryBoundary>
   );
 }

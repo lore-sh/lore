@@ -1,3 +1,5 @@
+import { parsePositiveInt } from "./parse";
+
 export type SortDirection = "asc" | "desc";
 export type TableTab = "data" | "schema" | "history";
 
@@ -10,22 +12,6 @@ export interface TableRouteSearch {
   [key: string]: unknown;
 }
 
-function parsePositiveInt(value: unknown, fallback: number): number {
-  if (typeof value === "number") {
-    if (Number.isFinite(value) && value > 0) {
-      return Math.floor(value);
-    }
-    return fallback;
-  }
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return fallback;
-}
-
 function normalizeTab(value: unknown): TableTab {
   if (value === "schema") {
     return "schema";
@@ -36,9 +22,16 @@ function normalizeTab(value: unknown): TableTab {
   return "data";
 }
 
+function normalizeSortDir(value: unknown): SortDirection | undefined {
+  if (value === "asc" || value === "desc") {
+    return value;
+  }
+  return undefined;
+}
+
 export function validateTableSearch(raw: Record<string, unknown>): TableRouteSearch {
   const sortBy = typeof raw.sortBy === "string" && raw.sortBy.trim().length > 0 ? raw.sortBy.trim() : undefined;
-  const sortDir = raw.sortDir === "desc" ? "desc" : raw.sortDir === "asc" ? "asc" : undefined;
+  const sortDir = normalizeSortDir(raw.sortDir);
   const search: TableRouteSearch = {
     tab: normalizeTab(raw.tab),
     page: parsePositiveInt(raw.page, 1),

@@ -141,6 +141,11 @@
     font-size: 12px;
   }
 
+  .ui-warn {
+    color: var(--studio-status-warn);
+    font-size: 12px;
+  }
+
   .ui-ok {
     color: var(--studio-status-ok);
     font-size: 12px;
