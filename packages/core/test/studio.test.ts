@@ -8,6 +8,7 @@ import {
   initDatabase,
   isTossError,
   listStudioHistory,
+  listStudioTableHistory,
   listStudioTables,
   readStudioTable,
 } from "../src";
@@ -269,6 +270,170 @@ describe("studio api", () => {
     const history = listStudioHistory({ limit: 1 });
     expect(history).toHaveLength(1);
     expect(history[0]?.message).toBe("insert 2");
+  });
+
+  testWithTmp("history supports kind/table/page filters and includes summary metadata", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const createExpensesPath = await writePlanFile(dir, "studio-history-filter-create-expenses.json", {
+      message: "create expenses",
+      operations: [
+        {
+          type: "create_table",
+          table: "expenses",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+    const createCalendarPath = await writePlanFile(dir, "studio-history-filter-create-calendar.json", {
+      message: "create calendar",
+      operations: [
+        {
+          type: "create_table",
+          table: "calendar",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+    const insertExpensesPath = await writePlanFile(dir, "studio-history-filter-insert-expenses.json", {
+      message: "insert expenses",
+      operations: [{ type: "insert", table: "expenses", values: { id: 1 } }],
+    });
+    const insertCalendarPath = await writePlanFile(dir, "studio-history-filter-insert-calendar.json", {
+      message: "insert calendar",
+      operations: [{ type: "insert", table: "calendar", values: { id: 1 } }],
+    });
+
+    await applyPlan(createExpensesPath);
+    await applyPlan(createCalendarPath);
+    await applyPlan(insertExpensesPath);
+    await applyPlan(insertCalendarPath);
+
+    const filtered = listStudioHistory({
+      kind: "apply",
+      table: "expenses",
+      limit: 10,
+      page: 1,
+    });
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0]?.message).toBe("insert expenses");
+    expect(filtered[0]?.operationCount).toBe(1);
+    expect(filtered[0]?.rowEffectCount).toBe(1);
+    expect(filtered[0]?.schemaEffectCount).toBe(0);
+    expect(filtered[0]?.affectedTables).toEqual(["expenses"]);
+    expect(filtered[1]?.message).toBe("create expenses");
+
+    const paged = listStudioHistory({ limit: 1, page: 2 });
+    expect(paged).toHaveLength(1);
+    expect(paged[0]?.message).toBe("insert expenses");
+  });
+
+  testWithTmp("history table filter resolves table names case-insensitively", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const createExpensesPath = await writePlanFile(dir, "studio-history-case-create-expenses.json", {
+      message: "create Expenses",
+      operations: [
+        {
+          type: "create_table",
+          table: "Expenses",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+    const insertExpensesPath = await writePlanFile(dir, "studio-history-case-insert-expenses.json", {
+      message: "insert Expenses",
+      operations: [{ type: "insert", table: "Expenses", values: { id: 1 } }],
+    });
+
+    await applyPlan(createExpensesPath);
+    await applyPlan(insertExpensesPath);
+
+    const history = listStudioHistory({
+      table: "expenses",
+      limit: 10,
+      page: 1,
+    });
+    expect(history).toHaveLength(2);
+    expect(history.map((entry) => entry.message)).toEqual(["insert Expenses", "create Expenses"]);
+    expect(history.every((entry) => entry.affectedTables.includes("Expenses"))).toBe(true);
+  });
+
+  testWithTmp("history table filter still works for dropped tables", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const createPath = await writePlanFile(dir, "studio-history-dropped-create.json", {
+      message: "create archive",
+      operations: [
+        {
+          type: "create_table",
+          table: "archive",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+    const insertPath = await writePlanFile(dir, "studio-history-dropped-insert.json", {
+      message: "insert archive",
+      operations: [{ type: "insert", table: "archive", values: { id: 1 } }],
+    });
+    const dropPath = await writePlanFile(dir, "studio-history-dropped-drop.json", {
+      message: "drop archive",
+      operations: [{ type: "drop_table", table: "archive" }],
+    });
+
+    await applyPlan(createPath);
+    await applyPlan(insertPath);
+    await applyPlan(dropPath);
+
+    const history = listStudioHistory({
+      table: "archive",
+      limit: 10,
+      page: 1,
+    });
+    expect(history).toHaveLength(3);
+    expect(history.map((entry) => entry.message)).toEqual(["drop archive", "insert archive", "create archive"]);
+  });
+
+  testWithTmp("table history includes row and schema affecting commits only", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    const createExpensesPath = await writePlanFile(dir, "studio-table-history-create-expenses.json", {
+      message: "create expenses",
+      operations: [
+        {
+          type: "create_table",
+          table: "expenses",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+    const createCalendarPath = await writePlanFile(dir, "studio-table-history-create-calendar.json", {
+      message: "create calendar",
+      operations: [
+        {
+          type: "create_table",
+          table: "calendar",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+    const insertExpensesPath = await writePlanFile(dir, "studio-table-history-insert-expenses.json", {
+      message: "insert expenses",
+      operations: [{ type: "insert", table: "expenses", values: { id: 1 } }],
+    });
+
+    await applyPlan(createExpensesPath);
+    await applyPlan(createCalendarPath);
+    await applyPlan(insertExpensesPath);
+
+    const history = listStudioTableHistory("expenses", { limit: 10 });
+    expect(history).toHaveLength(2);
+    expect(history.map((entry) => entry.message)).toEqual(["insert expenses", "create expenses"]);
+    expect(history.every((entry) => entry.affectedTables.includes("expenses"))).toBe(true);
   });
 
   testWithTmp("generated columns are visible in metadata and usable for sort/filter", async () => {

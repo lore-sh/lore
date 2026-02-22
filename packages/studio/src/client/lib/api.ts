@@ -1,102 +1,107 @@
-import { hc, type InferRequestType, type InferResponseType } from "hono/client";
-import type { StudioApi } from "../../server/app";
+import type {
+  RevertResult,
+  StudioCommitDetail,
+  StudioHistoryEntry,
+  StudioSchemaTable,
+  StudioTableDataView,
+  StudioTablesView,
+  TossStatus,
+} from "@toss/core";
 
-const client = hc<StudioApi>("/");
+export interface TableDataQuery {
+  page: number;
+  pageSize: number;
+  sortBy?: string | undefined;
+  sortDir?: "asc" | "desc" | undefined;
+  filters: Record<string, string>;
+}
 
-const tablesEndpoint = client.api.tables.$get;
-const tableDataEndpoint = client.api.tables[":name"].$get;
-const schemaEndpoint = client.api.schema.$get;
-const historyEndpoint = client.api.history.$get;
-const commitDetailEndpoint = client.api.history[":id"].$get;
-const statusEndpoint = client.api.status.$get;
+export interface HistoryQuery {
+  limit?: number | undefined;
+  page?: number | undefined;
+  kind?: "apply" | "revert" | undefined;
+  table?: string | undefined;
+}
 
-export type TableDataRequest = InferRequestType<typeof tableDataEndpoint>;
-export type HistoryRequest = InferRequestType<typeof historyEndpoint>;
-export type CommitDetailRequest = InferRequestType<typeof commitDetailEndpoint>;
-export type TablesResponse = InferResponseType<typeof tablesEndpoint, 200>;
-export type TableDataResponse = InferResponseType<typeof tableDataEndpoint, 200>;
-export type SchemaResponse = InferResponseType<typeof schemaEndpoint, 200>;
-export type HistoryResponse = InferResponseType<typeof historyEndpoint, 200>;
-export type CommitDetailResponse = InferResponseType<typeof commitDetailEndpoint, 200>;
-export type StatusResponse = InferResponseType<typeof statusEndpoint, 200>;
-
-async function throwForError(response: { status: number; json: () => Promise<unknown> }): Promise<never> {
-  let message = `Request failed with status ${response.status}`;
-  let parseError: string | null = null;
-  try {
-    const payload = await response.json();
-    if (
-      payload !== null &&
-      typeof payload === "object" &&
-      "message" in payload &&
-      typeof payload.message === "string" &&
-      payload.message.length > 0
-    ) {
-      message = payload.message;
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    let message = `Request failed with status ${response.status}`;
+    try {
+      const payload = await response.json();
+      if (payload !== null && typeof payload === "object" && "message" in payload && typeof payload.message === "string") {
+        message = payload.message;
+      }
+    } catch {
+      // ignore parse errors, keep status message
     }
-  } catch (error: unknown) {
-    parseError = error instanceof Error ? error.message : String(error);
+    throw new Error(message);
   }
-  if (parseError) {
-    message = `${message} (failed to parse error body: ${parseError})`;
-  }
-  throw new Error(message);
+  return (await response.json()) as T;
 }
 
-export async function fetchTables(): Promise<TablesResponse> {
-  const response = await tablesEndpoint();
-  if (!response.ok) {
-    await throwForError(response);
+function toSearchParams(values: Record<string, string | number | undefined>): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) {
+      continue;
+    }
+    params.set(key, String(value));
   }
-  return await response.json();
+  const encoded = params.toString();
+  return encoded.length > 0 ? `?${encoded}` : "";
 }
 
-export async function fetchTableData(
-  param: TableDataRequest["param"],
-  query: TableDataRequest["query"],
-): Promise<TableDataResponse> {
-  const response = await tableDataEndpoint({
-    param,
-    query,
+export async function fetchStatus(): Promise<TossStatus> {
+  return await fetchJson<TossStatus>("/api/status");
+}
+
+export async function fetchTables(): Promise<StudioTablesView> {
+  return await fetchJson<StudioTablesView>("/api/tables");
+}
+
+export async function fetchTableData(name: string, query: TableDataQuery): Promise<StudioTableDataView> {
+  const params = new URLSearchParams();
+  params.set("page", String(query.page));
+  params.set("pageSize", String(query.pageSize));
+  if (query.sortBy) {
+    params.set("sortBy", query.sortBy);
+    params.set("sortDir", query.sortDir ?? "asc");
+  }
+  for (const [column, value] of Object.entries(query.filters)) {
+    if (value.length === 0) {
+      continue;
+    }
+    params.set(`filters.${column}`, value);
+  }
+  return await fetchJson<StudioTableDataView>(`/api/tables/${encodeURIComponent(name)}?${params.toString()}`);
+}
+
+export async function fetchTableSchema(name: string): Promise<StudioSchemaTable> {
+  return await fetchJson<StudioSchemaTable>(`/api/tables/${encodeURIComponent(name)}/schema`);
+}
+
+export async function fetchTableHistory(name: string, limit = 50): Promise<StudioHistoryEntry[]> {
+  const search = toSearchParams({ limit });
+  return await fetchJson<StudioHistoryEntry[]>(`/api/tables/${encodeURIComponent(name)}/history${search}`);
+}
+
+export async function fetchHistory(query: HistoryQuery): Promise<StudioHistoryEntry[]> {
+  const search = toSearchParams({
+    limit: query.limit,
+    page: query.page,
+    kind: query.kind,
+    table: query.table,
   });
-  if (!response.ok) {
-    await throwForError(response);
-  }
-  return await response.json();
+  return await fetchJson<StudioHistoryEntry[]>(`/api/history${search}`);
 }
 
-export async function fetchSchema(): Promise<SchemaResponse> {
-  const response = await schemaEndpoint();
-  if (!response.ok) {
-    await throwForError(response);
-  }
-  return await response.json();
+export async function fetchCommitDetail(id: string): Promise<StudioCommitDetail> {
+  return await fetchJson<StudioCommitDetail>(`/api/history/${encodeURIComponent(id)}`);
 }
 
-export async function fetchHistory(query: HistoryRequest["query"]): Promise<HistoryResponse> {
-  const response = await historyEndpoint({
-    query,
+export async function revertCommitById(id: string): Promise<RevertResult> {
+  return await fetchJson<RevertResult>(`/api/revert/${encodeURIComponent(id)}`, {
+    method: "POST",
   });
-  if (!response.ok) {
-    await throwForError(response);
-  }
-  return await response.json();
-}
-
-export async function fetchCommitDetail(param: CommitDetailRequest["param"]): Promise<CommitDetailResponse> {
-  const response = await commitDetailEndpoint({
-    param,
-  });
-  if (!response.ok) {
-    await throwForError(response);
-  }
-  return await response.json();
-}
-
-export async function fetchStatus(): Promise<StatusResponse> {
-  const response = await statusEndpoint();
-  if (!response.ok) {
-    await throwForError(response);
-  }
-  return await response.json();
 }

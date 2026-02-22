@@ -1,7 +1,6 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 
-function navClass(current: string, path: string): string {
-  const active = current === path || (path !== "/" && current.startsWith(path));
+function navClass(active: boolean): string {
   return active ? "ui-nav-link ui-nav-link-active" : "ui-nav-link";
 }
 
@@ -12,29 +11,21 @@ export function AppLayout() {
   return (
     <div className="ui-shell">
       <header className="ui-header">
-        <div className="ui-container flex items-center justify-between gap-4 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-full bg-brand" />
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-fg-soft">toss</p>
-              <p className="font-semibold">studio</p>
-            </div>
+        <div className="ui-page ui-header-inner">
+          <div>
+            <p className="ui-brand">toss studio</p>
           </div>
-          <nav className="ui-nav">
-            <Link to="/" className={navClass(path, "/")}>
-              Dashboard
-            </Link>
-            <Link to="/schema" className={navClass(path, "/schema")}>
-              Schema
-            </Link>
-            <Link to="/history" className={navClass(path, "/history")}>
-              History
+          <nav className="ui-nav" aria-label="Studio sections">
+            <Link to="/" className={navClass(path === "/")}>Overview</Link>
+            <a href="/#tables" className={navClass(path.startsWith("/tables"))}>Tables</a>
+            <Link to="/timeline" search={{ page: 1, kind: "all" }} className={navClass(path.startsWith("/timeline"))}>
+              Timeline
             </Link>
           </nav>
         </div>
       </header>
 
-      <main className="ui-container px-6 py-8">
+      <main className="ui-page ui-main">
         <Outlet />
       </main>
     </div>

@@ -2,7 +2,7 @@ import { isTossError } from "@toss/core";
 import { Hono } from "hono";
 import { join } from "node:path";
 import { createHistoryRoutes } from "./routes/history";
-import { createSchemaRoutes } from "./routes/schema";
+import { createRevertRoutes } from "./routes/revert";
 import { createStatusRoutes } from "./routes/status";
 import { createTableRoutes } from "./routes/tables";
 
@@ -14,7 +14,10 @@ function statusFromTossCode(code: string): number {
     case "CONFIG_ERROR":
     case "INVALID_OPERATION":
     case "INVALID_IDENTIFIER":
+    case "REVERT_UNSUPPORTED":
       return 400;
+    case "ALREADY_REVERTED":
+      return 409;
     default:
       return 500;
   }
@@ -57,8 +60,8 @@ export function isAssetRequestPath(path: string): boolean {
 export function createStudioApi() {
   return new Hono()
     .route("/", createTableRoutes())
-    .route("/", createSchemaRoutes())
     .route("/", createHistoryRoutes())
+    .route("/", createRevertRoutes())
     .route("/", createStatusRoutes());
 }
 

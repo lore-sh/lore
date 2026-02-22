@@ -7,12 +7,12 @@ import {
 } from "@tanstack/react-router";
 import { createRoot } from "react-dom/client";
 import { AppLayout } from "./components/layout";
-import { HistoryPage } from "./routes/history";
+import { historyQueryOptions, statusQueryOptions, tableDataQueryOptions, tableHistoryQueryOptions, tableSchemaQueryOptions, tablesQueryOptions } from "./lib/queries";
+import { tableFilters, validateTableSearch } from "./lib/table-search";
+import { validateTimelineSearch } from "./lib/timeline-search";
 import { DashboardPage } from "./routes/index";
-import { SchemaPage } from "./routes/schema";
 import { TablePage } from "./routes/table.$name";
-import { historyQueryOptions, schemaQueryOptions, statusQueryOptions, tableDataQueryOptions, tablesQueryOptions } from "./lib/queries";
-import { validateTableSearch } from "./lib/table-search";
+import { TimelinePage } from "./routes/timeline";
 import "./styles.css";
 
 interface RouterContext {
@@ -30,9 +30,9 @@ const queryClient = new QueryClient({
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: AppLayout,
-  pendingComponent: () => <p className="text-sm text-fg-muted">Loading...</p>,
+  pendingComponent: () => <p className="ui-muted">Loading...</p>,
   errorComponent: ({ error }) => (
-    <p className="text-sm text-danger">{error instanceof Error ? error.message : String(error)}</p>
+    <p className="ui-error">{error instanceof Error ? error.message : String(error)}</p>
   ),
 });
 
@@ -41,8 +41,9 @@ const dashboardRoute = createRoute({
   path: "/",
   loader: async ({ context }) => {
     await Promise.all([
-      context.queryClient.ensureQueryData(tablesQueryOptions()),
       context.queryClient.ensureQueryData(statusQueryOptions()),
+      context.queryClient.ensureQueryData(tablesQueryOptions()),
+      context.queryClient.ensureQueryData(historyQueryOptions({ limit: 20, page: 1 })),
     ]);
   },
   component: DashboardPage,
@@ -54,30 +55,51 @@ const tableRoute = createRoute({
   validateSearch: validateTableSearch,
   loaderDeps: ({ search }) => search,
   loader: async ({ context, params, deps }) => {
-    await context.queryClient.ensureQueryData(tableDataQueryOptions(params.name, deps));
+    if (deps.tab === "data") {
+      await context.queryClient.ensureQueryData(
+        tableDataQueryOptions(params.name, {
+          page: deps.page,
+          pageSize: deps.pageSize,
+          sortBy: deps.sortBy,
+          sortDir: deps.sortDir,
+          filters: tableFilters(deps),
+        }),
+      );
+      return;
+    }
+
+    if (deps.tab === "schema") {
+      await context.queryClient.ensureQueryData(tableSchemaQueryOptions(params.name));
+      return;
+    }
+
+    await context.queryClient.ensureQueryData(tableHistoryQueryOptions(params.name, 50));
   },
   component: TablePage,
 });
 
-const schemaRoute = createRoute({
+const timelineRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/schema",
-  loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(schemaQueryOptions());
+  path: "/timeline",
+  validateSearch: validateTimelineSearch,
+  loaderDeps: ({ search }) => search,
+  loader: async ({ context, deps }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(tablesQueryOptions()),
+      context.queryClient.ensureQueryData(
+        historyQueryOptions({
+          limit: 50,
+          page: deps.page,
+          kind: deps.kind === "all" ? undefined : deps.kind,
+          table: deps.table,
+        }),
+      ),
+    ]);
   },
-  component: SchemaPage,
+  component: TimelinePage,
 });
 
-const historyRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/history",
-  loader: async ({ context }) => {
-    await context.queryClient.ensureQueryData(historyQueryOptions(200));
-  },
-  component: HistoryPage,
-});
-
-const routeTree = rootRoute.addChildren([dashboardRoute, tableRoute, schemaRoute, historyRoute]);
+const routeTree = rootRoute.addChildren([dashboardRoute, tableRoute, timelineRoute]);
 
 const router = createRouter({
   routeTree,

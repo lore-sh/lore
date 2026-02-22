@@ -1,25 +1,36 @@
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
-import { useMemo } from "react";
-import { tableDataQueryOptions } from "../lib/queries";
-import { validateTableSearch, type TableRouteSearch } from "../lib/table-search";
+import { useQuery } from "@tanstack/react-query";
+import { CommitEntry } from "../components/commit-entry";
+import { DataGrid } from "../components/data-grid";
+import {
+  tableDataQueryOptions,
+  tableHistoryQueryOptions,
+  tableSchemaQueryOptions,
+} from "../lib/queries";
+import {
+  tableFilters,
+  nextSortState,
+  updateTableFilter,
+  validateTableSearch,
+  type TableRouteSearch,
+  type TableTab,
+} from "../lib/table-search";
 
-function formatCell(value: unknown): string {
-  if (value === null || value === undefined) {
-    return "";
+function tabClass(active: boolean): string {
+  return active ? "ui-tab ui-tab-active" : "ui-tab";
+}
+
+function queryErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
   }
-  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value);
+  return String(error);
 }
 
 export function TablePage() {
   const { name } = useParams({ from: "/tables/$name" });
   const search = useSearch({ from: "/tables/$name" });
   const navigate = useNavigate({ from: "/tables/$name" });
-  const { data: tableData } = useSuspenseQuery(tableDataQueryOptions(name, search));
 
   function patchSearch(update: (next: TableRouteSearch) => void): void {
     void navigate({
@@ -33,35 +44,15 @@ export function TablePage() {
     });
   }
 
-  function toggleSort(column: string): void {
+  function setTab(tab: TableTab): void {
     patchSearch((next) => {
-      if (next.sortBy !== column) {
-        next.sortBy = column;
-        next.sortDir = "asc";
-      } else {
-        next.sortDir = next.sortDir === "asc" ? "desc" : "asc";
-      }
-      next.page = 1;
-    });
-  }
-
-  function setFilter(column: string, value: string): void {
-    patchSearch((next) => {
-      const filters = { ...next.filters };
-      const normalized = value.trim();
-      if (normalized.length === 0) {
-        delete filters[column];
-      } else {
-        filters[column] = normalized;
-      }
-      next.filters = filters;
-      next.page = 1;
+      next.tab = tab;
     });
   }
 
   function setPage(page: number): void {
     patchSearch((next) => {
-      next.page = page < 1 ? 1 : page;
+      next.page = Math.max(1, page);
     });
   }
 
@@ -72,132 +63,138 @@ export function TablePage() {
     });
   }
 
-  const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
-    return tableData.columns.map((column) => ({
-      id: column.name,
-      accessorKey: column.name,
-      header: () => (
-        <div className="space-y-2">
-          <button
-            type="button"
-            onClick={() => {
-              toggleSort(column.name);
-            }}
-            className="ui-sort-button"
-          >
-            <p className="font-semibold text-fg">{column.name}</p>
-            <p className="text-xs text-fg-soft">{column.type || "ANY"}</p>
-            {tableData.sortBy === column.name ? (
-              <p className="mt-1 text-[10px] uppercase tracking-[0.08em] text-fg-muted">{tableData.sortDir}</p>
-            ) : null}
-          </button>
-          <input
-            value={search.filters[column.name] ?? ""}
-            onChange={(event) => {
-              setFilter(column.name, event.target.value);
-            }}
-            placeholder="filter..."
-            className="ui-input"
-          />
-        </div>
-      ),
-      cell: (context) => <span className="font-mono text-xs text-fg-muted">{formatCell(context.getValue())}</span>,
-    }));
-  }, [search.filters, tableData.columns, tableData.sortBy, tableData.sortDir]);
+  function setFilter(column: string, value: string): void {
+    patchSearch((next) => {
+      const updated = updateTableFilter(next, column, value);
+      for (const [key, entry] of Object.entries(updated)) {
+        next[key] = entry;
+      }
+      for (const key of Object.keys(next)) {
+        if (key.startsWith("filters.") && !(key in updated)) {
+          delete next[key];
+        }
+      }
+    });
+  }
 
-  const rows: Record<string, unknown>[] = tableData.rows;
+  function toggleSort(column: string): void {
+    patchSearch((next) => {
+      const sort = nextSortState(next, column);
+      next.sortBy = sort.sortBy;
+      next.sortDir = sort.sortDir;
+      next.page = 1;
+    });
+  }
 
-  const table = useReactTable<Record<string, unknown>>({
-    data: rows,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
+  const currentTab = search.tab;
+  const filters = tableFilters(search);
+  const dataQuery = useQuery({
+    ...tableDataQueryOptions(name, {
+      page: search.page,
+      pageSize: search.pageSize,
+      sortBy: search.sortBy,
+      sortDir: search.sortDir,
+      filters,
+    }),
+    enabled: currentTab === "data",
   });
+  const schemaQuery = useQuery({
+    ...tableSchemaQueryOptions(name),
+    enabled: currentTab === "schema",
+  });
+  const historyQuery = useQuery({
+    ...tableHistoryQueryOptions(name, 50),
+    enabled: currentTab === "history",
+  });
+  const data = dataQuery.data ?? null;
+  const schema = schemaQuery.data ?? null;
+  const history = historyQuery.data ?? null;
+
+  const rowCount = data?.totalRows ?? schema?.rowCount ?? 0;
+  const columnCount = data?.columns.length ?? schema?.columns.filter((column) => !column.hidden).length ?? 0;
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="ui-label">Table</p>
-          <h1 className="text-2xl font-semibold text-fg">{name}</h1>
-        </div>
-        <Link to="/" className="ui-btn-primary">
-          Back
-        </Link>
-      </div>
+    <section className="ui-stack-4">
+      <header className="ui-table-header">
+        <Link to="/" className="ui-link">←</Link>
+        <h1 className="ui-title">{name}</h1>
+        <p className="ui-muted">{rowCount} rows · {columnCount} columns</p>
+      </header>
 
-      <div className="ui-surface overflow-auto">
-        <table className="min-w-full text-sm">
-          <thead className="align-top">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id} className="border-b border-border-soft bg-bg-subtle/70">
-                {headerGroup.headers.map((header) => (
-                  <th key={header.id} className="min-w-40 px-3 py-3 text-left text-xs font-medium text-fg-muted">
-                    {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
-                  </th>
-                ))}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
+      <nav className="ui-tabs" aria-label="Table tabs">
+        <button type="button" className={tabClass(currentTab === "data")} onClick={() => setTab("data")}>Data</button>
+        <button type="button" className={tabClass(currentTab === "schema")} onClick={() => setTab("schema")}>Schema</button>
+        <button type="button" className={tabClass(currentTab === "history")} onClick={() => setTab("history")}>History</button>
+      </nav>
+
+      {currentTab === "data" && data ? (
+        <DataGrid
+          data={data}
+          search={search}
+          onSort={toggleSort}
+          onFilter={setFilter}
+          onPage={setPage}
+          onPageSize={setPageSize}
+        />
+      ) : currentTab === "data" && dataQuery.isError ? (
+        <p className="ui-error">{queryErrorMessage(dataQuery.error)}</p>
+      ) : currentTab === "data" ? (
+        <p className="ui-muted">Loading data...</p>
+      ) : null}
+
+      {currentTab === "schema" && schema ? (
+        <section className="ui-surface">
+          <table className="ui-grid">
+            <thead>
               <tr>
-                <td className="px-4 py-6 text-sm text-fg-soft" colSpan={Math.max(columns.length, 1)}>
-                  No rows matched this query.
-                </td>
+                <th>COLUMN</th>
+                <th>TYPE</th>
+                <th>CONSTRAINTS</th>
+                <th>DEFAULT</th>
               </tr>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="ui-table-row">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-3 py-2 align-top">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {schema.columns
+                .filter((column) => !column.hidden)
+                .map((column) => {
+                  const constraints = [column.primaryKey ? "PK" : null, column.notNull ? "NOT NULL" : null, column.unique ? "UNIQUE" : null]
+                    .filter((part): part is string => part !== null)
+                    .join(", ");
+                  return (
+                    <tr key={column.name}>
+                      <td>{column.name}</td>
+                      <td>{column.type || "ANY"}</td>
+                      <td>{constraints || "-"}</td>
+                      <td>{column.defaultValue ?? "-"}</td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </section>
+      ) : currentTab === "schema" && schemaQuery.isError ? (
+        <p className="ui-error">{queryErrorMessage(schemaQuery.error)}</p>
+      ) : currentTab === "schema" ? (
+        <p className="ui-muted">Loading schema...</p>
+      ) : null}
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm">
-        <p className="text-sm text-fg-muted">
-          {tableData.totalRows} rows · page {tableData.page} / {tableData.totalPages}
-        </p>
-        <div className="flex items-center gap-2">
-          <select
-            value={tableData.pageSize}
-            onChange={(event) => {
-              setPageSize(Number.parseInt(event.target.value, 10));
-            }}
-            className="ui-select"
-          >
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
-          <button
-            type="button"
-            disabled={tableData.page <= 1}
-            onClick={() => {
-              setPage(tableData.page - 1);
-            }}
-            className="ui-btn-outline"
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            disabled={tableData.page >= tableData.totalPages}
-            onClick={() => {
-              setPage(tableData.page + 1);
-            }}
-            className="ui-btn-outline"
-          >
-            Next
-          </button>
-        </div>
-      </footer>
+      {currentTab === "history" ? (
+        <section className="ui-surface">
+          {historyQuery.isPending ? (
+            <p className="ui-muted">Loading history...</p>
+          ) : historyQuery.isError ? (
+            <p className="ui-error">{queryErrorMessage(historyQuery.error)}</p>
+          ) : history && history.length > 0 ? (
+            <ul className="ui-timeline">
+              {history.map((commit) => (
+                <CommitEntry key={commit.commitId} commit={commit} showAffectedTables={false} enableRevert />
+              ))}
+            </ul>
+          ) : (
+            <p className="ui-empty">No history for this table.</p>
+          )}
+        </section>
+      ) : null}
     </section>
   );
 }

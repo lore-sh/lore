@@ -1,11 +1,13 @@
 export type SortDirection = "asc" | "desc";
+export type TableTab = "data" | "schema" | "history";
 
 export interface TableRouteSearch {
+  tab: TableTab;
   page: number;
   pageSize: number;
   sortBy?: string | undefined;
-  sortDir: SortDirection;
-  filters: Record<string, string>;
+  sortDir?: SortDirection | undefined;
+  [key: string]: unknown;
 }
 
 function parsePositiveInt(value: unknown, fallback: number): number {
@@ -24,46 +26,95 @@ function parsePositiveInt(value: unknown, fallback: number): number {
   return fallback;
 }
 
-function parseFilters(input: unknown): Record<string, string> {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return {};
+function normalizeTab(value: unknown): TableTab {
+  if (value === "schema") {
+    return "schema";
   }
-  const normalized: Record<string, string> = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (typeof value !== "string") {
-      continue;
-    }
-    const name = key.trim();
-    const raw = value.trim();
-    if (name.length === 0 || raw.length === 0) {
-      continue;
-    }
-    normalized[name] = raw;
+  if (value === "history") {
+    return "history";
   }
-  return normalized;
+  return "data";
 }
 
 export function validateTableSearch(raw: Record<string, unknown>): TableRouteSearch {
-  const page = parsePositiveInt(raw.page, 1);
-  const pageSize = parsePositiveInt(raw.pageSize, 50);
-  const sortBy = typeof raw.sortBy === "string" && raw.sortBy.trim().length > 0 ? raw.sortBy : undefined;
-  return {
-    page,
-    pageSize,
+  const sortBy = typeof raw.sortBy === "string" && raw.sortBy.trim().length > 0 ? raw.sortBy.trim() : undefined;
+  const sortDir = raw.sortDir === "desc" ? "desc" : raw.sortDir === "asc" ? "asc" : undefined;
+  const search: TableRouteSearch = {
+    tab: normalizeTab(raw.tab),
+    page: parsePositiveInt(raw.page, 1),
+    pageSize: parsePositiveInt(raw.pageSize, 50),
     sortBy,
-    sortDir: raw.sortDir === "desc" ? "desc" : "asc",
-    filters: parseFilters(raw.filters),
+    sortDir: sortBy ? sortDir ?? "asc" : undefined,
   };
-}
 
-export function normalizedFilters(filters: Record<string, string>): Array<[string, string]> {
-  return Object.entries(filters).sort(([left], [right]) => left.localeCompare(right));
-}
-
-export function encodeFilters(filters: Record<string, string>): string | undefined {
-  const entries = normalizedFilters(filters);
-  if (entries.length === 0) {
-    return undefined;
+  for (const [key, value] of Object.entries(raw)) {
+    if (!key.startsWith("filters.")) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      continue;
+    }
+    const normalized = value.trim();
+    if (normalized.length === 0) {
+      continue;
+    }
+    search[key] = normalized;
   }
-  return JSON.stringify(Object.fromEntries(entries));
+
+  return search;
+}
+
+export function tableFilterEntries(search: TableRouteSearch): Array<[string, string]> {
+  const entries: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(search)) {
+    if (!key.startsWith("filters.")) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      continue;
+    }
+    const column = key.slice("filters.".length);
+    if (column.length === 0) {
+      continue;
+    }
+    entries.push([column, value]);
+  }
+  entries.sort(([left], [right]) => left.localeCompare(right));
+  return entries;
+}
+
+export function tableFilters(search: TableRouteSearch): Record<string, string> {
+  return Object.fromEntries(tableFilterEntries(search));
+}
+
+export function tableFilterValue(search: TableRouteSearch, column: string): string {
+  const key = `filters.${column}`;
+  const value = search[key];
+  return typeof value === "string" ? value : "";
+}
+
+export function updateTableFilter(search: TableRouteSearch, column: string, value: string): TableRouteSearch {
+  const key = `filters.${column}`;
+  const next: TableRouteSearch = { ...search };
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    delete next[key];
+  } else {
+    next[key] = normalized;
+  }
+  next.page = 1;
+  return next;
+}
+
+export function nextSortState(search: TableRouteSearch, column: string): {
+  sortBy?: string | undefined;
+  sortDir?: SortDirection | undefined;
+} {
+  if (search.sortBy !== column) {
+    return { sortBy: column, sortDir: "asc" };
+  }
+  if (search.sortDir === "asc") {
+    return { sortBy: column, sortDir: "desc" };
+  }
+  return { sortBy: undefined, sortDir: undefined };
 }
