@@ -31,8 +31,10 @@ function renderCell(value: StudioCellValue): ReactNode {
 export function DataGrid({ data, search, onSort, onFilter, onPage, onPageSize }: DataGridProps) {
   const columns = useMemo<ColumnDef<Record<string, StudioCellValue>>[]>(() => {
     return data.columns.map((column) => {
-      const active = search.sortBy === column.name;
-      const arrow = !active ? "" : search.sortDir === "desc" ? "↓" : "↑";
+      let arrow = "";
+      if (search.sortBy === column.name) {
+        arrow = search.sortDir === "desc" ? "↓" : "↑";
+      }
       return {
         id: column.name,
         accessorKey: column.name,

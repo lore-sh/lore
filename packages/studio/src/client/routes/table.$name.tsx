@@ -11,7 +11,6 @@ import {
 import {
   tableFilters,
   nextSortState,
-  updateTableFilter,
   validateTableSearch,
   type TableRouteSearch,
   type TableTab,
@@ -59,15 +58,14 @@ export function TablePage() {
 
   function setFilter(column: string, value: string): void {
     patchSearch((next) => {
-      const updated = updateTableFilter(next, column, value);
-      for (const [key, entry] of Object.entries(updated)) {
-        next[key] = entry;
+      const filterKey = `filters.${column}`;
+      const normalized = value.trim();
+      if (normalized.length === 0) {
+        delete next[filterKey];
+      } else {
+        next[filterKey] = normalized;
       }
-      for (const key of Object.keys(next)) {
-        if (key.startsWith("filters.") && !(key in updated)) {
-          delete next[key];
-        }
-      }
+      next.page = 1;
     });
   }
 

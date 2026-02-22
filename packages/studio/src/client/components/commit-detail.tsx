@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import type { RevertConflict } from "@toss/core";
 import { useState } from "react";
 import { QueryBoundary } from "./query-boundary";
@@ -10,6 +10,14 @@ import {
   renderSchemaEffectLine,
 } from "../lib/commit-render";
 import { commitDetailQueryOptions } from "../lib/queries";
+
+const REVERT_INVALIDATION_KEYS = new Set([
+  "history", "history-detail", "tables", "status", "table-data", "table-history", "table-schema",
+]);
+
+function shouldInvalidateAfterRevert(queryKey: QueryKey): boolean {
+  return typeof queryKey[0] === "string" && REVERT_INVALIDATION_KEYS.has(queryKey[0]);
+}
 
 function diffKindClass(kind: "add" | "remove" | "neutral"): string {
   switch (kind) {
@@ -63,18 +71,7 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
       if (result.ok) {
         setSuccess(`Reverted with commit ${result.revertCommit.commitId.slice(0, 12)}`);
         await queryClient.invalidateQueries({
-          predicate: (query) => {
-            const key = query.queryKey[0];
-            return (
-              key === "history" ||
-              key === "history-detail" ||
-              key === "tables" ||
-              key === "status" ||
-              key === "table-data" ||
-              key === "table-history" ||
-              key === "table-schema"
-            );
-          },
+          predicate: (query) => shouldInvalidateAfterRevert(query.queryKey),
         });
         return;
       }

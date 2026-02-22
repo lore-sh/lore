@@ -42,17 +42,12 @@ export function CommitEntry({
         <button
           type="button"
           className="ui-entry-trigger"
-          onClick={() => {
-            if (!expandable) {
-              return;
-            }
-            setOpen((prev) => !prev);
-          }}
+          onClick={expandable ? () => setOpen((prev) => !prev) : undefined}
         >
           <p className="ui-entry-title">{commit.message}</p>
           <p className="ui-entry-meta">{metadata.join(" · ")}</p>
         </button>
-        {open && expandable ? (
+        {open ? (
           <div className="ui-entry-detail">
             <CommitDetail commitId={commit.commitId} enableRevert={enableRevert} />
           </div>

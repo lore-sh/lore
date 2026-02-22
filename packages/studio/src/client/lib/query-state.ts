@@ -27,19 +27,6 @@ function queryErrorMessage(error: unknown): string {
 }
 
 export function resolveQueryView<T>(query: QuerySnapshot<T>): QueryView<T> {
-  if (query.isPending && query.data === undefined) {
-    return {
-      kind: "loading",
-    };
-  }
-
-  if (query.isLoadingError && query.data === undefined) {
-    return {
-      kind: "error",
-      message: queryErrorMessage(query.error),
-    };
-  }
-
   if (query.data !== undefined) {
     return {
       kind: "data",
@@ -55,7 +42,5 @@ export function resolveQueryView<T>(query: QuerySnapshot<T>): QueryView<T> {
     };
   }
 
-  return {
-    kind: "loading",
-  };
+  return { kind: "loading" };
 }
