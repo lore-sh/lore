@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { getStatus, initDatabase } from "../src";
-import { createTestContext, withTmpDirCleanup } from "./helpers";
+import { writeRemoteConfig } from "../src/config";
+import { createTestContext, withTestHome, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -23,5 +24,18 @@ describe("getStatus", () => {
     expect(status.tables).toEqual([{ name: "users", count: 2 }]);
     expect(status.sync.state).toBe("offline");
     expect(status.storage.commitCount).toBe(0);
+  });
+
+  testWithTmp("keeps offline state before first sync even when remote is configured", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDatabase({ dbPath });
+
+    withTestHome(dir, () => {
+      writeRemoteConfig({ platform: "libsql", url: "libsql://status-test.turso.io" });
+      const status = getStatus();
+      expect(status.sync.configured).toBe(true);
+      expect(status.sync.state).toBe("offline");
+      expect(status.sync.pendingCommits).toBe(0);
+    });
   });
 });

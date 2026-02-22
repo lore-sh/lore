@@ -116,6 +116,9 @@ function statusStateForConfiguredDb(storedState: string | null, pendingCommits: 
   if (storedState === "conflict") {
     return "conflict";
   }
+  if (storedState === "offline") {
+    return "offline";
+  }
   if (pendingCommits > 0 || storedState === "pending") {
     return "pending";
   }
