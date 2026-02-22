@@ -1,8 +1,8 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme static {
-  --font-sans: system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
 
   --color-bg: var(--studio-bg);
   --color-bg-elevated: var(--studio-bg-elevated);
@@ -29,18 +29,18 @@
   color-scheme: light;
   --studio-bg: #fafafa;
   --studio-bg-elevated: #ffffff;
-  --studio-bg-subtle: #f5f5f5;
-  --studio-fg: #111111;
-  --studio-fg-muted: #666666;
-  --studio-fg-soft: #999999;
-  --studio-border: #e5e5e5;
+  --studio-bg-subtle: #f4f4f5;
+  --studio-fg: #18181b;
+  --studio-fg-muted: #71717a;
+  --studio-fg-soft: #a1a1aa;
+  --studio-border: #e4e4e7;
   --studio-accent: #2563eb;
   --studio-accent-contrast: #ffffff;
 
-  --studio-diff-add-bg: #dafbe1;
-  --studio-diff-add-fg: #116329;
-  --studio-diff-remove-bg: #ffebe9;
-  --studio-diff-remove-fg: #82071e;
+  --studio-diff-add-bg: #dcfce7;
+  --studio-diff-add-fg: #166534;
+  --studio-diff-remove-bg: #fef2f2;
+  --studio-diff-remove-fg: #991b1b;
 
   --studio-status-ok: #16a34a;
   --studio-status-warn: #ca8a04;
@@ -49,22 +49,22 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --studio-bg: #111111;
-  --studio-bg-elevated: #1a1a1a;
-  --studio-bg-subtle: #222222;
-  --studio-fg: #eeeeee;
-  --studio-fg-muted: #999999;
-  --studio-fg-soft: #666666;
-  --studio-border: #333333;
-  --studio-accent: #2563eb;
+  --studio-bg: #09090b;
+  --studio-bg-elevated: #18181b;
+  --studio-bg-subtle: #27272a;
+  --studio-fg: #fafafa;
+  --studio-fg-muted: #a1a1aa;
+  --studio-fg-soft: #71717a;
+  --studio-border: #27272a;
+  --studio-accent: #3b82f6;
   --studio-accent-contrast: #ffffff;
 
-  --studio-diff-add-bg: #1a2e1a;
-  --studio-diff-add-fg: #7ee787;
-  --studio-diff-remove-bg: #2e1a1a;
-  --studio-diff-remove-fg: #f77b7b;
+  --studio-diff-add-bg: #052e16;
+  --studio-diff-add-fg: #86efac;
+  --studio-diff-remove-bg: #450a0a;
+  --studio-diff-remove-fg: #fca5a5;
 
-  --studio-status-ok: #16a34a;
-  --studio-status-warn: #ca8a04;
-  --studio-status-error: #dc2626;
+  --studio-status-ok: #22c55e;
+  --studio-status-warn: #eab308;
+  --studio-status-error: #ef4444;
 }

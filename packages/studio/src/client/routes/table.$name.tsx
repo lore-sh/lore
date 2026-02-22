@@ -104,9 +104,9 @@ export function TablePage() {
   return (
     <section className="ui-stack-4">
       <header className="ui-table-header">
-        <Link to="/" className="ui-link">←</Link>
-        <h1 className="ui-title">{name}</h1>
-        <p className="ui-muted">{rowCount} rows · {columnCount} columns</p>
+        <Link to="/" className="ui-back-link" aria-label="Back to overview">←</Link>
+        <h1 className="ui-page-title">{name}</h1>
+        <p className="ui-muted">{rowCount} rows · {columnCount} cols</p>
       </header>
 
       <nav className="ui-tabs" aria-label="Table tabs">
@@ -137,10 +137,10 @@ export function TablePage() {
               <table className="ui-grid">
                 <thead>
                   <tr>
-                    <th>COLUMN</th>
-                    <th>TYPE</th>
-                    <th>CONSTRAINTS</th>
-                    <th>DEFAULT</th>
+                    <th>Column</th>
+                    <th>Type</th>
+                    <th>Constraints</th>
+                    <th>Default</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -154,8 +154,8 @@ export function TablePage() {
                         <tr key={column.name}>
                           <td>{column.name}</td>
                           <td>{column.type || "ANY"}</td>
-                          <td>{constraints || "-"}</td>
-                          <td>{column.defaultValue ?? "-"}</td>
+                          <td>{constraints || "—"}</td>
+                          <td>{column.defaultValue ?? "—"}</td>
                         </tr>
                       );
                     })}

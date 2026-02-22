@@ -19,8 +19,11 @@ function totalRows(rowCounts: number[]): number {
 function ActivitySection({ history }: { history: StudioHistoryEntry[] }) {
   return (
     <section className="ui-surface">
-      <header className="ui-section-head">
+      <header className="ui-section-head flex items-center justify-between">
         <h2 className="ui-title">Activity</h2>
+        <Link to="/timeline" search={{ page: 1, kind: "all" }} className="ui-link">
+          View all →
+        </Link>
       </header>
       {history.length === 0 ? (
         <p className="ui-empty">No commits yet.</p>
@@ -31,11 +34,6 @@ function ActivitySection({ history }: { history: StudioHistoryEntry[] }) {
           ))}
         </ul>
       )}
-      <div className="ui-section-foot">
-        <Link to="/timeline" search={{ page: 1, kind: "all" }} className="ui-link">
-          View all in Timeline
-        </Link>
-      </div>
     </section>
   );
 }
@@ -49,11 +47,11 @@ function TablesSection({ tables }: { tables: StudioTableSummary[] }) {
       {tables.length === 0 ? (
         <p className="ui-empty">No tables yet. Data will appear here as you use toss.</p>
       ) : (
-        <ul className="ui-table-list">
+        <div className="ui-table-list">
           {tables.map((table) => (
             <TableRow key={table.name} table={table} />
           ))}
-        </ul>
+        </div>
       )}
     </section>
   );
@@ -65,24 +63,17 @@ export function DashboardPage() {
   const { data: history } = useSuspenseQuery(historyQueryOptions({ limit: 20, page: 1 }));
   const tableRows = tables.tables;
   const rowCount = totalRows(tableRows.map((table) => table.rowCount));
-  const context = `${dbLabel(status.dbPath)} · ${tableRows.length} tables · ${rowCount} rows · ${status.storage.commitCount} commits`;
-  const compactLayout = tableRows.length <= 5;
 
   return (
     <section className="ui-stack-4">
-      <p className="ui-context">{context}</p>
+      <p className="ui-context">
+        <span className="font-mono">{dbLabel(status.dbPath)}</span>
+        {" · "}
+        {tableRows.length} tables · {rowCount} rows · {status.storage.commitCount} commits
+      </p>
 
-      {compactLayout ? (
-        <div className="ui-overview-grid">
-          <ActivitySection history={history} />
-          <TablesSection tables={tableRows} />
-        </div>
-      ) : (
-        <>
-          <TablesSection tables={tableRows} />
-          <ActivitySection history={history} />
-        </>
-      )}
+      <ActivitySection history={history} />
+      <TablesSection tables={tableRows} />
 
       <p className="ui-health">
         {status.lastVerifiedOk ? "✓" : "!"} Verified {status.lastVerifiedAt ? formatRelativeTime(Date.parse(status.lastVerifiedAt)) : "never"}

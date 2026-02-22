@@ -8,18 +8,15 @@ interface TableRowProps {
 
 export function TableRow({ table }: TableRowProps) {
   return (
-    <li className="ui-table-list-row">
-      <Link
-        to="/tables/$name"
-        params={{ name: table.name }}
-        search={{ tab: "data", page: 1, pageSize: 50 }}
-        className="ui-table-name"
-      >
-        {table.name}
-      </Link>
-      <span className="ui-muted">{table.rowCount} rows</span>
-      <span className="ui-muted">{table.columnCount} cols</span>
-      <span className="ui-soft">{table.lastUpdatedAt ? formatRelativeTime(table.lastUpdatedAt) : "never"}</span>
-    </li>
+    <Link
+      to="/tables/$name"
+      params={{ name: table.name }}
+      search={{ tab: "data", page: 1, pageSize: 50 }}
+      className="ui-table-list-row"
+    >
+      <span className="ui-table-name">{table.name}</span>
+      <span className="ui-table-stat">{table.rowCount} rows · {table.columnCount} cols</span>
+      <span className="ui-table-time">{table.lastUpdatedAt ? formatRelativeTime(table.lastUpdatedAt) : "—"}</span>
+    </Link>
   );
 }

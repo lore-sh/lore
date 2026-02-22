@@ -7,18 +7,17 @@ function navClass(active: boolean): string {
 export function AppLayout() {
   const location = useLocation();
   const path = location.pathname;
+  const isOverview = path === "/" || path.startsWith("/tables");
+  const isTimeline = path.startsWith("/timeline");
 
   return (
     <div className="ui-shell">
       <header className="ui-header">
         <div className="ui-page ui-header-inner">
-          <div>
-            <p className="ui-brand">toss studio</p>
-          </div>
+          <p className="ui-brand">toss studio</p>
           <nav className="ui-nav" aria-label="Studio sections">
-            <Link to="/" className={navClass(path === "/")}>Overview</Link>
-            <a href="/#tables" className={navClass(path.startsWith("/tables"))}>Tables</a>
-            <Link to="/timeline" search={{ page: 1, kind: "all" }} className={navClass(path.startsWith("/timeline"))}>
+            <Link to="/" className={navClass(isOverview)}>Overview</Link>
+            <Link to="/timeline" search={{ page: 1, kind: "all" }} className={navClass(isTimeline)}>
               Timeline
             </Link>
           </nav>
