@@ -124,12 +124,12 @@ export function commitHistory(db: Database, options: HistoryOptions = {}): Commi
   const kind = options.kind === "apply" || options.kind === "revert" ? options.kind : null;
   const table = options.table?.trim() || null;
 
-  const predicates: SQL[] = [];
+  const conditions: SQL[] = [];
   if (kind) {
-    predicates.push(eq(CommitTable.kind, kind));
+    conditions.push(eq(CommitTable.kind, kind));
   }
   if (table) {
-    predicates.push(
+    conditions.push(
       sql`(
         ${exists(
           db.select({ n: sql<number>`1` }).from(RowEffectTable).where(
@@ -146,6 +146,8 @@ export function commitHistory(db: Database, options: HistoryOptions = {}): Commi
     );
   }
 
+  const where = conditions.length > 1 ? and(...conditions) : conditions[0];
+
   const rows = db
     .select({
       commitId: CommitTable.commitId,
@@ -155,7 +157,7 @@ export function commitHistory(db: Database, options: HistoryOptions = {}): Commi
       createdAt: CommitTable.createdAt,
     })
     .from(CommitTable)
-    .where(predicates.length === 0 ? undefined : predicates.length === 1 ? predicates[0] : and(...predicates))
+    .where(where)
     .orderBy(desc(CommitTable.seq))
     .limit(pageSize)
     .offset(offset)

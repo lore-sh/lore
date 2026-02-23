@@ -5,7 +5,7 @@ import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getMetaValue, lis
 import { SnapshotTable } from "./engine/schema.sql";
 import { syncStatus } from "./sync";
 import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit } from "./engine/log";
-import { quoteIdentifier } from "./engine/sql";
+import { countTableRows } from "./table";
 
 export interface StorageEstimate {
   commitCount: number;
@@ -37,10 +37,10 @@ export interface Status {
 }
 
 export function status(db: Database): Status {
-  const tables = listUserTables(db).map((table) => {
-    const row = db.$client.query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM ${quoteIdentifier(table, { unsafe: true })}`).get();
-    return { name: table, count: row?.c ?? 0 };
-  });
+  const tables = listUserTables(db).map((table) => ({
+    name: table,
+    count: countTableRows(db, table),
+  }));
 
   const head = getHeadCommit(db);
   const snapshotCountRow = db.select({ c: sql<number>`count(*)` }).from(SnapshotTable).get();

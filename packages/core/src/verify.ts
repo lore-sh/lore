@@ -39,11 +39,9 @@ export function verify(db: Database, options: { full?: boolean } = {}): VerifyRe
 
   let integrityCheck: string | undefined;
   if (options.full) {
-    const integrityRow = db.$client.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get();
-    const integrityValue = integrityRow?.integrity_check ?? "unknown";
-    integrityCheck = integrityValue;
-    if (integrityValue.toLowerCase() !== "ok") {
-      issues.push(`integrity_check failed: ${integrityValue}`);
+    integrityCheck = db.$client.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check ?? "unknown";
+    if (integrityCheck.toLowerCase() !== "ok") {
+      issues.push(`integrity_check failed: ${integrityCheck}`);
     }
   }
 

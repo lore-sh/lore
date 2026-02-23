@@ -75,8 +75,7 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
 }
 
 export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise<void> {
-  const interval = DEFAULT_SNAPSHOT_INTERVAL;
-  if (interval <= 0 || commit.seq % interval !== 0) {
+  if (DEFAULT_SNAPSHOT_INTERVAL <= 0 || commit.seq % DEFAULT_SNAPSHOT_INTERVAL !== 0) {
     return;
   }
 
@@ -112,13 +111,12 @@ export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise
     })
     .run();
 
-  const retain = DEFAULT_SNAPSHOT_RETAIN;
   const allSnapshots = db
     .select({ commitId: SnapshotTable.commitId, filePath: SnapshotTable.filePath })
     .from(SnapshotTable)
     .orderBy(desc(SnapshotTable.createdAt))
     .all();
-  const stale = allSnapshots.slice(Math.max(retain, 0));
+  const stale = allSnapshots.slice(DEFAULT_SNAPSHOT_RETAIN);
   for (const row of stale) {
     await deleteWithSidecars(row.filePath);
     db.delete(SnapshotTable).where(eq(SnapshotTable.commitId, row.commitId)).run();
