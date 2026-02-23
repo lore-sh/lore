@@ -1,7 +1,5 @@
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
-import type { Database } from "bun:sqlite";
-import type { RemotePlatform } from "@toss/core";
 import {
   clone,
   connect,
@@ -9,9 +7,10 @@ import {
   pull,
   push,
   sync,
+  type Database,
+  type RemotePlatform,
 } from "@toss/core";
-import { promptRadioSelection } from "../prompts/radio";
-import type { RadioOption } from "../prompts/radio";
+import { promptRadioSelection, type RadioOption } from "../prompts/radio";
 import { toJson } from "../format";
 
 export interface ConnectInput {

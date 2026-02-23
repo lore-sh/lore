@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import { initDb, openDb } from "@toss/core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createStudioApp } from "../../../src/server/app";
 
 describe("studio route validation", () => {
   test("POST /api/tables/:name/rows/query returns 400 for invalid payload", async () => {
-    const db = new Database(":memory:", { strict: true });
+    const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
+    const dbPath = join(dir, "toss.db");
+    await initDb({ dbPath });
+    const db = openDb(dbPath);
     const app = createStudioApp(db);
     const response = await app.request("/api/tables/expenses/rows/query", {
       method: "POST",
@@ -19,7 +25,8 @@ describe("studio route validation", () => {
         },
       }),
     });
-    db.close(false);
+    db.$client.close(false);
+    rmSync(dir, { recursive: true, force: true });
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -29,7 +36,10 @@ describe("studio route validation", () => {
   });
 
   test("POST /api/tables/:name/rows/query returns VALIDATION_ERROR for malformed JSON", async () => {
-    const db = new Database(":memory:", { strict: true });
+    const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
+    const dbPath = join(dir, "toss.db");
+    await initDb({ dbPath });
+    const db = openDb(dbPath);
     const app = createStudioApp(db);
     const response = await app.request("/api/tables/expenses/rows/query", {
       method: "POST",
@@ -38,7 +48,8 @@ describe("studio route validation", () => {
       },
       body: "{",
     });
-    db.close(false);
+    db.$client.close(false);
+    rmSync(dir, { recursive: true, force: true });
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -48,10 +59,14 @@ describe("studio route validation", () => {
   });
 
   test("GET /api/commits rejects invalid kind query", async () => {
-    const db = new Database(":memory:", { strict: true });
+    const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
+    const dbPath = join(dir, "toss.db");
+    await initDb({ dbPath });
+    const db = openDb(dbPath);
     const app = createStudioApp(db);
     const response = await app.request("/api/commits?kind=invalid");
-    db.close(false);
+    db.$client.close(false);
+    rmSync(dir, { recursive: true, force: true });
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -59,10 +74,14 @@ describe("studio route validation", () => {
   });
 
   test("GET /api/commits/:id rejects empty param", async () => {
-    const db = new Database(":memory:", { strict: true });
+    const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
+    const dbPath = join(dir, "toss.db");
+    await initDb({ dbPath });
+    const db = openDb(dbPath);
     const app = createStudioApp(db);
     const response = await app.request("/api/commits/%20");
-    db.close(false);
+    db.$client.close(false);
+    rmSync(dir, { recursive: true, force: true });
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -70,10 +89,14 @@ describe("studio route validation", () => {
   });
 
   test("GET /api/unknown returns JSON 404", async () => {
-    const db = new Database(":memory:", { strict: true });
+    const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
+    const dbPath = join(dir, "toss.db");
+    await initDb({ dbPath });
+    const db = openDb(dbPath);
     const app = createStudioApp(db);
     const response = await app.request("/api/unknown");
-    db.close(false);
+    db.$client.close(false);
+    rmSync(dir, { recursive: true, force: true });
 
     expect(response.status).toBe(404);
     const payload = await response.json();

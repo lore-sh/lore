@@ -1,6 +1,5 @@
-import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
-import { getRow, getRows, listUserTables, tableExists } from "./db";
+import { listUserTables, tableExists, type Database } from "./db";
 import { CodedError } from "../error";
 import { primaryKeyColumns, tableDDL, tableInfo } from "./inspect";
 import { quoteIdentifier } from "./sql";
@@ -177,19 +176,20 @@ function captureTableState(db: Database, table: string): CapturedTableState {
     throw new CodedError("APPLY_FAILED", `Unable to read CREATE TABLE SQL for ${table}`);
   }
 
-  const secondaryObjects = getRows<{ type: "index" | "trigger"; name: string; sql: string }>(
-    db,
-    `
+  const secondaryObjects = db.$client
+    .query<{ type: "index" | "trigger"; name: string; sql: string }, [string]>(`
       SELECT type, name, sql
       FROM sqlite_master
       WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
       ORDER BY type ASC, name ASC
-      `,
-    table,
-  );
+      `)
+    .all(table);
   const references = Array.from(
     new Set(
-      getRows<{ table: string }>(db, `PRAGMA foreign_key_list(${quoteIdentifier(table, { unsafe: true })})`).map((row) => row.table),
+      db.$client
+        .query<{ table: string }, []>(`PRAGMA foreign_key_list(${quoteIdentifier(table, { unsafe: true })})`)
+        .all()
+        .map((row) => row.table),
     ),
   ).sort((a, b) => a.localeCompare(b));
 
@@ -197,7 +197,7 @@ function captureTableState(db: Database, table: string): CapturedTableState {
   const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
   const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
   const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
-  const rowsRaw = getRows<Record<string, unknown>>(db, buildRowSelectSql(table, columns, keyColumns, null));
+  const rowsRaw = db.$client.query<Record<string, unknown>, []>(buildRowSelectSql(table, columns, keyColumns, null)).all();
 
   const rows: EncodedRow[] = [];
   const rowsByPk = new Map<string, CapturedRowEntry>();
@@ -435,7 +435,7 @@ export function fetchObservedRowByPk(db: Database, table: string, pk: Record<str
   const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
   const whereClause = toPkWhereClause(pk);
   const sql = `${buildRowSelectSql(table, columns, keyColumns, whereClause)} LIMIT 1`;
-  const row = getRow<Record<string, unknown>>(db, sql);
+  const row = db.$client.query<Record<string, unknown>, []>(sql).get();
   if (!row) {
     return null;
   }

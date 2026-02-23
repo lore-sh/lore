@@ -1,8 +1,6 @@
-import type { Database } from "bun:sqlite";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import { canonicalJson, sha256Hex } from "./checksum";
-import { MAIN_REF_NAME } from "./db";
-import { createEngineDb } from "./client";
+import { MAIN_REF_NAME, type Database } from "./db";
 import { captureObservedState, diffObservedState, type CapturedObservedState, type RowEffect, type SchemaEffect } from "./diff";
 import { schemaHash, stateHash } from "./inspect";
 import {
@@ -42,7 +40,7 @@ export interface CommitReplayInput extends CommitWriteInput {
 type CommitRow = typeof CommitTable.$inferSelect;
 
 function decodeCommit(db: Database, row: CommitRow): Commit {
-  const engineDb = createEngineDb(db);
+  const engineDb = db;
   const parents = engineDb
     .select({ parentCommitId: CommitParentTable.parentCommitId })
     .from(CommitParentTable)
@@ -75,7 +73,7 @@ function decodeCommit(db: Database, row: CommitRow): Commit {
 }
 
 export function getHeadCommitId(db: Database): string | null {
-  const row = createEngineDb(db)
+  const row = db
     .select({ commitId: RefTable.commitId })
     .from(RefTable)
     .where(eq(RefTable.name, MAIN_REF_NAME))
@@ -93,7 +91,7 @@ export function getHeadCommit(db: Database): Commit | null {
 }
 
 export function getNextCommitSeq(db: Database): number {
-  const row = createEngineDb(db)
+  const row = db
     .select({ maxSeq: sql<number>`coalesce(max(${CommitTable.seq}), 0)` })
     .from(CommitTable)
     .get();
@@ -193,7 +191,7 @@ export function appendCommitExact(
     throw new CodedError(errorCode, `Commit payload mismatch for replayed commit ${commitId}`);
   }
 
-  const engineDb = createEngineDb(db);
+  const engineDb = db;
   const oldHead = getHeadCommitId(db);
 
   engineDb
@@ -285,7 +283,7 @@ export function appendCommitExact(
 }
 
 export function getCommitById(db: Database, commitId: string): Commit | null {
-  const row = createEngineDb(db).select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
+  const row = db.select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
   if (!row) {
     return null;
   }
@@ -293,7 +291,7 @@ export function getCommitById(db: Database, commitId: string): Commit | null {
 }
 
 export function listCommits(db: Database, descending: boolean): Commit[] {
-  const rows = createEngineDb(db)
+  const rows = db
     .select()
     .from(CommitTable)
     .orderBy(descending ? desc(CommitTable.seq) : asc(CommitTable.seq))
@@ -302,7 +300,7 @@ export function listCommits(db: Database, descending: boolean): Commit[] {
 }
 
 export function getCommitCount(db: Database): number {
-  const row = createEngineDb(db)
+  const row = db
     .select({ c: sql<number>`count(*)` })
     .from(CommitTable)
     .get();
@@ -317,7 +315,7 @@ export interface StoredRowEffect extends RowEffect {
 export type StoredSchemaEffect = SchemaEffect;
 
 export function getRowEffectsByCommitId(db: Database, commitId: string): StoredRowEffect[] {
-  const rows = createEngineDb(db)
+  const rows = db
     .select()
     .from(RowEffectTable)
     .where(eq(RowEffectTable.commitId, commitId))
@@ -336,7 +334,7 @@ export function getRowEffectsByCommitId(db: Database, commitId: string): StoredR
 }
 
 export function getSchemaEffectsByCommitId(db: Database, commitId: string): StoredSchemaEffect[] {
-  const rows = createEngineDb(db)
+  const rows = db
     .select()
     .from(SchemaEffectTable)
     .where(eq(SchemaEffectTable.commitId, commitId))
@@ -351,7 +349,7 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Stor
 }
 
 export function estimateCommitSizeBytes(db: Database, commitId: string): number {
-  const engineDb = createEngineDb(db);
+  const engineDb = db;
   const opBytes = engineDb
     .select({ n: sql<number>`coalesce(sum(length(${OpTable.opJson})), 0)` })
     .from(OpTable)
@@ -381,7 +379,7 @@ export function estimateCommitSizeBytes(db: Database, commitId: string): number 
 }
 
 export function estimateHistorySizeBytes(db: Database): number {
-  const engineDb = createEngineDb(db);
+  const engineDb = db;
   const opBytes = engineDb
     .select({ n: sql<number>`coalesce(sum(length(${OpTable.opJson})), 0)` })
     .from(OpTable)

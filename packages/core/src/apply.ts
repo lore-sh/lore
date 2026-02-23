@@ -1,6 +1,5 @@
-import type { Database } from "bun:sqlite";
 import type { ColumnDefinition, EncodedRow, JsonPrimitive, TableSecondaryObject } from "./engine/primitives";
-import { runInSavepoint, runInTransaction } from "./engine/db";
+import { runInSavepoint, type Database } from "./engine/db";
 import { CodedError } from "./error";
 import { executeOperation } from "./engine/execute";
 import { appendCommitObserved } from "./engine/log";
@@ -126,7 +125,7 @@ export interface CheckResult {
 }
 
 export async function apply(db: Database, plan: OperationPlan): Promise<Commit> {
-  const commit = runInTransaction(db, () => {
+  const commit = db.transaction(() => {
     const beforeSchemaHash = schemaHash(db);
     const beforeObservedState = captureObservedState(db);
     for (const operation of plan.operations) {
@@ -140,7 +139,7 @@ export async function apply(db: Database, plan: OperationPlan): Promise<Commit> 
       beforeSchemaHash,
       beforeObservedState,
     });
-  });
+  }, { behavior: "immediate" });
 
   const { maybeCreateSnapshot } = await import("./snapshot");
   await maybeCreateSnapshot(db, commit);

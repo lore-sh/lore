@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Database } from "./db";
 import { sha256Hex } from "./checksum";
 import { appendCommitExact, type CommitReplayInput, getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./log";
 import {
@@ -9,7 +9,6 @@ import {
 import { schemaHash, stateHash } from "./inspect";
 import { CodedError, type ErrorCode } from "../error";
 import { asc, eq, gt } from "drizzle-orm";
-import { createEngineDb } from "./client";
 import { CommitTable } from "./schema.sql";
 
 export function getCommitReplayInput(db: Database, commitId: string): CommitReplayInput {
@@ -26,7 +25,7 @@ export function getCommitReplayInput(db: Database, commitId: string): CommitRepl
 }
 
 export function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitReplayInput[] {
-  const commitRows = createEngineDb(db)
+  const commitRows = db
     .select({ commitId: CommitTable.commitId })
     .from(CommitTable)
     .where(gt(CommitTable.seq, fromSeqExclusive))
@@ -36,7 +35,7 @@ export function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): 
 }
 
 export function findCommitSeq(db: Database, commitId: string): number | null {
-  const row = createEngineDb(db)
+  const row = db
     .select({ seq: CommitTable.seq })
     .from(CommitTable)
     .where(eq(CommitTable.commitId, commitId))

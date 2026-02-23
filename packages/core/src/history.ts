@@ -1,8 +1,15 @@
-import type { Database } from "bun:sqlite";
-import type { Operation } from "./apply";
-import { COMMIT_PARENT_TABLE, COMMIT_TABLE, OP_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, getRow, getRows } from "./engine/db";
+import type { Database } from "./engine/db";
+import { and, asc, desc, eq, exists, sql, type SQL } from "drizzle-orm";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
+import {
+  CommitParentTable,
+  CommitTable,
+  OpTable,
+  RowEffectTable,
+  SchemaEffectTable,
+} from "./engine/schema.sql";
 import { normalizePage, normalizePageSize } from "./table";
+import type { Operation } from "./apply";
 
 export type CommitKind = "apply" | "revert";
 
@@ -51,59 +58,58 @@ export interface HistoryOptions {
 function toCommitSummary(
   db: Database,
   row: {
-    commit_id: string;
+    commitId: string;
     seq: number;
     kind: CommitKind;
     message: string;
-    created_at: number;
+    createdAt: number;
   },
 ): CommitSummary {
-  const parents = getRows<{ parent_commit_id: string }>(
-    db,
-    `SELECT parent_commit_id
-     FROM ${COMMIT_PARENT_TABLE}
-     WHERE commit_id=?
-     ORDER BY ord ASC`,
-    row.commit_id,
-  );
-  const affectedRows = getRows<{ table_name: string }>(
-    db,
-    `
-      SELECT DISTINCT table_name
-      FROM (
-        SELECT table_name FROM ${ROW_EFFECT_TABLE} WHERE commit_id = ?
-        UNION ALL
-        SELECT table_name FROM ${SCHEMA_EFFECT_TABLE} WHERE commit_id = ?
-      )
-      ORDER BY table_name ASC
-    `,
-    row.commit_id,
-    row.commit_id,
-  );
-  const counts = getRow<{ operation_count: number; row_effect_count: number; schema_effect_count: number }>(
-    db,
-    `
-      SELECT
-        (SELECT COUNT(*) FROM ${OP_TABLE} WHERE commit_id = ?) AS operation_count,
-        (SELECT COUNT(*) FROM ${ROW_EFFECT_TABLE} WHERE commit_id = ?) AS row_effect_count,
-        (SELECT COUNT(*) FROM ${SCHEMA_EFFECT_TABLE} WHERE commit_id = ?) AS schema_effect_count
-    `,
-    row.commit_id,
-    row.commit_id,
-    row.commit_id,
-  );
+  const parents = db
+    .select({ parentCommitId: CommitParentTable.parentCommitId })
+    .from(CommitParentTable)
+    .where(eq(CommitParentTable.commitId, row.commitId))
+    .orderBy(asc(CommitParentTable.ord))
+    .all();
+  const rowTables = db
+    .select({ tableName: RowEffectTable.tableName })
+    .from(RowEffectTable)
+    .where(eq(RowEffectTable.commitId, row.commitId))
+    .all()
+    .map((entry) => entry.tableName);
+  const schemaTables = db
+    .select({ tableName: SchemaEffectTable.tableName })
+    .from(SchemaEffectTable)
+    .where(eq(SchemaEffectTable.commitId, row.commitId))
+    .all()
+    .map((entry) => entry.tableName);
+  const operationCount = db
+    .select({ c: sql<number>`count(*)` })
+    .from(OpTable)
+    .where(eq(OpTable.commitId, row.commitId))
+    .get()?.c ?? 0;
+  const rowEffectCount = db
+    .select({ c: sql<number>`count(*)` })
+    .from(RowEffectTable)
+    .where(eq(RowEffectTable.commitId, row.commitId))
+    .get()?.c ?? 0;
+  const schemaEffectCount = db
+    .select({ c: sql<number>`count(*)` })
+    .from(SchemaEffectTable)
+    .where(eq(SchemaEffectTable.commitId, row.commitId))
+    .get()?.c ?? 0;
 
   return {
-    commitId: row.commit_id,
+    commitId: row.commitId,
     seq: row.seq,
     kind: row.kind,
     message: row.message,
-    createdAt: row.created_at,
-    parentIds: parents.map(({ parent_commit_id }) => parent_commit_id),
-    operationCount: counts?.operation_count ?? 0,
-    rowEffectCount: counts?.row_effect_count ?? 0,
-    schemaEffectCount: counts?.schema_effect_count ?? 0,
-    affectedTables: affectedRows.map(({ table_name }) => table_name),
+    createdAt: row.createdAt,
+    parentIds: parents.map(({ parentCommitId }) => parentCommitId),
+    operationCount,
+    rowEffectCount,
+    schemaEffectCount,
+    affectedTables: Array.from(new Set([...rowTables, ...schemaTables])).sort((a, b) => a.localeCompare(b)),
   };
 }
 
@@ -118,45 +124,42 @@ export function commitHistory(db: Database, options: HistoryOptions = {}): Commi
   const kind = options.kind === "apply" || options.kind === "revert" ? options.kind : null;
   const table = options.table?.trim() || null;
 
-  const rows = getRows<{
-    commit_id: string;
-    seq: number;
-    kind: CommitKind;
-    message: string;
-    created_at: number;
-  }>(
-    db,
-    `
-      SELECT c.commit_id, c.seq, c.kind, c.message, c.created_at
-      FROM ${COMMIT_TABLE} AS c
-      WHERE (? IS NULL OR c.kind = ?)
-        AND (
-          ? IS NULL
-          OR EXISTS (
-            SELECT 1
-            FROM ${ROW_EFFECT_TABLE} AS r
-            WHERE r.commit_id = c.commit_id
-              AND r.table_name = ? COLLATE NOCASE
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM ${SCHEMA_EFFECT_TABLE} AS s
-            WHERE s.commit_id = c.commit_id
-              AND s.table_name = ? COLLATE NOCASE
-          )
-        )
-      ORDER BY c.seq DESC
-      LIMIT ?
-      OFFSET ?
-    `,
-    kind,
-    kind,
-    table,
-    table,
-    table,
-    pageSize,
-    offset,
-  );
+  const predicates: SQL[] = [];
+  if (kind) {
+    predicates.push(eq(CommitTable.kind, kind));
+  }
+  if (table) {
+    predicates.push(
+      sql`(
+        ${exists(
+          db.select({ n: sql<number>`1` }).from(RowEffectTable).where(
+            and(eq(RowEffectTable.commitId, CommitTable.commitId), sql`${RowEffectTable.tableName} = ${table} COLLATE NOCASE`),
+          ),
+        )}
+        OR
+        ${exists(
+          db.select({ n: sql<number>`1` }).from(SchemaEffectTable).where(
+            and(eq(SchemaEffectTable.commitId, CommitTable.commitId), sql`${SchemaEffectTable.tableName} = ${table} COLLATE NOCASE`),
+          ),
+        )}
+      )`,
+    );
+  }
+
+  const rows = db
+    .select({
+      commitId: CommitTable.commitId,
+      seq: CommitTable.seq,
+      kind: CommitTable.kind,
+      message: CommitTable.message,
+      createdAt: CommitTable.createdAt,
+    })
+    .from(CommitTable)
+    .where(predicates.length === 0 ? undefined : predicates.length === 1 ? predicates[0] : and(...predicates))
+    .orderBy(desc(CommitTable.seq))
+    .limit(pageSize)
+    .offset(offset)
+    .all();
 
   return rows.map((row) => toCommitSummary(db, row));
 }

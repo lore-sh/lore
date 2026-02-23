@@ -34,10 +34,8 @@ describe("config", () => {
     const { dir } = createTestContext();
     withTestHome(dir, () => {
       try {
-        writeRemoteConfig({
-          platform: "unsupported" as unknown as "turso",
-          url: "libsql://mydb-xxx.turso.io",
-        });
+        const input = JSON.parse('{"platform":"unsupported","url":"libsql://mydb-xxx.turso.io"}');
+        writeRemoteConfig(input);
         throw new Error("writeRemoteConfig should reject unsupported platform");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);

@@ -1,21 +1,21 @@
-import { Database } from "bun:sqlite";
 import { desc, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import type { Commit } from "./history";
-import { createEngineDb } from "./engine/client";
 import {
-  assertInitialized,
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
-  getRow,
-  listUserTables,
   MAIN_REF_NAME,
+  assertInitialized,
+  listUserTables,
   openDb,
   resolveDbPath,
   runInDeferredTransaction,
+  type Database,
 } from "./engine/db";
 import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
+import * as schema from "./engine/schema.sql";
 import { CodedError } from "./error";
 import { deleteWalAndShm, deleteWithSidecars } from "./engine/files";
 import type { CommitReplayInput } from "./engine/log";
@@ -40,38 +40,37 @@ async function hashFile(path: string): Promise<string> {
 }
 
 function openStagingWritableDatabase(stagingPath: string): Database {
-  const db = new Database(stagingPath, { strict: true });
-  db.run("PRAGMA journal_mode=DELETE");
-  db.run("PRAGMA synchronous=FULL");
-  db.run("PRAGMA foreign_keys=ON");
-  db.run("PRAGMA busy_timeout=5000");
+  const db = drizzle({ connection: { source: stagingPath }, schema });
+  db.$client.run("PRAGMA journal_mode=DELETE");
+  db.$client.run("PRAGMA synchronous=FULL");
+  db.$client.run("PRAGMA foreign_keys=ON");
+  db.$client.run("PRAGMA busy_timeout=5000");
   return db;
 }
 
 function countRows(db: Database): number {
   return listUserTables(db).reduce((acc, table) => {
-    const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table)}`);
+    const row = db.$client.query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM ${quoteIdentifier(table)}`).get();
     return acc + (row?.c ?? 0);
   }, 0);
 }
 
 function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: number; rowCountHint: number } {
-  const db = new Database(snapshotDbPath, { readonly: true, strict: true });
+  const db = drizzle({ connection: { source: snapshotDbPath, readonly: true }, schema });
   try {
     assertInitialized(db);
-    const engineDb = createEngineDb(db);
-    const head = engineDb.select({ commitId: RefTable.commitId }).from(RefTable).where(eq(RefTable.name, MAIN_REF_NAME)).limit(1).get();
+    const head = db.select({ commitId: RefTable.commitId }).from(RefTable).where(eq(RefTable.name, MAIN_REF_NAME)).limit(1).get();
     const commitId = head?.commitId;
     if (!commitId) {
       throw new CodedError("SNAPSHOT_FAILED", "Snapshot DB has no HEAD commit");
     }
-    const commit = engineDb.select({ seq: CommitTable.seq }).from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
+    const commit = db.select({ seq: CommitTable.seq }).from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
     if (!commit) {
       throw new CodedError("SNAPSHOT_FAILED", `Snapshot commit not found in _toss_commit: ${commitId}`);
     }
     return { commitId, seq: commit.seq, rowCountHint: countRows(db) };
   } finally {
-    db.close(false);
+    db.$client.close(false);
   }
 }
 
@@ -81,12 +80,12 @@ export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise
     return;
   }
 
-  const dbPath = db.filename;
+  const dbPath = db.$client.filename;
   const snapshotsDir = resolve(dirname(dbPath), "snapshots");
   await mkdir(snapshotsDir, { recursive: true });
   const tmpSnapshotPath = resolve(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 
-  db.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
+  db.$client.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
 
   const snapshotHead = readSnapshotHead(tmpSnapshotPath);
   const snapshotPath = resolve(snapshotsDir, `${snapshotHead.seq}-${snapshotHead.commitId}.db`);
@@ -94,9 +93,7 @@ export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise
   await rename(tmpSnapshotPath, snapshotPath);
   const [digest] = await Promise.all([hashFile(snapshotPath), deleteWithSidecars(tmpSnapshotPath)]);
 
-  const engineDb = createEngineDb(db);
-  engineDb
-    .insert(SnapshotTable)
+  db.insert(SnapshotTable)
     .values({
       commitId: snapshotHead.commitId,
       filePath: snapshotPath,
@@ -116,7 +113,7 @@ export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise
     .run();
 
   const retain = DEFAULT_SNAPSHOT_RETAIN;
-  const allSnapshots = engineDb
+  const allSnapshots = db
     .select({ commitId: SnapshotTable.commitId, filePath: SnapshotTable.filePath })
     .from(SnapshotTable)
     .orderBy(desc(SnapshotTable.createdAt))
@@ -124,7 +121,7 @@ export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise
   const stale = allSnapshots.slice(Math.max(retain, 0));
   for (const row of stale) {
     await deleteWithSidecars(row.filePath);
-    engineDb.delete(SnapshotTable).where(eq(SnapshotTable.commitId, row.commitId)).run();
+    db.delete(SnapshotTable).where(eq(SnapshotTable.commitId, row.commitId)).run();
   }
 }
 
@@ -144,7 +141,7 @@ function resolveSnapshotForRecovery(
 ): { snapshotPath: string; replayCommits: CommitReplayInput[] } {
   const db = openDb(dbPath);
   try {
-    const snapshot = createEngineDb(db)
+    const snapshot = db
       .select({
         filePath: SnapshotTable.filePath,
         seq: CommitTable.seq,
@@ -162,7 +159,7 @@ function resolveSnapshotForRecovery(
       replayCommits: loadCommitReplayInputs(db, snapshot.seq),
     };
   } finally {
-    db.close(false);
+    db.$client.close(false);
   }
 }
 
@@ -186,13 +183,13 @@ export async function recover(
         replayCommitExactly(replayDb, replay, { errorCode: "RECOVER_FAILED" });
       });
     }
-    replayDb.close(false);
+    replayDb.$client.close(false);
     closed = true;
     await promotePrepared(stagingPath, dbPath);
     promoted = true;
   } finally {
     if (!closed) {
-      replayDb.close(false);
+      replayDb.$client.close(false);
     }
     if (!promoted) {
       await deleteWithSidecars(stagingPath);

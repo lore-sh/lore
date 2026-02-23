@@ -1,7 +1,6 @@
 import { createStudioApp } from "./app";
 import { join } from "node:path";
-import { openDb } from "@toss/core";
-import type { Database } from "bun:sqlite";
+import { openDb, type Database } from "@toss/core";
 import { shouldRebuildClientBundle } from "./client-bundle";
 import { DEFAULT_STUDIO_PORT, normalizeStudioPort, parseStudioPortArg } from "./port";
 import type { StartStudioServerOptions } from "./types";
@@ -78,7 +77,7 @@ export interface StartedStudioServer {
 
 function closeDb(db: Database): void {
   try {
-    db.close(false);
+    db.$client.close(false);
   } catch {
     // ignore duplicate-close during process teardown
   }

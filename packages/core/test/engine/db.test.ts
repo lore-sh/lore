@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { listUserTables, resolveDbPath } from "../../src/engine/db";
 import { CodedError } from "../../src/error";
-import { initDb } from "../../src";
+import { initDb, openDb } from "../../src";
 import { createTestContext, currentDb, withTmpDirCleanup } from "../helpers";
+import { MetaTable } from "../../src/engine/schema.sql";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -44,15 +45,28 @@ describe("db path resolution", () => {
     const { dbPath } = createTestContext();
     await initDb({ dbPath });
     const db = currentDb();
-    db.run("CREATE TABLE abdrizzle_logs(id INTEGER PRIMARY KEY)");
-    db.run("CREATE TABLE atoss_table(id INTEGER PRIMARY KEY)");
-    db.run("CREATE TABLE __drizzle_custom(id INTEGER PRIMARY KEY)");
-    db.run("CREATE TABLE _toss_custom(id INTEGER PRIMARY KEY)");
+    db.$client.run("CREATE TABLE abdrizzle_logs(id INTEGER PRIMARY KEY)");
+    db.$client.run("CREATE TABLE atoss_table(id INTEGER PRIMARY KEY)");
+    db.$client.run("CREATE TABLE __drizzle_custom(id INTEGER PRIMARY KEY)");
+    db.$client.run("CREATE TABLE _toss_custom(id INTEGER PRIMARY KEY)");
 
     const names = listUserTables(db);
     expect(names.includes("abdrizzle_logs")).toBe(true);
     expect(names.includes("atoss_table")).toBe(true);
     expect(names.includes("__drizzle_custom")).toBe(false);
     expect(names.includes("_toss_custom")).toBe(false);
+  });
+
+  testWithTmp("openDb returns drizzle client for engine tables", async () => {
+    const { dbPath } = createTestContext();
+    await initDb({ dbPath });
+
+    const db = openDb(dbPath);
+    try {
+      const rows = db.select().from(MetaTable).limit(1).all();
+      expect(rows.length).toBeGreaterThan(0);
+    } finally {
+      db.$client.close(false);
+    }
   });
 });

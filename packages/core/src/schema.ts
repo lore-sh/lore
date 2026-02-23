@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Database } from "./engine/db";
 import {
   describeSchema,
   schemaHashFromDescriptor,
@@ -80,7 +80,7 @@ export function schema(db: Database, options: SchemaOptions = {}): Schema {
     .map((table) => mapSchemaTable(db, table));
 
   return {
-    dbPath: db.filename,
+    dbPath: db.$client.filename,
     generatedAt: new Date().toISOString(),
     schemaHash: schemaHashFromDescriptor(descriptor),
     tables,

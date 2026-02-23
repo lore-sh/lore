@@ -1,6 +1,5 @@
-import type { Database } from "bun:sqlite";
 import { canonicalJson } from "./checksum";
-import { getRows, tableExists } from "./db";
+import { tableExists, type Database } from "./db";
 import { CodedError, type ErrorCode } from "../error";
 import { executeOperation } from "./execute";
 import {
@@ -31,7 +30,7 @@ function insertEncodedRow(db: Database, table: string, row: EncodedRow): void {
       return cell.sqlLiteral;
     })
     .join(", ");
-  db.run(`INSERT INTO ${quoteIdentifier(table, { unsafe: true })} (${colSql}) VALUES (${valuesSql})`);
+  db.$client.run(`INSERT INTO ${quoteIdentifier(table, { unsafe: true })} (${colSql}) VALUES (${valuesSql})`);
 }
 
 function updateEncodedRow(db: Database, table: string, pk: Record<string, string>, row: EncodedRow): void {
@@ -48,18 +47,18 @@ function updateEncodedRow(db: Database, table: string, pk: Record<string, string
       return `${quoteIdentifier(column, { unsafe: true })} = ${cell.sqlLiteral}`;
     })
     .join(", ");
-  db.run(`UPDATE ${quoteIdentifier(table, { unsafe: true })} SET ${setSql} WHERE ${toPkWhereClause(pk)}`);
+  db.$client.run(`UPDATE ${quoteIdentifier(table, { unsafe: true })} SET ${setSql} WHERE ${toPkWhereClause(pk)}`);
 }
 
 function deleteByPk(db: Database, table: string, pk: Record<string, string>): void {
-  db.run(`DELETE FROM ${quoteIdentifier(table, { unsafe: true })} WHERE ${toPkWhereClause(pk)}`);
+  db.$client.run(`DELETE FROM ${quoteIdentifier(table, { unsafe: true })} WHERE ${toPkWhereClause(pk)}`);
 }
 
 function referencedTables(db: Database, table: string): string[] {
   if (!tableExists(db, table)) {
     return [];
   }
-  const rows = getRows<{ table: string }>(db, `PRAGMA foreign_key_list(${quoteIdentifier(table, { unsafe: true })})`);
+  const rows = db.$client.query<{ table: string }, []>(`PRAGMA foreign_key_list(${quoteIdentifier(table, { unsafe: true })})`).all();
   return Array.from(new Set(rows.map((row) => row.table))).sort((a, b) => a.localeCompare(b));
 }
 
@@ -174,13 +173,13 @@ function dropTriggersForTables(db: Database, effects: RowEffect[]): DroppedTrigg
   const touched = Array.from(new Set(effects.map((effect) => effect.tableName))).sort((a, b) => a.localeCompare(b));
   const dropped: DroppedTrigger[] = [];
   for (const table of touched) {
-    const rows = getRows<DroppedTrigger>(
-      db,
-      "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC",
-      table,
-    );
+    const rows = db.$client
+      .query<DroppedTrigger, [string]>(
+        "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC",
+      )
+      .all(table);
     for (const row of rows) {
-      db.run(`DROP TRIGGER IF EXISTS ${quoteIdentifier(row.name, { unsafe: true })}`);
+      db.$client.run(`DROP TRIGGER IF EXISTS ${quoteIdentifier(row.name, { unsafe: true })}`);
       dropped.push(row);
     }
   }
@@ -189,7 +188,7 @@ function dropTriggersForTables(db: Database, effects: RowEffect[]): DroppedTrigg
 
 function restoreDroppedTriggers(db: Database, dropped: DroppedTrigger[]): void {
   for (const trigger of dropped) {
-    db.run(trigger.sql);
+    db.$client.run(trigger.sql);
   }
 }
 
@@ -322,12 +321,12 @@ export function applySchemaEffects(db: Database, effects: SchemaEffect[], direct
 }
 
 export function assertNoForeignKeyViolations(db: Database, errorCode: ErrorCode, context: string): void {
-  const rows = getRows<{
+  const rows = db.$client.query<{
     table: string;
     rowid: number;
     parent: string;
     fkid: number;
-  }>(db, "PRAGMA foreign_key_check");
+  }, []>("PRAGMA foreign_key_check").all();
   if (rows.length === 0) {
     return;
   }

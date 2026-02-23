@@ -1,12 +1,13 @@
-import type { SQLQueryBindings } from "bun:sqlite";
-import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { CodedError } from "../error";
 import { deleteWithSidecars, resolveHomeDir } from "./files";
-import { createEngineDb } from "./client";
 import { MetaTable, RefTable } from "./schema.sql";
+import * as schema from "./schema.sql";
+
+export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
@@ -74,23 +75,23 @@ function assertDatabaseFileExists(dbPath: string): void {
 }
 
 function applyPragmas(db: Database, options: OpenDbOptions = {}): void {
-  db.run("PRAGMA foreign_keys=ON");
-  db.run(`PRAGMA busy_timeout=${Math.max(0, Math.floor(options.busyTimeoutMs ?? 5000))}`);
-  db.run("PRAGMA journal_mode=WAL");
-  db.run("PRAGMA synchronous=NORMAL");
-  db.run("PRAGMA optimize=0x10002");
+  db.$client.run("PRAGMA foreign_keys=ON");
+  db.$client.run(`PRAGMA busy_timeout=${Math.max(0, Math.floor(options.busyTimeoutMs ?? 5000))}`);
+  db.$client.run("PRAGMA journal_mode=WAL");
+  db.$client.run("PRAGMA synchronous=NORMAL");
+  db.$client.run("PRAGMA optimize=0x10002");
 }
 
 export function openDb(pathFromArg?: string, options: OpenDbOptions = {}): Database {
   const dbPath = resolveDbPath(pathFromArg);
   assertDatabaseFileExists(dbPath);
-  const db = new Database(dbPath, { strict: true });
+  const db = drizzle({ connection: { source: dbPath }, schema });
   try {
     applyPragmas(db, options);
     assertInitialized(db);
     return db;
   } catch (error) {
-    db.close(false);
+    db.$client.close(false);
     throw error;
   }
 }
@@ -99,21 +100,20 @@ function initializeStorage(db: Database): void {
   if (!existsSync(ENGINE_MIGRATIONS_DIR)) {
     throw new CodedError("CONFIG", `Engine migrations directory not found: ${ENGINE_MIGRATIONS_DIR}`);
   }
-  const engineDb = createEngineDb(db);
-  migrate(engineDb, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
+  migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
   for (const [key, value] of RESETTABLE_META_DEFAULTS) {
-    engineDb.insert(MetaTable)
+    db.insert(MetaTable)
       .values({ key, value })
       .onConflictDoUpdate({ target: MetaTable.key, set: { value } })
       .run();
   }
   for (const [key, value] of PRESERVED_META_DEFAULTS) {
-    engineDb.insert(MetaTable)
+    db.insert(MetaTable)
       .values({ key, value })
       .onConflictDoNothing({ target: MetaTable.key })
       .run();
   }
-  engineDb.insert(RefTable)
+  db.insert(RefTable)
     .values({ name: MAIN_REF_NAME, commitId: null, updatedAt: Date.now() })
     .onConflictDoNothing({ target: RefTable.name })
     .run();
@@ -127,27 +127,21 @@ export async function initDb(
   if (options.forceNew) {
     await deleteWithSidecars(dbPath);
   }
-  const db = new Database(dbPath, { strict: true });
+  const db = drizzle({ connection: { source: dbPath }, schema });
   try {
     applyPragmas(db);
     initializeStorage(db);
     assertInitialized(db);
   } finally {
-    db.close(false);
+    db.$client.close(false);
   }
   return { path: dbPath };
 }
 
-export function getRow<T>(db: Database, sql: string, ...bindings: SQLQueryBindings[]): T | null {
-  return db.query<T, SQLQueryBindings[]>(sql).get(...bindings);
-}
-
-export function getRows<T>(db: Database, sql: string, ...bindings: SQLQueryBindings[]): T[] {
-  return db.query<T, SQLQueryBindings[]>(sql).all(...bindings);
-}
-
 export function tableExists(db: Database, name: string): boolean {
-  const row = getRow<{ ok?: number }>(db, "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", name);
+  const row = db.$client
+    .query<{ ok?: number }, [string]>("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1")
+    .get(name);
   return row?.ok === 1;
 }
 
@@ -167,39 +161,27 @@ export function isInitialized(db: Database): boolean {
     return false;
   }
   function hasRow(table: string, column: string, value: string): boolean {
-    return getRow<{ ok?: number }>(db, `SELECT 1 AS ok FROM ${table} WHERE ${column}=? LIMIT 1`, value)?.ok === 1;
+    return db.$client.query<{ ok?: number }, [string]>(`SELECT 1 AS ok FROM ${table} WHERE ${column}=? LIMIT 1`).get(value)?.ok === 1;
   }
   return hasRow(REF_TABLE, "name", MAIN_REF_NAME);
 }
 
 export function assertInitialized(db: Database): void {
   if (!isInitialized(db)) {
-    throw notInitializedError(db.filename);
-  }
-}
-
-export function runInTransaction<T>(db: Database, fn: () => T): T {
-  db.run("BEGIN IMMEDIATE");
-  try {
-    const result = fn();
-    db.run("COMMIT");
-    return result;
-  } catch (error) {
-    db.run("ROLLBACK");
-    throw error;
+    throw notInitializedError(db.$client.filename);
   }
 }
 
 export function runInDeferredTransaction<T>(db: Database, fn: () => T): T {
-  db.run("PRAGMA foreign_keys=ON");
-  db.run("BEGIN IMMEDIATE");
+  db.$client.run("PRAGMA foreign_keys=ON");
+  db.$client.run("BEGIN IMMEDIATE");
   try {
-    db.run("PRAGMA defer_foreign_keys=ON");
+    db.$client.run("PRAGMA defer_foreign_keys=ON");
     const result = fn();
-    db.run("COMMIT");
+    db.$client.run("COMMIT");
     return result;
   } catch (error) {
-    db.run("ROLLBACK");
+    db.$client.run("ROLLBACK");
     throw error;
   }
 }
@@ -210,31 +192,32 @@ export function runInSavepoint<T>(
   run: () => T,
   options: { rollbackOnSuccess?: boolean } = {},
 ): T {
-  db.run(`SAVEPOINT ${name}`);
+  db.$client.run(`SAVEPOINT ${name}`);
   try {
     const result = run();
     if (options.rollbackOnSuccess) {
-      db.run(`ROLLBACK TO ${name}`);
+      db.$client.run(`ROLLBACK TO ${name}`);
     }
-    db.run(`RELEASE ${name}`);
+    db.$client.run(`RELEASE ${name}`);
     return result;
   } catch (error) {
-    db.run(`ROLLBACK TO ${name}`);
-    db.run(`RELEASE ${name}`);
+    db.$client.run(`ROLLBACK TO ${name}`);
+    db.$client.run(`RELEASE ${name}`);
     throw error;
   }
 }
 
 export function listUserTables(db: Database): string[] {
-  const rows = getRows<{ name: string }>(
-    db,
-    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
-  );
+  const rows = db.$client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+    )
+    .all();
   return rows.map((row) => row.name);
 }
 
 export function getMetaValue(db: Database, key: string): string | null {
-  const row = getRow<{ value?: string }>(db, `SELECT value FROM ${META_TABLE} WHERE key=?`, key);
+  const row = db.$client.query<{ value?: string }, [string]>(`SELECT value FROM ${META_TABLE} WHERE key=?`).get(key);
   return row?.value ?? null;
 }
 
@@ -244,8 +227,7 @@ export function normalizeMetaString(value: string | null): string | null {
 }
 
 export function setMetaValue(db: Database, key: string, value: string): void {
-  createEngineDb(db)
-    .insert(MetaTable)
+  db.insert(MetaTable)
     .values({ key, value })
     .onConflictDoUpdate({
       target: MetaTable.key,

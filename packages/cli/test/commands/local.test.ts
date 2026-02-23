@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import { initDb, openDb, type Database } from "@toss/core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   runHistory,
   runStatus,
@@ -11,32 +14,36 @@ import {
   validateVerifyArgs,
 } from "../../src/commands/local";
 
+async function withTempDb<T>(run: (db: Database) => T | Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), "toss-cli-local-test-"));
+  const dbPath = join(dir, "toss.db");
+  await initDb({ dbPath });
+  const db = openDb(dbPath);
+  try {
+    return await run(db);
+  } finally {
+    db.$client.close(false);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 describe("local command", () => {
-  test("runStatus rejects unknown arguments", () => {
-    const db = new Database(":memory:");
-    try {
+  test("runStatus rejects unknown arguments", async () => {
+    await withTempDb((db) => {
       expect(() => runStatus(db, ["--unknown"])).toThrow("status does not accept argument: --unknown");
-    } finally {
-      db.close(false);
-    }
+    });
   });
 
-  test("runHistory rejects unknown arguments", () => {
-    const db = new Database(":memory:");
-    try {
+  test("runHistory rejects unknown arguments", async () => {
+    await withTempDb((db) => {
       expect(() => runHistory(db, ["--unknown"])).toThrow("history does not accept argument: --unknown");
-    } finally {
-      db.close(false);
-    }
+    });
   });
 
-  test("runVerify rejects unknown arguments", () => {
-    const db = new Database(":memory:");
-    try {
+  test("runVerify rejects unknown arguments", async () => {
+    await withTempDb((db) => {
       expect(() => runVerify(db, ["--unknown"])).toThrow("verify accepts only --full");
-    } finally {
-      db.close(false);
-    }
+    });
   });
 
   test("validate local args", () => {

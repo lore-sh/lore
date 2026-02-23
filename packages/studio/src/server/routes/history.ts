@@ -1,6 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import type { Database } from "bun:sqlite";
-import { CodedError, commitById, commitEffects, commitHistory } from "@toss/core";
+import { CodedError, commitById, commitEffects, commitHistory, type Database } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { commitIdParamSchema, positiveIntSchema, validationError } from "./shared";

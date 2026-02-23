@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import { and, asc, eq, gt } from "drizzle-orm";
 import type { Commit } from "./history";
 import { canonicalJson } from "./engine/checksum";
@@ -6,8 +5,8 @@ import {
   runInSavepoint,
   runInDeferredTransaction,
   tableExists,
+  type Database,
 } from "./engine/db";
-import { createEngineDb } from "./engine/client";
 import { CommitTable } from "./engine/schema.sql";
 import { CodedError } from "./error";
 import {
@@ -149,7 +148,7 @@ export function detectRowConflict(
 }
 
 export function fetchLaterEffects(db: Database, seq: number): { rows: StoredRowEffect[]; schemas: StoredSchemaEffect[] } {
-  const laterCommits = createEngineDb(db)
+  const laterCommits = db
     .select({ commitId: CommitTable.commitId })
     .from(CommitTable)
     .where(gt(CommitTable.seq, seq))
@@ -241,7 +240,7 @@ export function revert(db: Database, commitId: string): RevertResult {
       throw new CodedError("NOT_REVERTIBLE", `Commit ${commitId} has no inverse metadata`);
     }
 
-    const already = createEngineDb(db)
+    const already = db
       .select({ commitId: CommitTable.commitId })
       .from(CommitTable)
       .where(and(eq(CommitTable.kind, "revert"), eq(CommitTable.revertTargetId, commitId)))

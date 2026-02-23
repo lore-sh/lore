@@ -1,5 +1,4 @@
-import type { Database } from "bun:sqlite";
-import { getRow, getRows, runInSavepoint, tableExists } from "./db";
+import { runInSavepoint, tableExists, type Database } from "./db";
 import { CodedError } from "../error";
 import { whereClauseFromRecord } from "./rows";
 import { COLUMN_TYPE_PATTERN, quoteIdentifier } from "./sql";
@@ -75,12 +74,12 @@ function buildColumnSql(column: ColumnDefinition, forAddColumn = false): string 
 
 function executeCreateTable(db: Database, operation: CreateTableOperation): void {
   const columns = operation.columns.map((column) => buildColumnSql(column)).join(", ");
-  db.run(`CREATE TABLE ${quoteIdentifier(operation.table)} (${columns})`);
+  db.$client.run(`CREATE TABLE ${quoteIdentifier(operation.table)} (${columns})`);
 }
 
 function executeAddColumn(db: Database, operation: AddColumnOperation): void {
   if (operation.column.default?.kind === "sql") {
-    const row = getRow<{ found: number }>(db, `SELECT 1 AS found FROM ${quoteIdentifier(operation.table)} LIMIT 1`);
+    const row = db.$client.query<{ found: number }, []>(`SELECT 1 AS found FROM ${quoteIdentifier(operation.table)} LIMIT 1`).get();
     if (row) {
       throw new CodedError(
         "INVALID_OPERATION",
@@ -89,7 +88,7 @@ function executeAddColumn(db: Database, operation: AddColumnOperation): void {
     }
   }
   const column = buildColumnSql(operation.column, true);
-  db.run(`ALTER TABLE ${quoteIdentifier(operation.table)} ADD COLUMN ${column}`);
+  db.$client.run(`ALTER TABLE ${quoteIdentifier(operation.table)} ADD COLUMN ${column}`);
 }
 
 function executeInsert(db: Database, operation: InsertOperation): void {
@@ -108,7 +107,7 @@ function executeInsert(db: Database, operation: InsertOperation): void {
     return value;
   });
 
-  db.query(`INSERT INTO ${quoteIdentifier(operation.table)} (${columns}) VALUES (${placeholders})`).run(...values);
+  db.$client.query(`INSERT INTO ${quoteIdentifier(operation.table)} (${columns}) VALUES (${placeholders})`).run(...values);
 }
 
 function executeUpdate(db: Database, operation: UpdateOperation): void {
@@ -129,7 +128,7 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
   }
 
   const where = whereClauseFromRecord(operation.where);
-  db.query(`UPDATE ${quoteIdentifier(operation.table)} SET ${setParts.join(", ")} WHERE ${where.clause}`).run(
+  db.$client.query(`UPDATE ${quoteIdentifier(operation.table)} SET ${setParts.join(", ")} WHERE ${where.clause}`).run(
     ...setBindings,
     ...where.bindings,
   );
@@ -137,15 +136,15 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
 
 function executeDelete(db: Database, operation: DeleteOperation): void {
   const where = whereClauseFromRecord(operation.where);
-  db.query(`DELETE FROM ${quoteIdentifier(operation.table)} WHERE ${where.clause}`).run(...where.bindings);
+  db.$client.query(`DELETE FROM ${quoteIdentifier(operation.table)} WHERE ${where.clause}`).run(...where.bindings);
 }
 
 function executeDropTable(db: Database, operation: DropTableOperation): void {
-  db.run(`DROP TABLE ${quoteIdentifier(operation.table)}`);
+  db.$client.run(`DROP TABLE ${quoteIdentifier(operation.table)}`);
 }
 
 function executeDropColumn(db: Database, operation: DropColumnOperation): void {
-  db.run(`ALTER TABLE ${quoteIdentifier(operation.table)} DROP COLUMN ${quoteIdentifier(operation.column)}`);
+  db.$client.run(`ALTER TABLE ${quoteIdentifier(operation.table)} DROP COLUMN ${quoteIdentifier(operation.column)}`);
 }
 
 interface SecondaryObjectRow {
@@ -168,29 +167,27 @@ interface SqliteSequenceSnapshot {
 
 function resolveMutableTableState(db: Database, table: string): MutableTableState {
   const requestedTableName = quoteIdentifier(table);
-  const tableInfo = getRows<TableInfoRow>(db, `PRAGMA table_info(${requestedTableName})`);
+  const tableInfo = db.$client.query<TableInfoRow, []>(`PRAGMA table_info(${requestedTableName})`).all();
   if (tableInfo.length === 0) {
     throw new CodedError("INVALID_OPERATION", `Table does not exist: ${table}`);
   }
 
-  const tableDdlRow = getRow<{ name: string; sql: string | null }>(
-    db,
-    "SELECT name, sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
-    table,
-  );
+  const tableDdlRow = db.$client
+    .query<{ name: string; sql: string | null }, [string]>(
+      "SELECT name, sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
+    )
+    .get(table);
   if (!tableDdlRow?.sql) {
     throw new CodedError("INVALID_OPERATION", `Table DDL is not available: ${table}`);
   }
 
-  const secondaryObjects = getRows<SecondaryObjectRow>(
-    db,
-    `
+  const secondaryObjects = db.$client
+    .query<SecondaryObjectRow, [string]>(`
       SELECT type, name, sql
       FROM sqlite_master
       WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
-      `,
-    tableDdlRow.name,
-  );
+      `)
+    .all(tableDdlRow.name);
 
   return {
     tableInfo,
@@ -205,11 +202,11 @@ function captureSqliteSequenceSnapshot(db: Database, tableName: string): SqliteS
   if (!tableExists(db, "sqlite_sequence")) {
     return null;
   }
-  const row = getRow<{ seqLiteral: string | null }>(
-    db,
-    "SELECT quote(seq) AS seqLiteral FROM sqlite_sequence WHERE name = ? LIMIT 1",
-    tableName,
-  );
+  const row = db.$client
+    .query<{ seqLiteral: string | null }, [string]>(
+      "SELECT quote(seq) AS seqLiteral FROM sqlite_sequence WHERE name = ? LIMIT 1",
+    )
+    .get(tableName);
   if (!row || typeof row.seqLiteral !== "string") {
     return null;
   }
@@ -220,8 +217,8 @@ function restoreSqliteSequenceSnapshot(db: Database, tableName: string, snapshot
   if (!snapshot || !tableExists(db, "sqlite_sequence")) {
     return;
   }
-  db.query("DELETE FROM sqlite_sequence WHERE name = ?").run(tableName);
-  db.run(`INSERT INTO sqlite_sequence(name, seq) VALUES (${serializeLiteral(tableName)}, ${snapshot.seqLiteral})`);
+  db.$client.query("DELETE FROM sqlite_sequence WHERE name = ?").run(tableName);
+  db.$client.run(`INSERT INTO sqlite_sequence(name, seq) VALUES (${serializeLiteral(tableName)}, ${snapshot.seqLiteral})`);
 }
 
 function rebuildTableWithRewrittenDdl(
@@ -237,14 +234,14 @@ function rebuildTableWithRewrittenDdl(
 
   runInSavepoint(db, options.savepointName, () => {
     const sequenceSnapshot = captureSqliteSequenceSnapshot(db, state.resolvedTableName);
-    db.run(rewriteCreateTableName(rewrittenDdl, tempTable));
-    db.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${state.quotedTableName}`);
-    db.run(`DROP TABLE ${state.quotedTableName}`);
-    db.run(`ALTER TABLE ${quotedTempTable} RENAME TO ${state.quotedTableName}`);
+    db.$client.run(rewriteCreateTableName(rewrittenDdl, tempTable));
+    db.$client.run(`INSERT INTO ${quotedTempTable} (${columnList}) SELECT ${selectList} FROM ${state.quotedTableName}`);
+    db.$client.run(`DROP TABLE ${state.quotedTableName}`);
+    db.$client.run(`ALTER TABLE ${quotedTempTable} RENAME TO ${state.quotedTableName}`);
     restoreSqliteSequenceSnapshot(db, state.resolvedTableName, sequenceSnapshot);
 
     for (const object of state.secondaryObjects) {
-      db.run(object.sql);
+      db.$client.run(object.sql);
     }
   });
 }
@@ -291,7 +288,7 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
 
   runInSavepoint(db, "toss_restore_table", () => {
     const sequenceSnapshot = captureSqliteSequenceSnapshot(db, operation.table);
-    db.run(rewriteCreateTableName(operation.ddlSql, tmpTable));
+    db.$client.run(rewriteCreateTableName(operation.ddlSql, tmpTable));
     const first = operation.rows?.[0];
     if (first) {
       const firstRow = rowForRestore(first);
@@ -308,15 +305,15 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
           throw new CodedError("INVALID_OPERATION", "restore_table row column set does not match snapshot");
         }
         const valuesSql = columns.map((column) => literalForRestoreCell(row[column])).join(", ");
-        db.run(`INSERT INTO ${quotedTmp} (${columnSql}) VALUES (${valuesSql})`);
+        db.$client.run(`INSERT INTO ${quotedTmp} (${columnSql}) VALUES (${valuesSql})`);
       }
     }
 
-    db.run(`DROP TABLE IF EXISTS ${quotedTable}`);
-    db.run(`ALTER TABLE ${quotedTmp} RENAME TO ${quotedTable}`);
+    db.$client.run(`DROP TABLE IF EXISTS ${quotedTable}`);
+    db.$client.run(`ALTER TABLE ${quotedTmp} RENAME TO ${quotedTable}`);
     restoreSqliteSequenceSnapshot(db, operation.table, sequenceSnapshot);
     for (const object of operation.secondaryObjects ?? []) {
-      db.run(object.sql);
+      db.$client.run(object.sql);
     }
   });
 }
@@ -388,5 +385,5 @@ export function executeOperation(db: Database, operation: Operation): void {
 }
 
 export function executeReadSql(db: Database, sql: string): Record<string, unknown>[] {
-  return db.query<Record<string, unknown>, []>(sql).all();
+  return db.$client.query<Record<string, unknown>, []>(sql).all();
 }

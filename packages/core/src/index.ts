@@ -15,6 +15,7 @@ export * from "./sync";
 export { openDb, resolveDbPath } from "./engine/db";
 export { operationPlanSchema, parsePlan } from "./engine/validate";
 export { deleteIfExists, isEnoent, resolveHomeDir } from "./engine/files";
+export type { Database } from "./engine/db";
 
 export type {
   JsonPrimitive,

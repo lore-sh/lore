@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
+import { initDb, openDb } from "@toss/core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createStudioApp, isAssetRequestPath } from "../../src/server/app";
 
 describe("studio app asset routing", () => {
@@ -11,10 +14,14 @@ describe("studio app asset routing", () => {
   });
 
   test("missing asset path returns 404 instead of index fallback", async () => {
-    const db = new Database(":memory:", { strict: true });
+    const dir = mkdtempSync(join(tmpdir(), "studio-app-test-"));
+    const dbPath = join(dir, "toss.db");
+    await initDb({ dbPath });
+    const db = openDb(dbPath);
     const app = createStudioApp(db);
     const response = await app.request("/assets/__missing_studio_asset__.js");
-    db.close(false);
+    db.$client.close(false);
+    rmSync(dir, { recursive: true, force: true });
 
     expect(response.status).toBe(404);
     expect(await response.text()).toContain("Asset not found");

@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { Database } from "./engine/db";
 import { executeReadSql } from "./engine/execute";
 import { validateReadSql } from "./engine/sql";
 

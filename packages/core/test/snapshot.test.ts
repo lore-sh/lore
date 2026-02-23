@@ -24,8 +24,8 @@ async function applyPlanAndSnapshot(planPath: string) {
 
 async function recoverAtCurrentDb(commitId: string) {
   const db = currentDb();
-  const dbPath = db.filename;
-  db.close(false);
+  const dbPath = db.$client.filename;
+  db.$client.close(false);
   return await recover(dbPath, commitId);
 }
 
@@ -39,12 +39,12 @@ describe("snapshot / recover", () => {
     direct.run("INSERT INTO keep_path_check(id, value) VALUES (1, 'ok')");
     direct.close(false);
 
-    expect(currentDb().filename).toBe(dbPath);
+    expect(currentDb().$client.filename).toBe(dbPath);
 
     const missingPreparedPath = `${dir}/missing-prepared-${crypto.randomUUID().replaceAll("-", "")}.db`;
     await expect(promotePrepared(missingPreparedPath, dbPath)).rejects.toBeInstanceOf(Error);
 
-    expect(currentDb().filename).toBe(dbPath);
+    expect(currentDb().$client.filename).toBe(dbPath);
     const rows = query(currentDb(), "SELECT id, value FROM keep_path_check");
     expect(rows).toEqual([{ id: 1, value: "ok" }]);
   });

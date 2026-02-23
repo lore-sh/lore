@@ -2,10 +2,12 @@ import { AsyncLocalStorage } from "async_hooks";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { apply, check, initDb, openDb, parsePlan } from "../src";
 import { CodedError } from "../src/error";
 import { schemaHash } from "../src/engine/inspect";
+import type { Database } from "../src/engine/db";
+import * as schema from "../src/engine/schema.sql";
 
 const tmpDirScopeStorage = new AsyncLocalStorage<Set<string>>();
 const scopedDbStorage = new AsyncLocalStorage<Database>();
@@ -18,7 +20,7 @@ function isClosedDatabaseError(error: unknown): boolean {
 
 function isOpenDatabase(db: Database): boolean {
   try {
-    db.query("SELECT 1").get();
+    db.$client.query("SELECT 1").get();
     return true;
   } catch (error) {
     if (isClosedDatabaseError(error)) {
@@ -35,9 +37,9 @@ function openTestDb(dbPath: string): Database {
     if (!CodedError.hasCode(error, "NOT_INITIALIZED")) {
       throw error;
     }
-    const db = new Database(dbPath, { strict: true });
-    db.run("PRAGMA foreign_keys=ON");
-    db.run("PRAGMA busy_timeout=5000");
+    const db = drizzle({ connection: { source: dbPath }, schema });
+    db.$client.run("PRAGMA foreign_keys=ON");
+    db.$client.run("PRAGMA busy_timeout=5000");
     return db;
   }
 }
@@ -61,7 +63,7 @@ function closePersistentDb(): void {
     return;
   }
   try {
-    persistentDb.close(false);
+    persistentDb.$client.close(false);
   } catch {
     // ignore duplicate-close during test cleanup
   }
@@ -80,7 +82,7 @@ export function currentDb(): Database {
     if (lastDbPath) {
       if (persistentDb) {
         try {
-          persistentDb.close(false);
+          persistentDb.$client.close(false);
         } catch {
           // ignore duplicate-close
         }
@@ -110,7 +112,7 @@ export function currentDb(): Database {
 export function replacePersistentDb(db: Database): void {
   if (persistentDb && persistentDb !== db) {
     try {
-      persistentDb.close(false);
+      persistentDb.$client.close(false);
     } catch {
       // ignore duplicate-close
     }
@@ -169,14 +171,14 @@ export async function planCheck(db: Database, planRef: string) {
 export async function computeSchemaHash(statements: string[]): Promise<string> {
   const { dbPath } = createTestContext();
   await initDb({ dbPath });
-  const db = new Database(dbPath, { strict: true });
+  const db = drizzle({ connection: { source: dbPath }, schema });
   try {
     for (const sql of statements) {
-      db.run(sql);
+      db.$client.run(sql);
     }
     return schemaHash(db);
   } finally {
-    db.close(false);
+    db.$client.close(false);
     closePersistentDb();
   }
 }
@@ -239,7 +241,7 @@ export async function withDbPath<T>(dbPath: string, run: ((db: Database) => Prom
     persistentDb = previous;
     try {
       if (activeDb && activeDb !== previous) {
-        activeDb.close(false);
+        activeDb.$client.close(false);
       }
     } catch {
       // ignore duplicate-close

@@ -1,5 +1,4 @@
-import type { Database } from "bun:sqlite";
-import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getRow, setMetaValue } from "./engine/db";
+import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, setMetaValue, type Database } from "./engine/db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
 
 export interface VerifyResult {
@@ -32,7 +31,7 @@ export function verify(db: Database, options: { full?: boolean } = {}): VerifyRe
     }
   }
 
-  const quickCheckRow = getRow<{ quick_check: string }>(db, "PRAGMA quick_check");
+  const quickCheckRow = db.$client.query<{ quick_check: string }, []>("PRAGMA quick_check").get();
   const quickCheck = quickCheckRow?.quick_check ?? "unknown";
   if (quickCheck.toLowerCase() !== "ok") {
     issues.push(`quick_check failed: ${quickCheck}`);
@@ -40,10 +39,11 @@ export function verify(db: Database, options: { full?: boolean } = {}): VerifyRe
 
   let integrityCheck: string | undefined;
   if (options.full) {
-    const integrityRow = getRow<{ integrity_check: string }>(db, "PRAGMA integrity_check");
-    integrityCheck = integrityRow?.integrity_check ?? "unknown";
-    if (integrityCheck.toLowerCase() !== "ok") {
-      issues.push(`integrity_check failed: ${integrityCheck}`);
+    const integrityRow = db.$client.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get();
+    const integrityValue = integrityRow?.integrity_check ?? "unknown";
+    integrityCheck = integrityValue;
+    if (integrityValue.toLowerCase() !== "ok") {
+      issues.push(`integrity_check failed: ${integrityValue}`);
     }
   }
 

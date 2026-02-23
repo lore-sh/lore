@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import {
   LAST_PULLED_COMMIT_META_KEY,
@@ -11,6 +10,7 @@ import {
   resolveDbPath,
   runInDeferredTransaction,
   setMetaValue,
+  type Database,
 } from "./engine/db";
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import { CodedError } from "./error";
@@ -475,7 +475,7 @@ export async function clone(options: {
     const sync = await runPull(db, "clone");
     return { dbPath: initialized.path, sync };
   } finally {
-    db.close(false);
+    db.$client.close(false);
   }
 }
 

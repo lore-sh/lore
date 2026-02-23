@@ -1,5 +1,4 @@
-import type { Database } from "bun:sqlite";
-import { COMMIT_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, getRow, getRows, listUserTables } from "./engine/db";
+import { COMMIT_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, listUserTables, type Database } from "./engine/db";
 import { CodedError } from "./error";
 import { describeSchema, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
 import { normalizeRowObject } from "./engine/rows";
@@ -53,7 +52,7 @@ const MAX_PAGE_SIZE = 500;
 const DEFAULT_PAGE_SIZE = 50;
 
 export function countTableRows(db: Database, tableName: string): number {
-  return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`)?.c ?? 0;
+  return db.$client.query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`).get()?.c ?? 0;
 }
 
 export function isVisibleColumn(hidden: number): boolean {
@@ -208,13 +207,13 @@ function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, s
 export function tableOverview(db: Database): Table[] {
   const tableNames = listUserTables(db);
   return tableNames.map((name) => {
-    const column = getRow<{ c: number }>(
-      db,
-      `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteIdentifier(name, { unsafe: true })}) WHERE hidden IN (0, 2, 3)`,
-    );
-    const updated = getRow<{ created_at: number }>(
-      db,
-      `
+    const column = db.$client
+      .query<{ c: number }, []>(
+        `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteIdentifier(name, { unsafe: true })}) WHERE hidden IN (0, 2, 3)`,
+      )
+      .get();
+    const updated = db.$client
+      .query<{ created_at: number }, [string, string]>(`
         SELECT c.created_at
         FROM ${COMMIT_TABLE} AS c
         JOIN (
@@ -225,10 +224,8 @@ export function tableOverview(db: Database): Table[] {
           ON touched.commit_id = c.commit_id
         ORDER BY c.seq DESC
         LIMIT 1
-      `,
-      name,
-      name,
-    );
+      `)
+      .get(name, name);
     return {
       name,
       rowCount: countTableRows(db, name),
@@ -271,11 +268,11 @@ export function queryTable(db: Database, options: TableQueryOptions): TablePage 
   }
 
   const whereSql = whereParts.length === 0 ? "" : ` WHERE ${whereParts.join(" AND ")}`;
-  const totalRow = getRow<{ c: number }>(
-    db,
-    `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}`,
-    ...bindings,
-  );
+  const totalRow = db.$client
+    .query<{ c: number }, string[]>(
+      `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}`,
+    )
+    .get(...bindings);
   const totalRows = totalRow?.c ?? 0;
   const totalPages = totalRows === 0 ? 1 : Math.ceil(totalRows / pageSize);
   const page = Math.min(requestedPage, totalPages);
@@ -283,13 +280,11 @@ export function queryTable(db: Database, options: TableQueryOptions): TablePage 
 
   const orderSql = orderClause(table, sortBy, sortDir);
 
-  const rows = getRows<Record<string, unknown>>(
-    db,
-    `SELECT * FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}${orderSql} LIMIT ? OFFSET ?`,
-    ...bindings,
-    pageSize,
-    offset,
-  );
+  const rows = db.$client
+    .query<Record<string, unknown>, Array<string | number>>(
+      `SELECT * FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}${orderSql} LIMIT ? OFFSET ?`,
+    )
+    .all(...bindings, pageSize, offset);
 
   return {
     table: tableName,

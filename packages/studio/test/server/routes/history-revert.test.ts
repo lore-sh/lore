@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
-import { apply, initDb, parsePlan } from "@toss/core";
+import { apply, initDb, openDb, parsePlan, type Database } from "@toss/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -27,11 +26,12 @@ async function writePlan(dir: string, name: string, payload: unknown): Promise<s
 }
 
 async function withDbPath<T>(dbPath: string, run: (db: Database) => Promise<T>): Promise<T> {
-  const db = new Database(dbPath, { strict: true });
+  await initDb({ dbPath });
+  const db = openDb(dbPath);
   try {
     return await run(db);
   } finally {
-    db.close(false);
+    db.$client.close(false);
   }
 }
 
@@ -44,7 +44,6 @@ describe("studio history and revert routes", () => {
   test("GET /api/commits supports kind/table/page", async () => {
     const dbPath = createTempPath("studio-history-route-");
     await withDbPath(dbPath, async (db) => {
-      await initDb({ dbPath });
       const dir = dirname(dbPath);
 
       await applyPlan(
@@ -102,7 +101,6 @@ describe("studio history and revert routes", () => {
   test("GET /api/tables/:name/history applies limit", async () => {
     const dbPath = createTempPath("studio-table-history-route-");
     await withDbPath(dbPath, async (db) => {
-      await initDb({ dbPath });
       const dir = dirname(dbPath);
 
       await applyPlan(
@@ -145,7 +143,6 @@ describe("studio history and revert routes", () => {
   test("GET /api/tables/:name/history returns NOT_FOUND for unknown table", async () => {
     const dbPath = createTempPath("studio-table-history-missing-route-");
     await withDbPath(dbPath, async (db) => {
-      await initDb({ dbPath });
       const app = createStudioApp(db);
       const response = await app.request("/api/tables/missing/history?limit=10&page=1");
 
@@ -158,7 +155,6 @@ describe("studio history and revert routes", () => {
   test("POST /api/commits/:id/revert returns success and conflict", async () => {
     const dbPath = createTempPath("studio-revert-route-");
     await withDbPath(dbPath, async (db) => {
-      await initDb({ dbPath });
       const dir = dirname(dbPath);
 
       await applyPlan(

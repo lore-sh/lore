@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import {
   history,
   status,
@@ -9,6 +10,7 @@ import {
 } from "../src";
 import { executeOperation } from "../src/engine/execute";
 import type { RestoreTableOperation } from "../src";
+import * as engineSchema from "../src/engine/schema.sql";
 import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -193,7 +195,7 @@ describe("applyPlan", () => {
   });
 
   testWithTmp("restore_table malformed row value fails with INVALID_OPERATION instead of TypeError", () => {
-    const db = new Database(":memory:");
+    const db = drizzle({ connection: ":memory:", schema: engineSchema });
     const operation: RestoreTableOperation = {
       type: "restore_table",
       table: "users",
@@ -221,12 +223,12 @@ describe("applyPlan", () => {
         expect(error.code).toBe("INVALID_OPERATION");
         expect(error.message).toContain("restore_table row contains unsupported encoded value");
       }
-      const restored = db
-        .query("SELECT name FROM sqlite_master WHERE type='table' AND name='users' LIMIT 1")
+      const restored = db.$client
+        .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table' AND name='users' LIMIT 1")
         .get() as { name: string } | null;
       expect(restored).toBeNull();
     } finally {
-      db.close(false);
+      db.$client.close(false);
     }
   });
 });

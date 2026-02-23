@@ -1,9 +1,7 @@
-import type { Database } from "bun:sqlite";
 import { sql } from "drizzle-orm";
 import type { CommitKind } from "./history";
 import type { SyncStatus } from "./sync";
-import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getMetaValue, getRow, listUserTables } from "./engine/db";
-import { createEngineDb } from "./engine/client";
+import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getMetaValue, listUserTables, type Database } from "./engine/db";
 import { SnapshotTable } from "./engine/schema.sql";
 import { syncStatus } from "./sync";
 import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit } from "./engine/log";
@@ -40,18 +38,18 @@ export interface Status {
 
 export function status(db: Database): Status {
   const tables = listUserTables(db).map((table) => {
-    const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table, { unsafe: true })}`);
+    const row = db.$client.query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM ${quoteIdentifier(table, { unsafe: true })}`).get();
     return { name: table, count: row?.c ?? 0 };
   });
 
   const head = getHeadCommit(db);
-  const snapshotCountRow = createEngineDb(db).select({ c: sql<number>`count(*)` }).from(SnapshotTable).get();
+  const snapshotCountRow = db.select({ c: sql<number>`count(*)` }).from(SnapshotTable).get();
   const verifiedOkRaw = getMetaValue(db, LAST_VERIFIED_OK_META_KEY);
   const commitCount = getCommitCount(db);
   const latestCommitEstimatedBytes = head ? estimateCommitSizeBytes(db, head.commitId) : null;
 
   return {
-    dbPath: db.filename,
+    dbPath: db.$client.filename,
     tableCount: tables.length,
     tables,
     headCommit: head

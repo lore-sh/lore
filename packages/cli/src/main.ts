@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
-import type { Database } from "bun:sqlite";
-import { CodedError, openDb, type ErrorCode } from "@toss/core";
+import { CodedError, openDb, type ErrorCode, type Database } from "@toss/core";
 import { runInit, runClean } from "./commands/init";
 import {
   runRemote,
@@ -138,7 +137,7 @@ export async function runCli(args: string[]): Promise<void> {
   try {
     return await handler.dbHandler(db, commandArgs);
   } finally {
-    db.close(false);
+    db.$client.close(false);
   }
 }
 

@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import {
   CodedError,
   apply,
@@ -8,6 +7,7 @@ import {
   type CheckIssue,
   type CheckResult,
   type CheckSummary,
+  type Database,
   schema,
   parsePlan,
   query,

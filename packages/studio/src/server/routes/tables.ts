@@ -1,6 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import type { Database } from "bun:sqlite";
-import { schema, commitHistory, resolveTableName, tableOverview, queryTable } from "@toss/core";
+import { schema, commitHistory, resolveTableName, tableOverview, queryTable, type Database } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { positiveIntSchema, tableParamSchema, validationError } from "./shared";
@@ -42,7 +41,7 @@ export function createTableRoutes(db: Database) {
     .get("/", (c) => {
       return c.json(
         {
-          dbPath: db.filename,
+          dbPath: db.$client.filename,
           generatedAt: new Date().toISOString(),
           tables: tableOverview(db),
         },

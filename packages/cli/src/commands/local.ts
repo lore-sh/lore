@@ -1,4 +1,3 @@
-import type { Database } from "bun:sqlite";
 import {
   history,
   status,
@@ -6,6 +5,7 @@ import {
   resolveDbPath,
   revert,
   verify,
+  type Database,
 } from "@toss/core";
 import { formatTimestamp, printTable, summarizeCommit, toJson } from "../format";
 

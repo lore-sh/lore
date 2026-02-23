@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { Database } from "bun:sqlite";
-import { apply, initDb, parsePlan, revert } from "@toss/core";
+import { apply, initDb, openDb, parsePlan, revert, type Database } from "@toss/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,12 +23,17 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await Bun.write(path, JSON.stringify(value, null, 2));
 }
 
-async function withDbPath<T>(dbPath: string, run: (db: Database) => Promise<T>): Promise<T> {
-  const db = new Database(dbPath, { strict: true });
+async function withInitializedDbPath<T>(dbPath: string, run: (db: Database) => Promise<T>): Promise<T> {
+  await initDb({ dbPath });
+  const db = openDb(dbPath);
   try {
     return await run(db);
   } finally {
-    db.close(false);
+    try {
+      db.$client.close(false);
+    } catch {
+      // ignore duplicate close in tests
+    }
   }
 }
 
@@ -39,10 +43,11 @@ async function applyPlan(db: Database, planRef: string) {
 }
 
 describe("studio api error mapping", () => {
-  test("returns INTERNAL for uninitialized database requests", async () => {
+  test("returns INTERNAL when database is unexpectedly closed", async () => {
     const dbPath = createTempPath("studio-api-not-initialized-");
-    const { status, body } = await withDbPath(dbPath, async (db) => {
+    const { status, body } = await withInitializedDbPath(dbPath, async (db) => {
       const app = createStudioApp(db);
+      db.$client.close(false);
       const response = await app.request("/api/status");
       return { status: response.status, body: await response.text() };
     });
@@ -53,8 +58,7 @@ describe("studio api error mapping", () => {
 
   test("returns NOT_FOUND as 404 for coded table lookup errors", async () => {
     const dbPath = createTempPath("studio-api-not-found-");
-    const { status, body, contentType } = await withDbPath(dbPath, async (db) => {
-      await initDb({ dbPath });
+    const { status, body, contentType } = await withInitializedDbPath(dbPath, async (db) => {
       const app = createStudioApp(db);
       const response = await app.request("/api/tables/missing/history?limit=10&page=1");
       return {
@@ -74,8 +78,7 @@ describe("studio api error mapping", () => {
 
   test("removes legacy /api/schema endpoint", async () => {
     const dbPath = createTempPath("studio-api-no-schema-");
-    const response = await withDbPath(dbPath, async (db) => {
-      await initDb({ dbPath });
+    const response = await withInitializedDbPath(dbPath, async (db) => {
       const app = createStudioApp(db);
       return await app.request("/api/schema");
     });
@@ -86,8 +89,7 @@ describe("studio api error mapping", () => {
 
   test("returns ALREADY_REVERTED as 409", async () => {
     const dbPath = createTempPath("studio-api-already-reverted-");
-    const { status, body } = await withDbPath(dbPath, async (db) => {
-      await initDb({ dbPath });
+    const { status, body } = await withInitializedDbPath(dbPath, async (db) => {
       const planPath = join(dbPath, "..", "plan.json");
       await writeJson(planPath, {
         message: "create expenses",

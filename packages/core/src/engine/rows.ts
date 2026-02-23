@@ -1,5 +1,4 @@
-import type { Database } from "bun:sqlite";
-import { getRow, getRows } from "./db";
+import type { Database } from "./db";
 import { CodedError } from "../error";
 import { assertTableHasPrimaryKey } from "./inspect";
 import { quoteIdentifier } from "./sql";
@@ -61,11 +60,11 @@ export function fetchRowsByWhere(
 ): Array<Record<string, unknown>> {
   const { clause, bindings } = whereClauseFromRecord(where);
   const sql = `SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause}`;
-  return getRows<Record<string, unknown>>(db, sql, ...bindings);
+  return db.$client.query<Record<string, unknown>, JsonPrimitive[]>(sql).all(...bindings);
 }
 
 export function fetchAllRows(db: Database, table: string): JsonObject[] {
-  const rows = getRows<Record<string, unknown>>(db, `SELECT * FROM ${quoteIdentifier(table)} ORDER BY rowid ASC`);
+  const rows = db.$client.query<Record<string, unknown>, []>(`SELECT * FROM ${quoteIdentifier(table)} ORDER BY rowid ASC`).all();
   return rows.map(normalizeRowObject);
 }
 
@@ -93,5 +92,7 @@ export function fetchRowByPk(
   pk: Record<string, JsonPrimitive>,
 ): Record<string, unknown> | null {
   const { clause, bindings } = whereClauseFromRecord(pk);
-  return getRow<Record<string, unknown>>(db, `SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause} LIMIT 1`, ...bindings);
+  return db.$client
+    .query<Record<string, unknown>, JsonPrimitive[]>(`SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause} LIMIT 1`)
+    .get(...bindings);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { schema, initDb, CodedError } from "../src";
+import { schema, initDb, openDb, CodedError } from "../src";
 import { schemaHash } from "../src/engine/inspect";
 import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
@@ -33,8 +33,10 @@ describe("schema", () => {
     `);
     direct.run("INSERT INTO orgs(id, name) VALUES (1, 'acme')");
     direct.run("INSERT INTO users(id, org_id, email, amount) VALUES (1, 1, 'a@example.com', 10)");
-    const expectedHash = schemaHash(direct);
     direct.close(false);
+    const expectedDb = openDb(dbPath);
+    const expectedHash = schemaHash(expectedDb);
+    expectedDb.$client.close(false);
 
     const dbSchema = schema(currentDb());
     expect(dbSchema.schemaHash).toBe(expectedHash);

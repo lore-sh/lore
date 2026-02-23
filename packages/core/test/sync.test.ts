@@ -897,10 +897,8 @@ describe("sync with Turso protocol", () => {
 
     await withDbPath(local.dbPath, async () => {
       try {
-        await connect(currentDb(), {
-          platform: "unsupported" as unknown as "libsql",
-          url: remoteUrl,
-        });
+        const options = JSON.parse(JSON.stringify({ platform: "unsupported", url: remoteUrl }));
+        await connect(currentDb(), options);
         throw new Error("connect should fail for unsupported platform");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
@@ -1375,8 +1373,10 @@ describe("sync with Turso protocol", () => {
   });
 });
 
-function getMetaValueOrThrow(db: Database, key: string): string {
-  const row = db.query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1").get(key);
+function getMetaValueOrThrow(db: Database | import("../src").Database, key: string): string {
+  const row = ("$client" in db
+    ? db.$client.query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1").get(key)
+    : db.query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1").get(key));
   if (!row) {
     throw new Error(`missing meta key: ${key}`);
   }

@@ -1,6 +1,5 @@
-import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
-import { getRow, getRows, listUserTables } from "./db";
+import { listUserTables, type Database } from "./db";
 import { CodedError } from "../error";
 import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
 import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable } from "./ddl";
@@ -152,7 +151,7 @@ function normalizeStateRow(row: Record<string, unknown>): JsonObject {
 }
 
 export function tableInfo(db: Database, table: string): TableInfoRow[] {
-  return getRows<TableInfoRow>(db, `PRAGMA table_info(${quoteIdentifier(table, { unsafe: true })})`);
+  return db.$client.query<TableInfoRow, []>(`PRAGMA table_info(${quoteIdentifier(table, { unsafe: true })})`).all();
 }
 
 export function primaryKeyColumns(db: Database, table: string): string[] {
@@ -171,17 +170,17 @@ export function assertTableHasPrimaryKey(db: Database, table: string): string[] 
 }
 
 export function tableDDL(db: Database, table: string): string | null {
-  const row = getRow<{ sql: string | null }>(
-    db,
-    "SELECT sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
-    table,
-  );
+  const row = db.$client
+    .query<{ sql: string | null }, [string]>(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
+    )
+    .get(table);
   return row?.sql ?? null;
 }
 
 export function describeSchema(db: Database): SchemaDescriptor {
   const tableNames = listUserTables(db);
-  const tableList = getRows<TableListRow>(db, "PRAGMA table_list");
+  const tableList = db.$client.query<TableListRow, []>("PRAGMA table_list").all();
   const tableOpts = new Map(
     tableList
       .filter((row) => row.schema === "main" && row.type === "table")
@@ -196,7 +195,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
       tableSql: normalizeSqlNullable(tableDdl),
       table,
       options: tableOpts.get(table) ?? { withoutRowid: false, strict: false },
-      columns: getRows<TableXInfoRow>(db, `PRAGMA table_xinfo(${pragmaLiteral(table)})`)
+      columns: db.$client.query<TableXInfoRow, []>(`PRAGMA table_xinfo(${pragmaLiteral(table)})`).all()
         .map((column) => ({
           definitionSql: columnDefs.get(column.name.toLowerCase()) ?? null,
           cid: column.cid,
@@ -209,7 +208,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
         }))
         .sort((a, b) => a.cid - b.cid),
       foreignKeys: (() => {
-        const rows = getRows<ForeignKeyRow>(db, `PRAGMA foreign_key_list(${pragmaLiteral(table)})`);
+        const rows = db.$client.query<ForeignKeyRow, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`).all();
         const byId = new Map<
           number,
           {
@@ -243,14 +242,12 @@ export function describeSchema(db: Database): SchemaDescriptor {
           }))
           .sort((a, b) => a.id - b.id);
       })(),
-      indexes: getRows<IndexListRow>(db, `PRAGMA index_list(${pragmaLiteral(table)})`)
+      indexes: db.$client.query<IndexListRow, []>(`PRAGMA index_list(${pragmaLiteral(table)})`).all()
         .map((index) => {
-          const indexSqlRow = getRow<{ sql: string | null }>(
-            db,
-            "SELECT sql FROM sqlite_master WHERE type='index' AND name=? LIMIT 1",
-            index.name,
-          );
-          const indexColumns = getRows<IndexXInfoRow>(db, `PRAGMA index_xinfo(${pragmaLiteral(index.name)})`)
+          const indexSqlRow = db.$client
+            .query<{ sql: string | null }, [string]>("SELECT sql FROM sqlite_master WHERE type='index' AND name=? LIMIT 1")
+            .get(index.name);
+          const indexColumns = db.$client.query<IndexXInfoRow, []>(`PRAGMA index_xinfo(${pragmaLiteral(index.name)})`).all()
             .map((entry) => ({
               seqno: entry.seqno,
               cid: entry.cid,
@@ -272,11 +269,11 @@ export function describeSchema(db: Database): SchemaDescriptor {
         .sort((a, b) => a.name.localeCompare(b.name)),
       checks,
       triggers: (
-        getRows<{ name: string; sql: string | null }>(
-          db,
-          "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? ORDER BY name ASC",
-          table,
-        )
+        db.$client
+          .query<{ name: string; sql: string | null }, [string]>(
+            "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? ORDER BY name ASC",
+          )
+          .all(table)
       ).map((trigger) => ({
         name: trigger.name,
         sql: normalizeSqlNullable(trigger.sql),
@@ -296,10 +293,9 @@ export function stateHash(db: Database): string {
   for (const table of tables) {
     const pkColumns = assertTableHasPrimaryKey(db, table);
     const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
-    const rows = getRows<Record<string, unknown>>(
-      db,
+    const rows = db.$client.query<Record<string, unknown>, []>(
       `SELECT * FROM ${quoteIdentifier(table, { unsafe: true })} ORDER BY ${orderBy}`,
-    );
+    ).all();
     state[table] = rows.map((row) => normalizeStateRow(row));
   }
   return sha256Hex(state);
