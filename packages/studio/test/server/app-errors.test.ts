@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { applyPlan, initDatabase, revertCommit } from "@toss/core";
+import { apply, initDatabase, parsePlan, revertCommit } from "@toss/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,6 +31,11 @@ async function withDbPath<T>(dbPath: string, run: (db: Database) => Promise<T>):
   } finally {
     db.close(false);
   }
+}
+
+async function applyPlan(db: Database, planRef: string) {
+  const payload = await Bun.file(planRef).text();
+  return apply(db, parsePlan(payload));
 }
 
 describe("studio api error mapping", () => {

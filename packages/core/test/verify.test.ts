@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  applyPlan,
   getStatus,
   initDatabase,
   verifyDatabase,
 } from "../src";
 import { COMMIT_TABLE } from "../src/engine/db";
-import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
+import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 

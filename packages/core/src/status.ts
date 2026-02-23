@@ -12,7 +12,7 @@ import { SnapshotTable } from "./engine/schema.sql";
 import { buildSyncStatus } from "./sync";
 import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit, listCommits } from "./engine/log";
 import { quoteIdentifier } from "./engine/sql";
-import type { CommitEntry, Status } from "./types";
+import type { Commit, Status } from "./types";
 
 export function getStatus(db: Database): Status {
   const tables = listUserTables(db).map((table) => {
@@ -51,6 +51,6 @@ export function getStatus(db: Database): Status {
   };
 }
 
-export function getHistory(db: Database): CommitEntry[] {
+export function getHistory(db: Database): Commit[] {
   return listCommits(db, true);
 }

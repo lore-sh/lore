@@ -5,20 +5,11 @@ import { executeOperation } from "./engine/execute";
 import { appendCommitFromObservedChange } from "./engine/log";
 import { captureObservedState, diffObservedState } from "./engine/diff";
 import { schemaHash } from "./engine/inspect";
-import type { CommitEntry, Operation } from "./types";
-import { parseAndValidateOperationPlan } from "./engine/validate";
+import type { CheckResult, CheckIssue, CheckSummary, Commit, Operation, OperationPlan } from "./types";
 
-export function readPlanInput(planRef: string): Promise<string> {
-  if (planRef === "-") {
-    return Bun.stdin.text();
-  }
-  return Bun.file(planRef).text();
-}
+export { parsePlan } from "./engine/validate";
 
-export async function applyPlan(db: Database, planRef: string): Promise<CommitEntry> {
-  const payload = await readPlanInput(planRef);
-  const plan = parseAndValidateOperationPlan(payload);
-
+export async function apply(db: Database, plan: OperationPlan): Promise<Commit> {
   const commit = runInTransaction(db, () => {
     const beforeSchemaHash = schemaHash(db);
     const beforeObservedState = captureObservedState(db);
@@ -59,46 +50,7 @@ const DESTRUCTIVE_OPERATION_TYPES = new Set<Operation["type"]>([
   "delete",
 ]);
 
-export interface PlanCheckIssue {
-  code: string;
-  message: string;
-  operationIndex?: number | undefined;
-  operationType?: Operation["type"] | undefined;
-  table?: string | undefined;
-}
-
-export interface PlanCheckSummary {
-  operations: number;
-  schemaOperations: number;
-  dataOperations: number;
-  destructiveOperations: number;
-  touchedTables: string[];
-  predicted: {
-    rowEffects: number;
-    schemaEffects: number;
-    tables: string[];
-  };
-}
-
-export interface PlanCheckResult {
-  ok: boolean;
-  risk: "low" | "medium" | "high";
-  errors: PlanCheckIssue[];
-  warnings: PlanCheckIssue[];
-  summary: PlanCheckSummary;
-  checkedAt: string;
-}
-
-const EMPTY_SUMMARY: PlanCheckSummary = {
-  operations: 0,
-  schemaOperations: 0,
-  dataOperations: 0,
-  destructiveOperations: 0,
-  touchedTables: [],
-  predicted: { rowEffects: 0, schemaEffects: 0, tables: [] },
-};
-
-function issueFromError(error: unknown): PlanCheckIssue {
+function issueFromError(error: unknown): CheckIssue {
   if (CodedError.is(error)) {
     return { code: error.code, message: error.message };
   }
@@ -109,9 +61,9 @@ function issueFromError(error: unknown): PlanCheckIssue {
 }
 
 function classifyRisk(
-  errors: PlanCheckIssue[],
-  summary: PlanCheckSummary,
-): PlanCheckResult["risk"] {
+  errors: CheckIssue[],
+  summary: CheckSummary,
+): CheckResult["risk"] {
   if (errors.length > 0 || summary.destructiveOperations > 0) {
     return "high";
   }
@@ -125,7 +77,7 @@ function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
 }
 
-function summarizeOperations(operations: Operation[]): Omit<PlanCheckSummary, "predicted"> {
+function summarizeOperations(operations: Operation[]): Omit<CheckSummary, "predicted"> {
   const touchedTables = uniqueSorted(operations.map((op) => op.table));
   const schemaOps = operations.filter((op) => SCHEMA_OPERATION_TYPES.has(op.type)).length;
   const destructiveOps = operations.filter((op) => DESTRUCTIVE_OPERATION_TYPES.has(op.type)).length;
@@ -138,7 +90,7 @@ function summarizeOperations(operations: Operation[]): Omit<PlanCheckSummary, "p
   };
 }
 
-function destructiveWarnings(operations: Operation[]): PlanCheckIssue[] {
+function destructiveWarnings(operations: Operation[]): CheckIssue[] {
   return operations.flatMap((op, i) =>
     DESTRUCTIVE_OPERATION_TYPES.has(op.type)
       ? [{
@@ -152,20 +104,9 @@ function destructiveWarnings(operations: Operation[]): PlanCheckIssue[] {
   );
 }
 
-function failedResult(checkedAt: string, error: unknown): PlanCheckResult {
-  return {
-    ok: false,
-    risk: "high",
-    errors: [issueFromError(error)],
-    warnings: [],
-    summary: EMPTY_SUMMARY,
-    checkedAt,
-  };
-}
-
 interface DryRunResult {
-  errors: PlanCheckIssue[];
-  predicted: PlanCheckSummary["predicted"];
+  errors: CheckIssue[];
+  predicted: CheckSummary["predicted"];
 }
 
 function dryRunWithDb(db: Database, operations: Operation[]): DryRunResult {
@@ -200,27 +141,14 @@ function dryRunWithDb(db: Database, operations: Operation[]): DryRunResult {
   }
 }
 
-export async function planCheck(db: Database, planRef: string): Promise<PlanCheckResult> {
+export function check(db: Database, plan: OperationPlan): CheckResult {
   const checkedAt = new Date().toISOString();
-  let payload: string;
-  try {
-    payload = await readPlanInput(planRef);
-  } catch (error) {
-    return failedResult(checkedAt, error);
-  }
-
-  let plan: ReturnType<typeof parseAndValidateOperationPlan>;
-  try {
-    plan = parseAndValidateOperationPlan(payload);
-  } catch (error) {
-    return failedResult(checkedAt, error);
-  }
 
   const warnings = destructiveWarnings(plan.operations);
   const summaryBase = summarizeOperations(plan.operations);
   const { errors, predicted } = dryRunWithDb(db, plan.operations);
 
-  const summary: PlanCheckSummary = { ...summaryBase, predicted };
+  const summary: CheckSummary = { ...summaryBase, predicted };
 
   return {
     ok: errors.length === 0,

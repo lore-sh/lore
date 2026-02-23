@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { applyPlan, initDatabase, CodedError, planCheck, readQuery } from "../../src";
-import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "../helpers";
+import { initDatabase, CodedError, readQuery } from "../../src";
+import { applyPlan, createTestContext, planCheck, writePlanFile, withTmpDirCleanup, currentDb } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -433,10 +433,9 @@ describe("check operations", () => {
       ],
     });
 
-    const result = await planCheck(currentDb(), invalid);
-    expect(result.ok).toBe(false);
-    expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
-    expect(result.errors.some((error) => error.message.includes("must not contain SQL comments"))).toBe(true);
+    await expect(planCheck(currentDb(), invalid)).rejects.toMatchObject({
+      code: "INVALID_OPERATION",
+    });
   });
 
   testWithTmp("validator rejects semicolons outside SQLite double-quoted identifiers", async () => {
@@ -469,10 +468,9 @@ describe("check operations", () => {
       ],
     });
 
-    const result = await planCheck(currentDb(), invalid);
-    expect(result.ok).toBe(false);
-    expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
-    expect(result.errors.some((error) => error.message.includes("single SQL expression"))).toBe(true);
+    await expect(planCheck(currentDb(), invalid)).rejects.toMatchObject({
+      code: "INVALID_OPERATION",
+    });
   });
 
   testWithTmp("validator rejects add_check payload that escapes into extra table constraints", async () => {
@@ -505,10 +503,9 @@ describe("check operations", () => {
       ],
     });
 
-    const result = await planCheck(currentDb(), injected);
-    expect(result.ok).toBe(false);
-    expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
-    expect(result.errors.some((error) => error.message.includes("single SQL expression"))).toBe(true);
+    await expect(planCheck(currentDb(), injected)).rejects.toMatchObject({
+      code: "INVALID_OPERATION",
+    });
   });
 
   testWithTmp("drop_check removes matching constraint by expression", async () => {

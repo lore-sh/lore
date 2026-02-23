@@ -1,4 +1,4 @@
-import type { CommitEntry } from "@toss/core";
+import type { Commit } from "@toss/core";
 
 export function toJson(value: unknown): string {
   return JSON.stringify(value, null, 2);
@@ -27,7 +27,7 @@ export function formatTimestamp(unixMs: number): string {
   return Number.isNaN(date.getTime()) ? String(unixMs) : date.toISOString();
 }
 
-export function summarizeCommit(entry: CommitEntry): Record<string, unknown> {
+export function summarizeCommit(entry: Commit): Record<string, unknown> {
   return {
     commit_id: entry.commitId,
     seq: entry.seq,

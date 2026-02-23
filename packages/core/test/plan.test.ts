@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { applyPlan, getHistory, initDatabase, planCheck, readQuery } from "../src";
-import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
+import { getHistory, initDatabase, readQuery } from "../src";
+import { applyPlan, createTestContext, planCheck, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-describe("planCheck", () => {
+describe("check", () => {
   testWithTmp("returns ok for valid plan and does not persist changes", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
@@ -35,7 +35,7 @@ describe("planCheck", () => {
     expect(history).toHaveLength(0);
   });
 
-  testWithTmp("returns errors for invalid plan payload", async () => {
+  testWithTmp("throws for invalid plan payload", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
@@ -43,10 +43,9 @@ describe("planCheck", () => {
       message: "",
       operations: [],
     });
-    const result = await planCheck(currentDb(), invalidPlan);
-    expect(result.ok).toBe(false);
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.risk).toBe("high");
+    await expect(planCheck(currentDb(), invalidPlan)).rejects.toMatchObject({
+      code: "INVALID_PLAN",
+    });
   });
 
   testWithTmp("flags destructive operations with high risk and keeps rows unchanged", async () => {
@@ -99,7 +98,7 @@ describe("planCheck", () => {
     expect(result.errors.length).toBeGreaterThan(0);
   });
 
-  testWithTmp("rejects legacy scalar column default payload", async () => {
+  testWithTmp("throws on legacy scalar column default payload", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
@@ -116,9 +115,9 @@ describe("planCheck", () => {
         },
       ],
     });
-    const result = await planCheck(currentDb(), legacyDefault);
-    expect(result.ok).toBe(false);
-    expect(result.errors.some((error) => error.code === "INVALID_PLAN")).toBe(true);
+    await expect(planCheck(currentDb(), legacyDefault)).rejects.toMatchObject({
+      code: "INVALID_PLAN",
+    });
   });
 
   testWithTmp("accepts SQL default object payload", async () => {
@@ -148,13 +147,10 @@ describe("planCheck", () => {
     expect(result.errors).toEqual([]);
   });
 
-  testWithTmp("returns error result when plan file is missing", async () => {
+  testWithTmp("throws when plan file is missing", async () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    const result = await planCheck(currentDb(), `${dir}/missing-plan.json`);
-    expect(result.ok).toBe(false);
-    expect(result.errors.length).toBeGreaterThan(0);
+    await expect(planCheck(currentDb(), `${dir}/missing-plan.json`)).rejects.toThrow();
   });
-
 });

@@ -14,7 +14,7 @@ import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } fr
 import { describeSchema, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
 import { normalizeRowObject } from "./engine/rows";
 import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
-import type { CommitEntry, CommitKind, JsonObject } from "./types";
+import type { Commit, CommitKind, JsonObject } from "./types";
 
 function countTableRows(db: Database, tableName: string): number {
   return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`)?.c ?? 0;
@@ -106,7 +106,7 @@ export interface StudioHistoryEntry {
 }
 
 export interface StudioCommitDetail {
-  commit: CommitEntry;
+  commit: Commit;
   rowEffects: ReturnType<typeof getRowEffectsByCommitId>;
   schemaEffects: ReturnType<typeof getSchemaEffectsByCommitId>;
 }

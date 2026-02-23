@@ -1,10 +1,15 @@
 import type { Database } from "bun:sqlite";
 import {
-  applyPlan,
+  CodedError,
+  apply,
   autoSyncAfterApply,
+  check,
   commitSizeWarning,
+  type CheckIssue,
+  type CheckResult,
+  type CheckSummary,
   getSchema,
-  planCheck,
+  parsePlan,
   readQuery,
 } from "@toss/core";
 import { printTable, toJson, summarizeCommit } from "../format";
@@ -21,6 +26,43 @@ export function parseSinglePlanRef(command: "plan" | "apply", args: string[]): s
     throw new Error(`${command} does not accept option arguments. Use: toss ${command} <file|->`);
   }
   return planRef;
+}
+
+function readPlanInput(planRef: string): Promise<string> {
+  if (planRef === "-") {
+    return Bun.stdin.text();
+  }
+  return Bun.file(planRef).text();
+}
+
+const EMPTY_CHECK_SUMMARY: CheckSummary = {
+  operations: 0,
+  schemaOperations: 0,
+  dataOperations: 0,
+  destructiveOperations: 0,
+  touchedTables: [],
+  predicted: { rowEffects: 0, schemaEffects: 0, tables: [] },
+};
+
+function checkIssueFromError(error: unknown): CheckIssue {
+  if (CodedError.is(error)) {
+    return { code: error.code, message: error.message };
+  }
+  if (error instanceof Error) {
+    return { code: "PLAN_CHECK_FAILED", message: error.message };
+  }
+  return { code: "PLAN_CHECK_FAILED", message: String(error) };
+}
+
+function failedCheckResult(error: unknown): CheckResult {
+  return {
+    ok: false,
+    risk: "high",
+    errors: [checkIssueFromError(error)],
+    warnings: [],
+    summary: EMPTY_CHECK_SUMMARY,
+    checkedAt: new Date().toISOString(),
+  };
 }
 
 export function parseSchemaArgs(args: string[]): { table?: string | undefined } {
@@ -45,7 +87,17 @@ export function validateSchemaArgs(args: string[]): void {
 
 export async function runPlan(db: Database, args: string[]): Promise<void> {
   const planRef = parseSinglePlanRef("plan", args);
-  const result = await planCheck(db, planRef);
+  let plan: ReturnType<typeof parsePlan>;
+  try {
+    const payload = await readPlanInput(planRef);
+    plan = parsePlan(payload);
+  } catch (error) {
+    const result = failedCheckResult(error);
+    console.log(toJson(result));
+    process.exit(1);
+    return;
+  }
+  const result = check(db, plan);
   console.log(toJson(result));
   if (!result.ok) {
     process.exit(1);
@@ -57,8 +109,10 @@ export function validatePlanArgs(args: string[]): void {
 }
 
 export async function runApply(db: Database, args: string[]): Promise<void> {
-  const plan = parseSinglePlanRef("apply", args);
-  const commit = await applyPlan(db, plan);
+  const planRef = parseSinglePlanRef("apply", args);
+  const payload = await readPlanInput(planRef);
+  const plan = parsePlan(payload);
+  const commit = await apply(db, plan);
   const sync = await autoSyncAfterApply(db);
   const warning = commitSizeWarning(db, commit.commitId);
   console.log(

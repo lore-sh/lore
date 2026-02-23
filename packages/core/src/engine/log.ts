@@ -15,7 +15,7 @@ import {
   RefTable,
 } from "./schema.sql";
 import { CodedError, type ErrorCode } from "../error";
-import type { CommitEntry, CommitKind, Operation } from "../types";
+import type { Commit, CommitKind, Operation } from "../types";
 
 export interface CommitWriteInput {
   seq: number;
@@ -40,7 +40,7 @@ export interface CommitReplayInput extends CommitWriteInput {
 
 type CommitRow = typeof CommitTable.$inferSelect;
 
-function decodeCommit(db: Database, row: CommitRow): CommitEntry {
+function decodeCommit(db: Database, row: CommitRow): Commit {
   const engineDb = createEngineDb(db);
   const parents = engineDb
     .select({ parentCommitId: CommitParentTable.parentCommitId })
@@ -83,7 +83,7 @@ export function getHeadCommitId(db: Database): string | null {
   return row?.commitId ?? null;
 }
 
-export function getHeadCommit(db: Database): CommitEntry | null {
+export function getHeadCommit(db: Database): Commit | null {
   const head = getHeadCommitId(db);
   if (!head) {
     return null;
@@ -134,7 +134,7 @@ export function computeCommitId(input: CommitWriteInput): string {
   return sha256Hex(commitHashPayload(input));
 }
 
-export function appendCommit(db: Database, input: CommitWriteInput): CommitEntry {
+export function appendCommit(db: Database, input: CommitWriteInput): Commit {
   return appendCommitExact(db, {
     ...input,
     commitId: computeCommitId(input),
@@ -151,7 +151,7 @@ export function appendCommitFromObservedChange(
     beforeSchemaHash: string;
     beforeObservedState: CapturedObservedState;
   },
-): CommitEntry {
+): Commit {
   const parent = getHeadCommit(db);
   const parentIds = parent ? [parent.commitId] : [];
   const seq = getNextCommitSeq(db);
@@ -184,7 +184,7 @@ export function appendCommitExact(
   db: Database,
   input: CommitReplayInput,
   options: { errorCode?: ErrorCode } = {},
-): CommitEntry {
+): Commit {
   const errorCode = options.errorCode ?? "RECOVER_FAILED";
   const commitId = input.commitId;
   const expected = computeCommitId(input);
@@ -283,7 +283,7 @@ export function appendCommitExact(
   return decodeCommit(db, row);
 }
 
-export function getCommitById(db: Database, commitId: string): CommitEntry | null {
+export function getCommitById(db: Database, commitId: string): Commit | null {
   const row = createEngineDb(db).select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
   if (!row) {
     return null;
@@ -291,7 +291,7 @@ export function getCommitById(db: Database, commitId: string): CommitEntry | nul
   return decodeCommit(db, row);
 }
 
-export function listCommits(db: Database, descending: boolean): CommitEntry[] {
+export function listCommits(db: Database, descending: boolean): Commit[] {
   const rows = createEngineDb(db)
     .select()
     .from(CommitTable)

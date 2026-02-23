@@ -126,9 +126,39 @@ export interface OperationPlan {
   operations: Operation[];
 }
 
+export interface CheckIssue {
+  code: string;
+  message: string;
+  operationIndex?: number | undefined;
+  operationType?: Operation["type"] | undefined;
+  table?: string | undefined;
+}
+
+export interface CheckSummary {
+  operations: number;
+  schemaOperations: number;
+  dataOperations: number;
+  destructiveOperations: number;
+  touchedTables: string[];
+  predicted: {
+    rowEffects: number;
+    schemaEffects: number;
+    tables: string[];
+  };
+}
+
+export interface CheckResult {
+  ok: boolean;
+  risk: "low" | "medium" | "high";
+  errors: CheckIssue[];
+  warnings: CheckIssue[];
+  summary: CheckSummary;
+  checkedAt: string;
+}
+
 export type CommitKind = "apply" | "revert";
 
-export interface CommitEntry {
+export interface Commit {
   commitId: string;
   seq: number;
   kind: CommitKind;
@@ -232,7 +262,7 @@ export interface RevertConflict {
 
 export interface RevertSuccessResult {
   ok: true;
-  revertCommit: CommitEntry;
+  revertCommit: Commit;
 }
 
 export interface RevertConflictResult {

@@ -356,7 +356,7 @@ function semanticValidation(plan: OperationPlan): void {
   }
 }
 
-export function parseAndValidateOperationPlan(input: string): OperationPlan {
+export function parsePlan(input: string): OperationPlan {
   let parsed: unknown;
   try {
     parsed = JSON.parse(input);

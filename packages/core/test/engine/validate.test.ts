@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { parseAndValidateOperationPlan } from "../../src/engine/validate";
+import { parsePlan } from "../../src/engine/validate";
 
-describe("parseAndValidateOperationPlan", () => {
+describe("parsePlan", () => {
   test("accepts valid plan", () => {
-    const plan = parseAndValidateOperationPlan(
+    const plan = parsePlan(
       JSON.stringify({
         message: "create users",
         operations: [{ type: "create_table", table: "users", columns: [{ name: "id", type: "INTEGER", primaryKey: true }] }],
@@ -15,7 +15,7 @@ describe("parseAndValidateOperationPlan", () => {
 
   test("rejects internal restore_table", () => {
     expect(() =>
-      parseAndValidateOperationPlan(
+      parsePlan(
         JSON.stringify({
           message: "invalid",
           operations: [{ type: "restore_table", table: "t", ddlSql: "CREATE TABLE t(id INTEGER)", rows: [] }],
@@ -26,7 +26,7 @@ describe("parseAndValidateOperationPlan", () => {
 
   test("rejects commented add_check expression", () => {
     expect(() =>
-      parseAndValidateOperationPlan(
+      parsePlan(
         JSON.stringify({
           message: "invalid check",
           operations: [{ type: "add_check", table: "users", expression: "id > 0 -- bad" }],

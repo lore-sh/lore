@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  applyPlan,
   getHistory,
   initDatabase,
   CodedError,
@@ -13,7 +12,7 @@ import {
 } from "../src";
 import { promotePreparedDatabase } from "../src/snapshot";
 import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/engine/db";
-import { createTestContext, currentDb, writePlanFile, withTmpDirCleanup } from "./helpers";
+import { applyPlan, createTestContext, currentDb, writePlanFile, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 

@@ -20,7 +20,7 @@ import { deleteWalAndShm, deleteWithSidecars } from "./engine/files";
 import type { CommitReplayInput } from "./engine/log";
 import { loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
 import { quoteIdentifier } from "./engine/sql";
-import type { CommitEntry, SnapshotEntry } from "./types";
+import type { Commit, SnapshotEntry } from "./types";
 
 export async function hashFile(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -67,7 +67,7 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
   }
 }
 
-export async function maybeCreateSnapshot(db: Database, commit: CommitEntry): Promise<void> {
+export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise<void> {
   const interval = DEFAULT_SNAPSHOT_INTERVAL;
   if (interval <= 0 || commit.seq % interval !== 0) {
     return;

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
-import { initDatabase, openDb } from "../src";
+import { apply, check, initDatabase, openDb, parsePlan } from "../src";
 import { CodedError } from "../src/error";
 import { schemaHash } from "../src/engine/inspect";
 
@@ -145,6 +145,25 @@ export async function writePlanFile(dir: string, name: string, payload: unknown)
   const path = `${dir}/${name}`;
   await Bun.write(path, JSON.stringify(payload));
   return path;
+}
+
+async function readPlanInput(planRef: string): Promise<string> {
+  if (planRef === "-") {
+    return Bun.stdin.text();
+  }
+  return Bun.file(planRef).text();
+}
+
+export async function applyPlan(db: Database, planRef: string) {
+  const payload = await readPlanInput(planRef);
+  const plan = parsePlan(payload);
+  return apply(db, plan);
+}
+
+export async function planCheck(db: Database, planRef: string) {
+  const payload = await readPlanInput(planRef);
+  const plan = parsePlan(payload);
+  return check(db, plan);
 }
 
 export async function computeSchemaHash(statements: string[]): Promise<string> {

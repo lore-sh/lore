@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmod } from "node:fs/promises";
 import {
-  applyPlan,
   autoSyncAfterApply,
   cloneFromRemote,
   connectRemote,
@@ -21,7 +20,7 @@ import {
   writeRemoteConfig,
 } from "../src";
 import { LAST_SYNC_STATE_META_KEY } from "../src/engine/db";
-import { createTestContext, currentDb, withDbPath, withTmpDirCleanup, writePlanFile } from "./helpers";
+import { applyPlan, createTestContext, currentDb, withDbPath, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
