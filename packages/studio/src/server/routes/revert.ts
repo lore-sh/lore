@@ -1,19 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { revertCommit } from "@toss/core";
 import { Hono } from "hono";
-import { z } from "zod";
-
-const commitIdParamSchema = z.object({
-  id: z.string().trim().min(1),
-});
-
-function validationError(issues: z.ZodIssue[]): { code: string; message: string; details: z.ZodIssue[] } {
-  return {
-    code: "VALIDATION_ERROR",
-    message: "Request validation failed",
-    details: issues,
-  };
-}
+import { commitIdParamSchema, validationError } from "./shared";
 
 export function createRevertRoutes() {
   return new Hono().post(

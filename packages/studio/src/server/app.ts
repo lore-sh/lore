@@ -26,35 +26,21 @@ function clientAssetRoot(): string {
 }
 
 function jsonError(code: string, message: string, status: number, details?: unknown): Response {
-  const payload: StudioApiError = {
-    code,
-    message,
-  };
-  if (details !== undefined) {
-    payload.details = details;
-  }
+  const payload: StudioApiError = details !== undefined
+    ? { code, message, details }
+    : { code, message };
 
-  return new Response(
-    JSON.stringify(payload),
-    {
-      status,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-      },
-    },
-  );
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
 }
 
 function jsonProblem(problem: ReturnType<typeof toHttpProblem>): Response {
-  return new Response(
-    JSON.stringify(problem),
-    {
-      status: problem.status,
-      headers: {
-        "content-type": "application/problem+json; charset=utf-8",
-      },
-    },
-  );
+  return new Response(JSON.stringify(problem), {
+    status: problem.status,
+    headers: { "content-type": "application/problem+json; charset=utf-8" },
+  });
 }
 
 async function loadAsset(path: string): Promise<Response | null> {

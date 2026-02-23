@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
-import { CodedError } from "@toss/core";
-import type { ErrorCode } from "@toss/core";
+import { CodedError, type ErrorCode } from "@toss/core";
 import { runInit, runClean } from "./commands/init";
 import { runRemote, runPush, runPull, runSync, runClone } from "./commands/remote";
 import { runSchema, runPlan, runApply, runRead } from "./commands/data";

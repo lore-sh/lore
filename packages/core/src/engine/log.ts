@@ -14,8 +14,7 @@ import {
   ReflogTable,
   RefTable,
 } from "./schema.sql";
-import { CodedError } from "../error";
-import type { ErrorCode } from "../error";
+import { CodedError, type ErrorCode } from "../error";
 import type { CommitEntry, CommitKind, Operation } from "../types";
 
 export interface CommitWriteInput {

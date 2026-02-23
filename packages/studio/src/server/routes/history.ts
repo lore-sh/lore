@@ -2,12 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { getStudioCommitDetail, listStudioHistory } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
-
-const positiveIntSchema = z.coerce.number().int().min(1);
-
-const commitIdParamSchema = z.object({
-  id: z.string().trim().min(1),
-});
+import { commitIdParamSchema, positiveIntSchema, validationError } from "./shared";
 
 const commitsQuerySchema = z.object({
   limit: positiveIntSchema.optional(),
@@ -15,14 +10,6 @@ const commitsQuerySchema = z.object({
   kind: z.enum(["apply", "revert"]).optional(),
   table: z.string().trim().min(1).optional(),
 });
-
-function validationError(issues: z.ZodIssue[]): { code: string; message: string; details: z.ZodIssue[] } {
-  return {
-    code: "VALIDATION_ERROR",
-    message: "Request validation failed",
-    details: issues,
-  };
-}
 
 export function createHistoryRoutes() {
   return new Hono()

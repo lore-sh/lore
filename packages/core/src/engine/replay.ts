@@ -7,8 +7,7 @@ import {
   assertNoForeignKeyViolations,
 } from "./effect";
 import { schemaHash, stateHash } from "./inspect";
-import { CodedError } from "../error";
-import type { ErrorCode } from "../error";
+import { CodedError, type ErrorCode } from "../error";
 import { asc, eq, gt } from "drizzle-orm";
 import { createEngineDb } from "./client";
 import { CommitTable } from "./schema.sql";

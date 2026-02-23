@@ -76,8 +76,7 @@ export class CodedError extends Error {
     if (error.name !== "CodedError" && error.name !== "TossError") {
       return false;
     }
-    const withCode = error as Error & { code?: unknown };
-    return isErrorCode(withCode.code);
+    return "code" in error && isErrorCode(error.code);
   }
 
   static hasCode<C extends ErrorCode>(
@@ -101,10 +100,6 @@ export interface HttpProblem {
   code: ErrorCode;
 }
 
-export function errorCategory(code: ErrorCode): ErrorCategory {
-  return ERROR_META[code].category;
-}
-
 export function httpStatusFromError(code: ErrorCode): ErrorMeta["httpStatus"] {
   return ERROR_META[code].httpStatus;
 }
@@ -121,7 +116,3 @@ export function toHttpProblem(error: CodedError, instance: string): HttpProblem 
 }
 
 export { CodedError as TossError };
-
-export function isTossError(error: unknown): error is CodedError {
-  return CodedError.is(error);
-}

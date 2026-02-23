@@ -2,12 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { getStudioTableSchema, listStudioTableHistory, listStudioTables, readStudioTable } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
-
-const tableParamSchema = z.object({
-  name: z.string().trim().min(1),
-});
-
-const positiveIntSchema = z.coerce.number().int().min(1);
+import { positiveIntSchema, tableParamSchema, validationError } from "./shared";
 
 const tableRowsQuerySchema = z.object({
   page: positiveIntSchema.optional(),
@@ -21,14 +16,6 @@ const tableHistoryQuerySchema = z.object({
   limit: positiveIntSchema.optional(),
   page: positiveIntSchema.optional(),
 });
-
-function validationError(issues: z.ZodIssue[]): { code: string; message: string; details: z.ZodIssue[] } {
-  return {
-    code: "VALIDATION_ERROR",
-    message: "Request validation failed",
-    details: issues,
-  };
-}
 
 function normalizeFilters(filters: Record<string, string> | undefined): Record<string, string> {
   const normalized: Record<string, string> = {};

@@ -253,10 +253,7 @@ export function authTokenForPlatform(config: SyncConfig, override?: string | nul
 
 export function openRemoteClient(config: SyncConfig, authTokenOverride?: string | null): Client {
   const authToken = authTokenForPlatform(config, authTokenOverride);
-  return createClient({
-    url: config.remoteUrl,
-    ...(authToken ? { authToken } : {}),
-  });
+  return createClient(authToken ? { url: config.remoteUrl, authToken } : { url: config.remoteUrl });
 }
 
 function rowsFrom(result: ResultSet): Row[] {

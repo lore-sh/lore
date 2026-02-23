@@ -1,8 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson } from "./checksum";
 import { getRows, tableExists } from "./db";
-import { CodedError } from "../error";
-import type { ErrorCode } from "../error";
+import { CodedError, type ErrorCode } from "../error";
 import { executeOperation } from "./execute";
 import {
   dependencyOrder,

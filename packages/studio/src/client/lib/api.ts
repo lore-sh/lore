@@ -145,17 +145,9 @@ export async function fetchTables(): Promise<StudioTablesView> {
 }
 
 export async function fetchTableData(name: string, query: TableDataQuery): Promise<StudioTableDataView> {
-  const payload: TableRowsQueryRequest["json"] = {
-    page: query.page,
-    pageSize: query.pageSize,
-    sortBy: query.sortBy,
-    sortDir: query.sortDir,
-    filters: query.filters,
-  };
-
   const response = await tableRowsQueryEndpoint({
     param: { name },
-    json: payload,
+    json: query,
   });
 
   if (response.status !== 200) {
