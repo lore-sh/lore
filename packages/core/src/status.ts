@@ -12,9 +12,9 @@ import { SnapshotTable } from "./engine/schema.sql";
 import { buildSyncStatus } from "./sync";
 import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit, listCommits } from "./engine/log";
 import { quoteIdentifier } from "./engine/sql";
-import type { CommitEntry, TossStatus } from "./types";
+import type { CommitEntry, Status } from "./types";
 
-export function getStatus(): TossStatus {
+export function getStatus(): Status {
   return withInitializedDatabase(({ db, dbPath }) => {
     const tables = listUserTables(db).map((table) => {
       const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table, { unsafe: true })}`);

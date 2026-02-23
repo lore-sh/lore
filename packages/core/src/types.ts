@@ -178,7 +178,7 @@ export interface SyncResult {
   error?: string | undefined;
 }
 
-export interface TossSyncStatus {
+export interface SyncStatus {
   configured: boolean;
   remotePlatform: RemotePlatform | null;
   remoteUrl: string | null;
@@ -204,7 +204,7 @@ export interface StatusTable {
   count: number;
 }
 
-export interface TossStatus {
+export interface Status {
   dbPath: string;
   tableCount: number;
   tables: StatusTable[];
@@ -218,7 +218,7 @@ export interface TossStatus {
   snapshotCount: number;
   lastVerifiedAt: string | null;
   lastVerifiedOk: boolean | null;
-  sync: TossSyncStatus;
+  sync: SyncStatus;
   storage: StorageEstimate;
 }
 

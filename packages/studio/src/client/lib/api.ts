@@ -6,7 +6,7 @@ import type {
   StudioSchemaTable,
   StudioTableDataView,
   StudioTablesView,
-  TossStatus,
+  Status,
 } from "@toss/core";
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import type { StudioApi, StudioApiError } from "../../server/app";
@@ -128,12 +128,12 @@ function isRevertConflictResult(value: unknown): value is RevertConflictResult {
   return Array.isArray(value.conflicts);
 }
 
-export async function fetchStatus(): Promise<TossStatus> {
+export async function fetchStatus(): Promise<Status> {
   const response = await statusEndpoint();
   if (response.status !== 200) {
     await throwApiError(response);
   }
-  return (await response.json()) as TossStatus;
+  return (await response.json()) as Status;
 }
 
 export async function fetchTables(): Promise<StudioTablesView> {

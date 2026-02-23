@@ -25,7 +25,7 @@ import type {
   SyncConflict,
   SyncResult,
   SyncState,
-  TossSyncStatus,
+  SyncStatus,
 } from "./types";
 import {
   authTokenForPlatform,
@@ -443,7 +443,7 @@ export async function cloneFromRemote(options: {
   return { dbPath: initialized.dbPath, sync };
 }
 
-export function buildSyncStatus(db: Database): TossSyncStatus {
+export function buildSyncStatus(db: Database): SyncStatus {
   const config = readSyncConfig();
   const lastPushedCommit = normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY));
   const lastPulledCommit = normalizeMetaString(getMetaValue(db, LAST_PULLED_COMMIT_META_KEY));
