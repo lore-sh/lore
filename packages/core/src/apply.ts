@@ -6,6 +6,7 @@ import { executeOperation } from "./engine/execute";
 import { appendCommitObserved } from "./engine/log";
 import { captureObservedState, diffObservedState } from "./engine/diff";
 import { schemaHash } from "./engine/inspect";
+import type { Commit } from "./history";
 
 export interface CreateTableOperation {
   type: "create_table";
@@ -123,8 +124,6 @@ export interface CheckResult {
   summary: CheckSummary;
   checkedAt: string;
 }
-
-type Commit = import("./history").Commit;
 
 export async function apply(db: Database, plan: OperationPlan): Promise<Commit> {
   const commit = runInTransaction(db, () => {

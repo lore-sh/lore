@@ -10,8 +10,7 @@ import {
   rewriteDropCheckInCreateTable,
 } from "./ddl";
 import type { TableInfoRow } from "./inspect";
-import type { EncodedCell } from "./primitives";
-import type { ColumnDefinition } from "./primitives";
+import type { ColumnDefinition, EncodedCell } from "./primitives";
 import type {
   AddCheckOperation,
   AddColumnOperation,

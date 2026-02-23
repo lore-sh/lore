@@ -117,7 +117,7 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
                     </p>
                     <div className="ui-diff">
                       {renderRowEffectLines(effect).map((line, lineIndex) => (
-                        <div key={lineIndex} className={line.kind === "add" ? "ui-diff-add" : "ui-diff-remove"}>
+                        <div key={lineIndex} className={diffKindClass(line.kind)}>
                           {line.text}
                         </div>
                       ))}
