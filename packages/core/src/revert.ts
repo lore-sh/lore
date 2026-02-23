@@ -1,16 +1,17 @@
 import type { Database } from "bun:sqlite";
 import { and, asc, eq, gt } from "drizzle-orm";
+import type { Commit } from "./history";
 import { canonicalJson } from "./engine/checksum";
 import {
   runInSavepoint,
-  runInTransactionWithDeferredForeignKeys,
+  runInDeferredTransaction,
   tableExists,
 } from "./engine/db";
 import { createEngineDb } from "./engine/client";
 import { CommitTable } from "./engine/schema.sql";
 import { CodedError } from "./error";
 import {
-  appendCommitFromObservedChange,
+  appendCommitObserved,
   getCommitById,
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
@@ -29,7 +30,26 @@ import {
   assertNoForeignKeyViolations,
 } from "./engine/effect";
 import { schemaHash } from "./engine/inspect";
-import type { RevertConflict, RevertResult } from "./types";
+
+export interface RevertConflict {
+  kind: "row" | "schema";
+  table: string;
+  pk?: Record<string, string> | undefined;
+  column?: string | undefined;
+  reason: string;
+}
+
+export interface RevertSuccess {
+  ok: true;
+  revertCommit: Commit;
+}
+
+export interface RevertConflicts {
+  ok: false;
+  conflicts: RevertConflict[];
+}
+
+export type RevertResult = RevertSuccess | RevertConflicts;
 
 export function detectSchemaConflicts(
   schemaEffects: StoredSchemaEffect[],
@@ -212,7 +232,7 @@ function preflightInverseApply(
 }
 
 export function revert(db: Database, commitId: string): RevertResult {
-  return runInTransactionWithDeferredForeignKeys(db, () => {
+  return runInDeferredTransaction(db, () => {
     const targetCommit = getCommitById(db, commitId);
     if (!targetCommit) {
       throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
@@ -257,7 +277,7 @@ export function revert(db: Database, commitId: string): RevertResult {
     });
     assertNoForeignKeyViolations(db, "REVERT_FAILED", "revert apply");
 
-    const revertCommitEntry = appendCommitFromObservedChange(db, {
+    const revertCommitEntry = appendCommitObserved(db, {
       operations: [],
       kind: "revert",
       message: `Revert ${targetCommit.commitId}: ${targetCommit.message}`,

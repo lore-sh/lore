@@ -9,7 +9,7 @@ import {
   normalizeMetaString,
   openDb,
   resolveDbPath,
-  runInTransactionWithDeferredForeignKeys,
+  runInDeferredTransaction,
   setMetaValue,
 } from "./engine/db";
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
@@ -17,14 +17,6 @@ import { CodedError } from "./error";
 import { getHeadCommit, getHeadCommitId, getCommitById } from "./engine/log";
 import { initDb } from "./init";
 import { findCommitSeq, getCommitReplayInput, loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
-import type {
-  RemoteHead,
-  SyncConfig,
-  SyncConflict,
-  SyncResult,
-  SyncState,
-  SyncStatus,
-} from "./types";
 import {
   authTokenForPlatform,
   classifySyncBoundaryError,
@@ -32,16 +24,64 @@ import {
   ensureRemoteInitialized,
   fetchRemoteHead,
   fetchRemoteProjectionStatus,
-  fetchRemoteReplayInputsAfterSeq,
+  fetchRemoteInputsAfterSeq,
   materializeRemoteToHead,
   normalizeToken,
   openRemoteClient,
   parseRemoteDbName,
-  pushReplayCommitWithCas,
+  pushCommit,
   remoteCommitSeq,
   remoteHasCommit,
 } from "./engine/remote";
 import { canonicalJson } from "./engine/checksum";
+
+export type RemotePlatform = "turso" | "libsql";
+
+export interface SyncConfig {
+  platform: RemotePlatform;
+  remoteUrl: string;
+  remoteDbName: string | null;
+}
+
+export interface RemoteHead {
+  commitId: string | null;
+  seq: number;
+}
+
+export interface SyncConflict {
+  kind: "non_fast_forward" | "diverged";
+  message: string;
+  localHead: string | null;
+  remoteHead: string | null;
+}
+
+export type SyncState = "synced" | "pending" | "conflict" | "offline";
+
+export interface SyncResult {
+  action: "push" | "pull" | "sync" | "auto_sync" | "clone";
+  state: SyncState;
+  pushed: number;
+  pulled: number;
+  localHead: string | null;
+  remoteHead: string | null;
+  conflict?: SyncConflict | undefined;
+  error?: string | undefined;
+}
+
+export interface SyncStatus {
+  configured: boolean;
+  remotePlatform: RemotePlatform | null;
+  remoteUrl: string | null;
+  remoteDbName: string | null;
+  state: SyncState;
+  lastPushedCommit: string | null;
+  lastPulledCommit: string | null;
+  pendingCommits: number;
+  lastError: string | null;
+  projectionHead: string | null;
+  projectionLagCommits: number | null;
+  projectionError: string | null;
+}
 
 const COMMIT_SIZE_WARNING_THRESHOLD_BYTES = 256 * 1024;
 
@@ -147,7 +187,7 @@ async function runPush(db: Database, action: SyncResult["action"]): Promise<Sync
     let expectedRemoteHead = remoteHeadBefore.commitId;
     let pushed = 0;
     for (const replay of replays) {
-      await pushReplayCommitWithCas(client, replay, expectedRemoteHead);
+      await pushCommit(client, replay, expectedRemoteHead);
       expectedRemoteHead = replay.commitId;
       pushed += 1;
     }
@@ -210,13 +250,13 @@ async function runPull(db: Database, action: SyncResult["action"]): Promise<Sync
       }
     }
 
-    const replayInputs = await fetchRemoteReplayInputsAfterSeq(client, fromSeq, remoteHead);
+    const replayInputs = await fetchRemoteInputsAfterSeq(client, fromSeq, remoteHead);
     let pulled = 0;
     for (const replay of replayInputs) {
       if (getCommitById(db, replay.commitId)) {
         continue;
       }
-      runInTransactionWithDeferredForeignKeys(db, () => {
+      runInDeferredTransaction(db, () => {
         replayCommitExactly(db, replay, { errorCode: "SYNC_DIVERGED" });
       });
       pulled += 1;

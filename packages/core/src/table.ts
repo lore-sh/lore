@@ -4,7 +4,7 @@ import { CodedError } from "./error";
 import { describeSchema, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
 import { normalizeRowObject } from "./engine/rows";
 import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
-import type { JsonObject } from "./types";
+import type { JsonObject } from "./engine/primitives";
 
 export interface Table {
   name: string;

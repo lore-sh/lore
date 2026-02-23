@@ -8,7 +8,7 @@ import {
   query,
 } from "../src";
 import { executeOperation } from "../src/engine/execute";
-import type { RestoreTableOperation } from "../src/types";
+import type { RestoreTableOperation } from "../src";
 import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

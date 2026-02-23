@@ -1,4 +1,3 @@
-export * from "./types";
 export * from "./error";
 export * from "./config";
 export * from "./init";
@@ -12,6 +11,15 @@ export * from "./revert";
 export * from "./verify";
 export * from "./snapshot";
 export * from "./sync";
+
 export { openDb, resolveDbPath } from "./engine/db";
 export { operationPlanSchema, parsePlan } from "./engine/validate";
 export { deleteIfExists, isEnoent, resolveHomeDir } from "./engine/files";
+
+export type {
+  JsonPrimitive,
+  JsonValue,
+  JsonObject,
+  EncodedCell,
+  EncodedRow,
+} from "./engine/primitives";

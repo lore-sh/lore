@@ -4,7 +4,7 @@ import { getRow, getRows, listUserTables, tableExists } from "./db";
 import { CodedError } from "../error";
 import { primaryKeyColumns, tableDDL, tableInfo } from "./inspect";
 import { quoteIdentifier } from "./sql";
-import type { EncodedCell, EncodedRow, SqlStorageClass, TableSecondaryObject } from "../types";
+import type { EncodedCell, EncodedRow, SqlStorageClass, TableSecondaryObject } from "./primitives";
 
 export interface RowEffect {
   tableName: string;

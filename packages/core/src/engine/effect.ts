@@ -13,7 +13,8 @@ import {
   type SchemaEffect,
 } from "./diff";
 import { quoteIdentifier } from "./sql";
-import type { EncodedRow, RestoreTableOperation } from "../types";
+import type { EncodedRow } from "./primitives";
+import type { RestoreTableOperation } from "../apply";
 
 function insertEncodedRow(db: Database, table: string, row: EncodedRow): void {
   const columns = Object.keys(row).sort((a, b) => a.localeCompare(b));

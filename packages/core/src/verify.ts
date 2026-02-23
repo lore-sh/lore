@@ -1,7 +1,16 @@
 import type { Database } from "bun:sqlite";
 import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getRow, setMetaValue } from "./engine/db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
-import type { VerifyResult } from "./types";
+
+export interface VerifyResult {
+  ok: boolean;
+  mode: "quick" | "full";
+  chainValid: boolean;
+  quickCheck: string;
+  integrityCheck?: string | undefined;
+  issues: string[];
+  checkedAt: string;
+}
 
 export function verify(db: Database, options: { full?: boolean } = {}): VerifyResult {
   const mode = options.full ? "full" : "quick";

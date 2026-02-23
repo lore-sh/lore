@@ -190,7 +190,7 @@ export function runInTransaction<T>(db: Database, fn: () => T): T {
   }
 }
 
-export function runInTransactionWithDeferredForeignKeys<T>(db: Database, fn: () => T): T {
+export function runInDeferredTransaction<T>(db: Database, fn: () => T): T {
   db.run("PRAGMA foreign_keys=ON");
   db.run("BEGIN IMMEDIATE");
   try {

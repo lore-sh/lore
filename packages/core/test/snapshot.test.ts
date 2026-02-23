@@ -10,7 +10,7 @@ import {
   revert,
   verify,
 } from "../src";
-import { promotePreparedDatabase } from "../src/snapshot";
+import { promotePrepared } from "../src/snapshot";
 import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/engine/db";
 import { applyPlan, createTestContext, currentDb, writePlanFile, withTmpDirCleanup } from "./helpers";
 
@@ -42,7 +42,7 @@ describe("snapshot / recover", () => {
     expect(currentDb().filename).toBe(dbPath);
 
     const missingPreparedPath = `${dir}/missing-prepared-${crypto.randomUUID().replaceAll("-", "")}.db`;
-    await expect(promotePreparedDatabase(missingPreparedPath, dbPath)).rejects.toBeInstanceOf(Error);
+    await expect(promotePrepared(missingPreparedPath, dbPath)).rejects.toBeInstanceOf(Error);
 
     expect(currentDb().filename).toBe(dbPath);
     const rows = query(currentDb(), "SELECT id, value FROM keep_path_check");

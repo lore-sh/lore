@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { desc, eq } from "drizzle-orm";
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import type { Commit } from "./history";
 import { createEngineDb } from "./engine/client";
 import {
   assertInitialized,
@@ -12,7 +13,7 @@ import {
   MAIN_REF_NAME,
   openDb,
   resolveDbPath,
-  runInTransactionWithDeferredForeignKeys,
+  runInDeferredTransaction,
 } from "./engine/db";
 import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
 import { CodedError } from "./error";
@@ -20,7 +21,14 @@ import { deleteWalAndShm, deleteWithSidecars } from "./engine/files";
 import type { CommitReplayInput } from "./engine/log";
 import { loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
 import { quoteIdentifier } from "./engine/sql";
-import type { Commit, Snapshot } from "./types";
+
+export interface Snapshot {
+  commitId: string;
+  filePath: string;
+  fileSha256: string;
+  createdAt: number;
+  rowCountHint: number;
+}
 
 export async function hashFile(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -124,7 +132,7 @@ export function snapshots(db: Database): Snapshot[] {
   return createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
 }
 
-export async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
+export async function promotePrepared(preparedDbPath: string, dbPath: string): Promise<void> {
   try {
     await rename(preparedDbPath, dbPath);
     await deleteWalAndShm(dbPath);
@@ -178,13 +186,13 @@ export async function recover(
   try {
     assertInitialized(replayDb);
     for (const replay of replayCommits) {
-      runInTransactionWithDeferredForeignKeys(replayDb, () => {
+      runInDeferredTransaction(replayDb, () => {
         replayCommitExactly(replayDb, replay, { errorCode: "RECOVER_FAILED" });
       });
     }
     replayDb.close(false);
     closed = true;
-    await promotePreparedDatabase(stagingPath, dbPath);
+    await promotePrepared(stagingPath, dbPath);
     promoted = true;
   } finally {
     if (!closed) {

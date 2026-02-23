@@ -1,11 +1,130 @@
 import type { Database } from "bun:sqlite";
+import type { ColumnDefinition, EncodedRow, JsonPrimitive, TableSecondaryObject } from "./engine/primitives";
 import { runInSavepoint, runInTransaction } from "./engine/db";
 import { CodedError } from "./error";
 import { executeOperation } from "./engine/execute";
-import { appendCommitFromObservedChange } from "./engine/log";
+import { appendCommitObserved } from "./engine/log";
 import { captureObservedState, diffObservedState } from "./engine/diff";
 import { schemaHash } from "./engine/inspect";
-import type { CheckResult, CheckIssue, CheckSummary, Commit, Operation, OperationPlan } from "./types";
+
+export interface CreateTableOperation {
+  type: "create_table";
+  table: string;
+  columns: ColumnDefinition[];
+}
+
+export interface AddColumnOperation {
+  type: "add_column";
+  table: string;
+  column: ColumnDefinition;
+}
+
+export interface InsertOperation {
+  type: "insert";
+  table: string;
+  values: Record<string, JsonPrimitive>;
+}
+
+export interface DropTableOperation {
+  type: "drop_table";
+  table: string;
+}
+
+export interface DropColumnOperation {
+  type: "drop_column";
+  table: string;
+  column: string;
+}
+
+export interface AlterColumnTypeOperation {
+  type: "alter_column_type";
+  table: string;
+  column: string;
+  newType: string;
+}
+
+export interface AddCheckOperation {
+  type: "add_check";
+  table: string;
+  expression: string;
+}
+
+export interface DropCheckOperation {
+  type: "drop_check";
+  table: string;
+  expression: string;
+}
+
+export interface RestoreTableOperation {
+  type: "restore_table";
+  table: string;
+  ddlSql: string;
+  rows: EncodedRow[] | null;
+  secondaryObjects?: TableSecondaryObject[] | undefined;
+}
+
+export interface UpdateOperation {
+  type: "update";
+  table: string;
+  values: Record<string, JsonPrimitive>;
+  where: Record<string, JsonPrimitive>;
+}
+
+export interface DeleteOperation {
+  type: "delete";
+  table: string;
+  where: Record<string, JsonPrimitive>;
+}
+
+export type Operation =
+  | CreateTableOperation
+  | AddColumnOperation
+  | InsertOperation
+  | DropTableOperation
+  | DropColumnOperation
+  | AlterColumnTypeOperation
+  | AddCheckOperation
+  | DropCheckOperation
+  | RestoreTableOperation
+  | UpdateOperation
+  | DeleteOperation;
+
+export interface OperationPlan {
+  message: string;
+  operations: Operation[];
+}
+
+export interface CheckIssue {
+  code: string;
+  message: string;
+  operationIndex?: number | undefined;
+  operationType?: Operation["type"] | undefined;
+  table?: string | undefined;
+}
+
+export interface CheckSummary {
+  operations: number;
+  schemaOperations: number;
+  dataOperations: number;
+  destructiveOperations: number;
+  touchedTables: string[];
+  predicted: {
+    rowEffects: number;
+    schemaEffects: number;
+    tables: string[];
+  };
+}
+
+export interface CheckResult {
+  ok: boolean;
+  risk: "low" | "medium" | "high";
+  errors: CheckIssue[];
+  warnings: CheckIssue[];
+  summary: CheckSummary;
+  checkedAt: string;
+}
+
+type Commit = import("./history").Commit;
 
 export async function apply(db: Database, plan: OperationPlan): Promise<Commit> {
   const commit = runInTransaction(db, () => {
@@ -14,7 +133,7 @@ export async function apply(db: Database, plan: OperationPlan): Promise<Commit> 
     for (const operation of plan.operations) {
       executeOperation(db, operation);
     }
-    return appendCommitFromObservedChange(db, {
+    return appendCommitObserved(db, {
       operations: plan.operations,
       kind: "apply",
       message: plan.message,

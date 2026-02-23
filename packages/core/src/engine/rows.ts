@@ -3,7 +3,7 @@ import { getRow, getRows } from "./db";
 import { CodedError } from "../error";
 import { assertTableHasPrimaryKey } from "./inspect";
 import { quoteIdentifier } from "./sql";
-import type { JsonObject, JsonPrimitive } from "../types";
+import type { JsonObject, JsonPrimitive } from "./primitives";
 
 export function serializeValue(value: JsonPrimitive): JsonPrimitive {
   if (typeof value === "number" && !Number.isFinite(value)) {

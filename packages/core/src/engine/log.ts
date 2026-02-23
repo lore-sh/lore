@@ -15,7 +15,8 @@ import {
   RefTable,
 } from "./schema.sql";
 import { CodedError, type ErrorCode } from "../error";
-import type { Commit, CommitKind, Operation } from "../types";
+import type { Operation } from "../apply";
+import type { Commit, CommitKind } from "../history";
 
 export interface CommitWriteInput {
   seq: number;
@@ -141,7 +142,7 @@ export function appendCommit(db: Database, input: CommitWriteInput): Commit {
   });
 }
 
-export function appendCommitFromObservedChange(
+export function appendCommitObserved(
   db: Database,
   input: {
     operations: Operation[];

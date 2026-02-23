@@ -4,7 +4,7 @@ import { getRow, getRows, listUserTables } from "./db";
 import { CodedError } from "../error";
 import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
 import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable } from "./ddl";
-import type { JsonObject, JsonPrimitive } from "../types";
+import type { JsonObject, JsonPrimitive } from "./primitives";
 
 export interface TableInfoRow {
   cid: number;

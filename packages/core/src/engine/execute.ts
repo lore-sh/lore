@@ -10,12 +10,12 @@ import {
   rewriteDropCheckInCreateTable,
 } from "./ddl";
 import type { TableInfoRow } from "./inspect";
+import type { EncodedCell } from "./primitives";
+import type { ColumnDefinition } from "./primitives";
 import type {
   AddCheckOperation,
   AddColumnOperation,
   AlterColumnTypeOperation,
-  EncodedCell,
-  ColumnDefinition,
   CreateTableOperation,
   DeleteOperation,
   DropColumnOperation,
@@ -25,7 +25,7 @@ import type {
   Operation,
   RestoreTableOperation,
   UpdateOperation,
-} from "../types";
+} from "../apply";
 
 function serializeLiteral(value: string | number | boolean | null): string {
   if (value === null) {

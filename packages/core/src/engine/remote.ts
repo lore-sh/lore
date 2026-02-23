@@ -25,7 +25,9 @@ import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable, rewrite
 import { schemaHashFromDescriptor } from "./inspect";
 import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
 import type { CommitReplayInput } from "./log";
-import type { EncodedCell, EncodedRow, Operation, RemoteHead, SyncConfig } from "../types";
+import type { EncodedCell, EncodedRow } from "./primitives";
+import type { Operation } from "../apply";
+import type { RemoteHead, SyncConfig } from "../sync";
 
 const ENGINE_MIGRATION_DIR = resolve(import.meta.dir, "../../migration");
 const REMOTE_REQUIRED_READ_TABLES = [
@@ -1314,7 +1316,7 @@ export async function materializeRemoteToHead(client: Client): Promise<void> {
 
     await runProjectionStep(() => verifyProjectionAtCommit(tx, checkpoint), `verify checkpoint ${checkpoint}`);
 
-    const replayInputs = await fetchRemoteReplayInputsAfterSeq(tx, checkpointSeq, remoteHead);
+    const replayInputs = await fetchRemoteInputsAfterSeq(tx, checkpointSeq, remoteHead);
     for (const replay of replayInputs) {
       await materializeSingleCommit(tx, replay);
       await writeMaterializedCheckpoint(tx, replay.commitId);
@@ -1490,7 +1492,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
   }
 }
 
-export async function pushReplayCommitWithCas(
+export async function pushCommit(
   client: Client,
   replay: CommitReplayInput,
   expectedRemoteHead: string | null,
@@ -1677,7 +1679,7 @@ async function fetchRemoteReplayInputsInSeqRange(
   return replayInputs;
 }
 
-export async function fetchRemoteReplayInputsAfterSeq(
+export async function fetchRemoteInputsAfterSeq(
   executor: SqlExecutor,
   fromSeqExclusive: number,
   remoteHeadInput?: RemoteHead,

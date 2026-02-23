@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, resolve } from "node:path";
 import { CodedError } from "./error";
 import { resolveHomeDir } from "./engine/files";
-import type { RemotePlatform } from "./types";
+import type { RemotePlatform } from "./sync";
 
 export interface RemoteConfig {
   platform: RemotePlatform;

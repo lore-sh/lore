@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CodedError } from "../error";
 import { COLUMN_TYPE_PATTERN, IDENTIFIER_PATTERN, createScanner } from "./sql";
-import type { OperationPlan } from "../types";
+import type { OperationPlan } from "../apply";
 
 const scalarValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const columnDefaultSchema = z.discriminatedUnion("kind", [

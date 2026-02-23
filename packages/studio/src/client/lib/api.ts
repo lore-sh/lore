@@ -2,7 +2,7 @@ import type {
   Commit,
   CommitEffects,
   CommitSummary,
-  RevertConflictResult,
+  RevertConflicts,
   RevertResult,
   SchemaTable,
   Status,
@@ -135,7 +135,7 @@ async function throwApiError(response: Response): Promise<never> {
   throw toErrorFromPayload(payload, response.status);
 }
 
-function isRevertConflictResult(value: unknown): value is RevertConflictResult {
+function isRevertConflicts(value: unknown): value is RevertConflicts {
   if (!isRecord(value)) {
     return false;
   }
@@ -248,7 +248,7 @@ export async function revertCommitById(id: string): Promise<RevertResult> {
 
   if (response.status === 409) {
     const payload: RevertConflictPayload = await response.json();
-    if (isRevertConflictResult(payload)) {
+    if (isRevertConflicts(payload)) {
       return payload;
     }
     throw toErrorFromPayload(payload, 409);

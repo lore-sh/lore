@@ -1,12 +1,42 @@
 import type { Database } from "bun:sqlite";
 import { sql } from "drizzle-orm";
+import type { CommitKind } from "./history";
+import type { SyncStatus } from "./sync";
 import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getMetaValue, getRow, listUserTables } from "./engine/db";
 import { createEngineDb } from "./engine/client";
 import { SnapshotTable } from "./engine/schema.sql";
 import { syncStatus } from "./sync";
 import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit } from "./engine/log";
 import { quoteIdentifier } from "./engine/sql";
-import type { Status } from "./types";
+
+export interface StorageEstimate {
+  commitCount: number;
+  estimatedHistoryBytes: number;
+  latestCommitEstimatedBytes: number | null;
+}
+
+export interface StatusTable {
+  name: string;
+  count: number;
+}
+
+export interface Status {
+  dbPath: string;
+  tableCount: number;
+  tables: StatusTable[];
+  headCommit: {
+    commitId: string;
+    seq: number;
+    kind: CommitKind;
+    message: string;
+    createdAt: number;
+  } | null;
+  snapshotCount: number;
+  lastVerifiedAt: string | null;
+  lastVerifiedOk: boolean | null;
+  sync: SyncStatus;
+  storage: StorageEstimate;
+}
 
 export function status(db: Database): Status {
   const tables = listUserTables(db).map((table) => {

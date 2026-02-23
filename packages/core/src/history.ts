@@ -1,8 +1,27 @@
 import type { Database } from "bun:sqlite";
+import type { Operation } from "./apply";
 import { COMMIT_PARENT_TABLE, COMMIT_TABLE, OP_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, getRow, getRows } from "./engine/db";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
 import { normalizePage, normalizePageSize } from "./table";
-import type { Commit, CommitKind } from "./types";
+
+export type CommitKind = "apply" | "revert";
+
+export interface Commit {
+  commitId: string;
+  seq: number;
+  kind: CommitKind;
+  message: string;
+  createdAt: number;
+  parentIds: string[];
+  parentCount: number;
+  schemaHashBefore: string;
+  schemaHashAfter: string;
+  stateHashAfter: string;
+  planHash: string;
+  revertible: boolean;
+  revertTargetId: string | null;
+  operations: Operation[];
+}
 
 export interface CommitEffects {
   rows: ReturnType<typeof getRowEffectsByCommitId>;
