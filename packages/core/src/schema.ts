@@ -9,7 +9,7 @@ import {
   type SchemaTriggerDescriptor,
 } from "./engine/inspect";
 import { quoteIdentifier } from "./engine/sql";
-import { resolveTableName } from "./tables";
+import { resolveTableName } from "./table";
 
 export interface SchemaOptions {
   table?: string | undefined;

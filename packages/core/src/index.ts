@@ -7,7 +7,7 @@ export * from "./query";
 export * from "./schema";
 export * from "./status";
 export * from "./history";
-export * from "./tables";
+export * from "./table";
 export * from "./revert";
 export * from "./verify";
 export * from "./snapshot";
