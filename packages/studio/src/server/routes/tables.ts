@@ -1,9 +1,10 @@
 import { zValidator } from "@hono/zod-validator";
 import type { Database } from "bun:sqlite";
-import { getStudioTableSchema, listStudioTableHistory, listStudioTables, readStudioTable } from "@toss/core";
+import { schema, commitHistory, resolveTableName, tableOverview, queryTable } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { positiveIntSchema, tableParamSchema, validationError } from "./shared";
+import { toStudioRow } from "../studio-row";
 
 const tableRowsQuerySchema = z.object({
   page: positiveIntSchema.optional(),
@@ -39,7 +40,14 @@ function normalizeFilters(filters: Record<string, string> | undefined): Record<s
 export function createTableRoutes(db: Database) {
   return new Hono()
     .get("/", (c) => {
-      return c.json(listStudioTables(db), 200);
+      return c.json(
+        {
+          dbPath: db.filename,
+          generatedAt: new Date().toISOString(),
+          tables: tableOverview(db),
+        },
+        200,
+      );
     })
     .post(
       "/:name/rows/query",
@@ -56,16 +64,20 @@ export function createTableRoutes(db: Database) {
       (c) => {
         const param = c.req.valid("param");
         const query = c.req.valid("json");
+        const page = queryTable(db, {
+          table: param.name,
+          page: query.page,
+          pageSize: query.pageSize,
+          sortBy: query.sortBy,
+          sortDir: query.sortDir,
+          filters: normalizeFilters(query.filters),
+        });
 
         return c.json(
-          readStudioTable(db, {
-            table: param.name,
-            page: query.page,
-            pageSize: query.pageSize,
-            sortBy: query.sortBy,
-            sortDir: query.sortDir,
-            filters: normalizeFilters(query.filters),
-          }),
+          {
+            ...page,
+            rows: page.rows.map((row) => toStudioRow(row)),
+          },
           200,
         );
       },
@@ -79,7 +91,7 @@ export function createTableRoutes(db: Database) {
       }),
       (c) => {
         const param = c.req.valid("param");
-        return c.json(getStudioTableSchema(db, param.name), 200);
+        return c.json(schema(db, { table: param.name }).tables[0], 200);
       },
     )
     .get(
@@ -97,9 +109,11 @@ export function createTableRoutes(db: Database) {
       (c) => {
         const param = c.req.valid("param");
         const query = c.req.valid("query");
+        const tableName = resolveTableName(db, param.name);
 
         return c.json(
-          listStudioTableHistory(db, param.name, {
+          commitHistory(db, {
+            table: tableName,
             limit: query.limit,
             page: query.page,
           }),

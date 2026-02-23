@@ -15,7 +15,7 @@ import {
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import { CodedError } from "./error";
 import { getHeadCommit, getHeadCommitId, getCommitById } from "./engine/log";
-import { initDatabase } from "./init";
+import { initDb } from "./init";
 import { findCommitSeq, getCommitReplayInput, loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
 import type {
   RemoteHead,
@@ -261,7 +261,7 @@ function syncConfigFromInputs(options: {
   };
 }
 
-export async function connectRemote(
+export async function connect(
   db: Database,
   options: {
     platform: SyncConfig["platform"];
@@ -304,15 +304,15 @@ export function getSyncConfig(): SyncConfig | null {
   return readSyncConfig();
 }
 
-export function pushToRemote(db: Database): Promise<SyncResult> {
+export function push(db: Database): Promise<SyncResult> {
   return runPush(db, "push");
 }
 
-export function pullFromRemote(db: Database): Promise<SyncResult> {
+export function pull(db: Database): Promise<SyncResult> {
   return runPull(db, "pull");
 }
 
-export async function syncWithRemote(db: Database, options: { action?: SyncResult["action"] } = {}): Promise<SyncResult> {
+export async function sync(db: Database, options: { action?: SyncResult["action"] } = {}): Promise<SyncResult> {
   const action = options.action ?? "sync";
   const pullResult = await runPull(db, action);
   const pushResult = await runPush(db, action);
@@ -326,13 +326,13 @@ export async function syncWithRemote(db: Database, options: { action?: SyncResul
   );
 }
 
-export async function autoSyncAfterApply(db: Database): Promise<SyncResult | null> {
+export async function autoSync(db: Database): Promise<SyncResult | null> {
   const config = readSyncConfig();
   if (!config) {
     return null;
   }
   try {
-    return await syncWithRemote(db, { action: "auto_sync" });
+    return await sync(db, { action: "auto_sync" });
   } catch (error) {
     const mapped = classifySyncBoundaryError(error);
     const localHead = getHeadCommitId(db);
@@ -353,7 +353,7 @@ export async function autoSyncAfterApply(db: Database): Promise<SyncResult | nul
   }
 }
 
-export async function getRemoteStatus(db: Database): Promise<{
+export async function remoteStatus(db: Database): Promise<{
   config: SyncConfig | null;
   localHead: string | null;
   remoteHead: RemoteHead | null;
@@ -412,7 +412,7 @@ export async function getRemoteStatus(db: Database): Promise<{
   }
 }
 
-export async function cloneFromRemote(options: {
+export async function clone(options: {
   platform: SyncConfig["platform"];
   url: string;
   forceNew?: boolean | undefined;
@@ -424,22 +424,22 @@ export async function cloneFromRemote(options: {
   if (!forceNew && existsSync(targetDbPath)) {
     throw new CodedError("CONFIG", `Clone target already exists: ${targetDbPath}`);
   }
-  const initialized = await initDatabase({ dbPath: targetDbPath, forceNew });
-  const db = openDb(initialized.dbPath);
+  const initialized = await initDb({ dbPath: targetDbPath, forceNew });
+  const db = openDb(initialized.path);
   try {
-    await connectRemote(db, {
+    await connect(db, {
       platform: options.platform,
       url: options.url,
       authToken: options.authToken,
     });
     const sync = await runPull(db, "clone");
-    return { dbPath: initialized.dbPath, sync };
+    return { dbPath: initialized.path, sync };
   } finally {
     db.close(false);
   }
 }
 
-export function buildSyncStatus(db: Database): SyncStatus {
+export function syncStatus(db: Database): SyncStatus {
   const config = readSyncConfig();
   const lastPushedCommit = normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY));
   const lastPulledCommit = normalizeMetaString(getMetaValue(db, LAST_PULLED_COMMIT_META_KEY));

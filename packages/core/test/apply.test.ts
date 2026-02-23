@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  getHistory,
-  getStatus,
-  initDatabase,
+  history,
+  status,
+  initDb,
   CodedError,
-  readQuery,
+  query,
 } from "../src";
 import { executeOperation } from "../src/engine/execute";
 import type { RestoreTableOperation } from "../src/types";
@@ -16,7 +16,7 @@ const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name,
 describe("applyPlan", () => {
   testWithTmp("init -> apply -> status -> history works", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const createPlanPath = await writePlanFile(dir, "create.json", {
       message: "create expenses table",
@@ -40,23 +40,23 @@ describe("applyPlan", () => {
     await applyPlan(currentDb(), createPlanPath);
     const insertCommit = await applyPlan(currentDb(), insertPlanPath);
 
-    const status = getStatus(currentDb());
-    expect(status.tableCount).toBe(1);
-    expect(status.headCommit?.commitId).toBe(insertCommit.commitId);
-    expect(status.snapshotCount).toBe(0);
-    expect(status.lastVerifiedAt).toBeNull();
-    expect(status.lastVerifiedOk).toBeNull();
+    const currentStatus = status(currentDb());
+    expect(currentStatus.tableCount).toBe(1);
+    expect(currentStatus.headCommit?.commitId).toBe(insertCommit.commitId);
+    expect(currentStatus.snapshotCount).toBe(0);
+    expect(currentStatus.lastVerifiedAt).toBeNull();
+    expect(currentStatus.lastVerifiedOk).toBeNull();
 
-    const history = getHistory(currentDb());
-    expect(history).toHaveLength(2);
-    expect(history[0]?.commitId).toBe(insertCommit.commitId);
-    expect(history[0]?.parentIds).toHaveLength(1);
-    expect(history[0]?.stateHashAfter.length).toBeGreaterThan(10);
+    const commits = history(currentDb());
+    expect(commits).toHaveLength(2);
+    expect(commits[0]?.commitId).toBe(insertCommit.commitId);
+    expect(commits[0]?.parentIds).toHaveLength(1);
+    expect(commits[0]?.stateHashAfter.length).toBeGreaterThan(10);
   });
 
   testWithTmp("operations fail for table without primary key", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE no_pk (name TEXT)");
@@ -80,7 +80,7 @@ describe("applyPlan", () => {
 
   testWithTmp("operations fail when observed table contains NULL primary-key values", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE weak_pk (k TEXT PRIMARY KEY, v TEXT)");
@@ -112,7 +112,7 @@ describe("applyPlan", () => {
 
   testWithTmp("create_table supports SQL timestamp defaults without planner-provided now values", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const createPlanPath = await writePlanFile(dir, "create-events.sql-default.json", {
       message: "create events with sql default timestamp",
@@ -141,7 +141,7 @@ describe("applyPlan", () => {
     });
     await applyPlan(currentDb(), insertPlanPath);
 
-    const rows = readQuery(currentDb(), "SELECT id, title, recorded_at FROM events");
+    const rows = query(currentDb(), "SELECT id, title, recorded_at FROM events");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 1, title: "release" });
     expect(typeof rows[0]?.recorded_at).toBe("string");
@@ -150,7 +150,7 @@ describe("applyPlan", () => {
 
   testWithTmp("add_column with SQL default is rejected for non-empty tables", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "add-column-sql-default-setup.json", {
       message: "setup tasks with one row",

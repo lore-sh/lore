@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { initDatabase } from "@toss/core";
+import { initDb } from "@toss/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +42,7 @@ describe("data command", () => {
     const originalExit = process.exit;
     const logs: string[] = [];
     try {
-      await initDatabase({ dbPath });
+      await initDb({ dbPath });
       console.log = ((value?: unknown) => {
         logs.push(String(value));
       }) as typeof console.log;
@@ -75,7 +75,7 @@ describe("data command", () => {
     const originalExit = process.exit;
     const logs: string[] = [];
     try {
-      await initDatabase({ dbPath });
+      await initDb({ dbPath });
       const invalidPath = join(dir, "invalid.json");
       await Bun.write(invalidPath, "{invalid");
       console.log = ((value?: unknown) => {

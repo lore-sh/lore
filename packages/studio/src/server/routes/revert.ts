@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import type { Database } from "bun:sqlite";
-import { revertCommit } from "@toss/core";
+import { revert } from "@toss/core";
 import { Hono } from "hono";
 import { commitIdParamSchema, validationError } from "./shared";
 
@@ -14,7 +14,7 @@ export function createRevertRoutes(db: Database) {
     }),
     (c) => {
       const param = c.req.valid("param");
-      const result = revertCommit(db, param.id);
+      const result = revert(db, param.id);
       if (result.ok) {
         return c.json(result, 200);
       }

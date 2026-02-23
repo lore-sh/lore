@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createEngineDb } from "../../src/engine/client";
-import { initDatabase } from "../../src";
+import { initDb } from "../../src";
 import { createTestContext, withTmpDirCleanup } from "../helpers";
 import { MetaTable } from "../../src/engine/schema.sql";
 
@@ -10,7 +10,7 @@ const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name,
 describe("engine client", () => {
   testWithTmp("createEngineDb binds drizzle to sqlite handle", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const db = new Database(dbPath, { strict: true });
     try {

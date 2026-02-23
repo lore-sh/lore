@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import type { StudioHistoryEntry, StudioTableSummary } from "@toss/core";
+import type { CommitSummary, Table } from "@toss/core";
 import { CommitEntry } from "../components/commit-entry";
 import { TableRow } from "../components/table-row";
 import { formatBytes, formatRelativeTime } from "../lib/time";
@@ -16,7 +16,7 @@ function totalRows(rowCounts: number[]): number {
   return rowCounts.reduce((sum, count) => sum + count, 0);
 }
 
-function ActivitySection({ history }: { history: StudioHistoryEntry[] }) {
+function ActivitySection({ history }: { history: CommitSummary[] }) {
   return (
     <section className="ui-surface">
       <header className="ui-section-head flex items-center justify-between">
@@ -38,7 +38,7 @@ function ActivitySection({ history }: { history: StudioHistoryEntry[] }) {
   );
 }
 
-function TablesSection({ tables }: { tables: StudioTableSummary[] }) {
+function TablesSection({ tables }: { tables: Table[] }) {
   return (
     <section id="tables" className="ui-surface">
       <header className="ui-section-head">

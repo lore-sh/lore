@@ -211,7 +211,7 @@ function preflightInverseApply(
   }
 }
 
-export function revertCommit(db: Database, commitId: string): RevertResult {
+export function revert(db: Database, commitId: string): RevertResult {
   return runInTransactionWithDeferredForeignKeys(db, () => {
     const targetCommit = getCommitById(db, commitId);
     if (!targetCommit) {

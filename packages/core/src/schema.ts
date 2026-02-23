@@ -1,47 +1,111 @@
 import type { Database } from "bun:sqlite";
 import { getRow } from "./engine/db";
-import { CodedError } from "./error";
-import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
-import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
+import {
+  describeSchema,
+  schemaHashFromDescriptor,
+  type SchemaForeignKeyDescriptor,
+  type SchemaIndexDescriptor,
+  type SchemaTableDescriptor,
+  type SchemaTriggerDescriptor,
+} from "./engine/inspect";
+import { quoteIdentifier } from "./engine/sql";
+import { resolveTableName } from "./tables";
 
-export interface GetSchemaOptions {
+export interface SchemaOptions {
   table?: string | undefined;
 }
 
-export interface SchemaTableView extends Omit<SchemaTableDescriptor, "table"> {
+export interface SchemaColumn {
+  definitionSql: string | null;
+  cid: number;
   name: string;
+  type: string;
+  notNull: boolean;
+  defaultValue: string | null;
+  primaryKey: boolean;
+  unique: boolean;
+  hidden: boolean;
+}
+
+export interface SchemaTable {
+  tableSql: string | null;
+  name: string;
+  options: {
+    withoutRowid: boolean;
+    strict: boolean;
+  };
+  columns: SchemaColumn[];
+  foreignKeys: SchemaForeignKeyDescriptor[];
+  indexes: SchemaIndexDescriptor[];
+  checks: string[];
+  triggers: SchemaTriggerDescriptor[];
   rowCount: number;
 }
 
-export interface SchemaView {
+export interface Schema {
   dbPath: string;
   generatedAt: string;
   schemaHash: string;
-  tables: SchemaTableView[];
+  tables: SchemaTable[];
 }
 
-function selectTables(tables: SchemaTableDescriptor[], tableName?: string | undefined): SchemaTableDescriptor[] {
-  if (!tableName) {
-    return tables;
+function countRows(db: Database, tableName: string): number {
+  return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`)?.c ?? 0;
+}
+
+function isVisibleColumn(hidden: number): boolean {
+  return hidden === 0 || hidden === 2 || hidden === 3;
+}
+
+function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
+  const names = new Set<string>();
+  const primaryKeyColumns = table.columns.filter((column) => column.pk > 0);
+  if (primaryKeyColumns.length === 1) {
+    names.add(primaryKeyColumns[0]!.name);
   }
-  const selected = tables.filter((table) => sqliteIdentifierEquals(table.table, tableName));
-  if (selected.length === 0) {
-    throw new CodedError("NOT_FOUND", `Table not found: ${tableName}`);
+  for (const index of table.indexes) {
+    if (!index.unique || index.partial) {
+      continue;
+    }
+    const keyTerms = index.columns.filter((column) => column.key === 1);
+    if (keyTerms.length === 1 && keyTerms[0]!.name) {
+      names.add(keyTerms[0]!.name);
+    }
   }
-  return selected;
+  return names;
 }
 
-function sqliteIdentifierEquals(left: string, right: string): boolean {
-  return left === right || asciiCaseFold(left) === asciiCaseFold(right);
+function mapSchemaTable(db: Database, table: SchemaTableDescriptor): SchemaTable {
+  const unique = uniqueColumnNames(table);
+  return {
+    tableSql: table.tableSql,
+    name: table.table,
+    options: table.options,
+    columns: table.columns.map((column) => ({
+      definitionSql: column.definitionSql,
+      cid: column.cid,
+      name: column.name,
+      type: column.type,
+      notNull: column.notnull === 1,
+      defaultValue: column.dfltValue,
+      primaryKey: column.pk > 0,
+      unique: unique.has(column.name),
+      hidden: !isVisibleColumn(column.hidden),
+    })),
+    foreignKeys: table.foreignKeys,
+    indexes: table.indexes,
+    checks: table.checks,
+    triggers: table.triggers,
+    rowCount: countRows(db, table.table),
+  };
 }
 
-export function getSchema(db: Database, options: GetSchemaOptions = {}): SchemaView {
+export function schema(db: Database, options: SchemaOptions = {}): Schema {
   const descriptor = describeSchema(db);
-  const selected = selectTables(descriptor.tables, options.table);
-  const tables = selected.map(({ table: name, ...rest }) => {
-    const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(name, { unsafe: true })}`);
-    return { name, ...rest, rowCount: row?.c ?? 0 };
-  });
+  const selectedTable = options.table ? resolveTableName(db, options.table) : null;
+  const tables = descriptor.tables
+    .filter((table) => selectedTable === null || table.table === selectedTable)
+    .map((table) => mapSchemaTable(db, table));
 
   return {
     dbPath: db.filename,

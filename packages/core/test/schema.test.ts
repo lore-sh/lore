@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { getSchema, initDatabase, CodedError } from "../src";
+import { schema, initDb, CodedError } from "../src";
 import { schemaHash } from "../src/engine/inspect";
 import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-describe("getSchema", () => {
+describe("schema", () => {
   testWithTmp("returns detailed schema metadata and schema hash", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -36,11 +36,11 @@ describe("getSchema", () => {
     const expectedHash = schemaHash(direct);
     direct.close(false);
 
-    const schema = getSchema(currentDb());
-    expect(schema.schemaHash).toBe(expectedHash);
-    expect(schema.tables.length).toBeGreaterThanOrEqual(2);
+    const dbSchema = schema(currentDb());
+    expect(dbSchema.schemaHash).toBe(expectedHash);
+    expect(dbSchema.tables.length).toBeGreaterThanOrEqual(2);
 
-    const users = schema.tables.find((table) => table.name === "users");
+    const users = dbSchema.tables.find((table) => table.name === "users");
     expect(users).toBeDefined();
     if (!users) {
       throw new Error("users table not found");
@@ -55,60 +55,60 @@ describe("getSchema", () => {
 
   testWithTmp("supports table filter", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)");
     direct.close(false);
 
-    const schema = getSchema(currentDb(), { table: "notes" });
-    expect(schema.tables).toHaveLength(1);
-    expect(schema.tables[0]?.name).toBe("notes");
+    const dbSchema = schema(currentDb(), { table: "notes" });
+    expect(dbSchema.tables).toHaveLength(1);
+    expect(dbSchema.tables[0]?.name).toBe("notes");
   });
 
   testWithTmp("does not fold Unicode case while filtering table name", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run('CREATE TABLE "Ä" (id INTEGER PRIMARY KEY)');
     direct.run('CREATE TABLE "ä" (id INTEGER PRIMARY KEY)');
     direct.close(false);
 
-    const upper = getSchema(currentDb(), { table: "Ä" });
+    const upper = schema(currentDb(), { table: "Ä" });
     expect(upper.tables).toHaveLength(1);
     expect(upper.tables[0]?.name).toBe("Ä");
 
-    const lower = getSchema(currentDb(), { table: "ä" });
+    const lower = schema(currentDb(), { table: "ä" });
     expect(lower.tables).toHaveLength(1);
     expect(lower.tables[0]?.name).toBe("ä");
   });
 
   testWithTmp("matches punctuation and space names with ASCII case-insensitive filter", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run('CREATE TABLE "Foo-Bar" (id INTEGER PRIMARY KEY)');
     direct.run('CREATE TABLE "Task List" (id INTEGER PRIMARY KEY)');
     direct.close(false);
 
-    const dashed = getSchema(currentDb(), { table: "foo-bar" });
+    const dashed = schema(currentDb(), { table: "foo-bar" });
     expect(dashed.tables).toHaveLength(1);
     expect(dashed.tables[0]?.name).toBe("Foo-Bar");
 
-    const spaced = getSchema(currentDb(), { table: "task list" });
+    const spaced = schema(currentDb(), { table: "task list" });
     expect(spaced.tables).toHaveLength(1);
     expect(spaced.tables[0]?.name).toBe("Task List");
   });
 
   testWithTmp("throws NOT_FOUND when filtered table does not exist", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     try {
-      getSchema(currentDb(), { table: "missing_table" });
-      throw new Error("getSchema should throw for missing table");
+      schema(currentDb(), { table: "missing_table" });
+      throw new Error("schema should throw for missing table");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
       if (CodedError.is(error)) {

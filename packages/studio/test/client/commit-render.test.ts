@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { StudioCommitDetail } from "@toss/core";
+import type { CommitDetailPayload } from "../../src/client/lib/api";
 import { renderOperationLine, renderRowEffectLines } from "../../src/client/lib/commit-render";
 
-type RowEffect = StudioCommitDetail["rowEffects"][number];
+type RowEffect = CommitDetailPayload["effects"]["rows"][number];
 
 describe("commit rendering", () => {
   test("renders operations in readable one-line format", () => {

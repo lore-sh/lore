@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { listUserTables, resolveDbPath } from "../../src/engine/db";
 import { CodedError } from "../../src/error";
-import { initDatabase } from "../../src";
+import { initDb } from "../../src";
 import { createTestContext, currentDb, withTmpDirCleanup } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -42,7 +42,7 @@ describe("db path resolution", () => {
 
   testWithTmp("listUserTables excludes only real internal prefixes", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
     const db = currentDb();
     db.run("CREATE TABLE abdrizzle_logs(id INTEGER PRIMARY KEY)");
     db.run("CREATE TABLE atoss_table(id INTEGER PRIMARY KEY)");

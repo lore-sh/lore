@@ -20,7 +20,7 @@ import { deleteWalAndShm, deleteWithSidecars } from "./engine/files";
 import type { CommitReplayInput } from "./engine/log";
 import { loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
 import { quoteIdentifier } from "./engine/sql";
-import type { Commit, SnapshotEntry } from "./types";
+import type { Commit, Snapshot } from "./types";
 
 export async function hashFile(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -120,7 +120,7 @@ export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise
   }
 }
 
-export function listSnapshots(db: Database): SnapshotEntry[] {
+export function snapshots(db: Database): Snapshot[] {
   return createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
 }
 
@@ -162,7 +162,7 @@ function resolveSnapshotForRecovery(
   }
 }
 
-export async function recoverFromSnapshot(
+export async function recover(
   dbPathInput: string,
   commitId: string,
 ): Promise<{ dbPath: string; restoredCommitId: string; replayedCommits: number }> {

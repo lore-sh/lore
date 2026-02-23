@@ -1,19 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  getStatus,
-  initDatabase,
-  verifyDatabase,
+  status,
+  initDb,
+  verify,
 } from "../src";
 import { COMMIT_TABLE } from "../src/engine/db";
 import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-describe("verifyDatabase", () => {
+describe("verify", () => {
   testWithTmp("verify stores last_verified_ok", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "setup.json", {
       message: "setup",
@@ -30,11 +30,11 @@ describe("verifyDatabase", () => {
     });
     await applyPlan(currentDb(), setup);
 
-    const quick = verifyDatabase(currentDb());
+    const quick = verify(currentDb());
     expect(quick.ok).toBe(true);
     expect(quick.mode).toBe("quick");
 
-    const firstStatus = getStatus(currentDb());
+    const firstStatus = status(currentDb());
     expect(firstStatus.lastVerifiedAt).not.toBeNull();
     expect(firstStatus.lastVerifiedOk).toBe(true);
 
@@ -42,11 +42,11 @@ describe("verifyDatabase", () => {
     tamper.query(`UPDATE ${COMMIT_TABLE} SET message='tampered' WHERE seq=1`).run();
     tamper.close(false);
 
-    const broken = verifyDatabase(currentDb(), { full: true });
+    const broken = verify(currentDb(), { full: true });
     expect(broken.ok).toBe(false);
     expect(broken.mode).toBe("full");
 
-    const secondStatus = getStatus(currentDb());
+    const secondStatus = status(currentDb());
     expect(secondStatus.lastVerifiedOk).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import type { Database } from "bun:sqlite";
-import { getStudioCommitDetail, listStudioHistory } from "@toss/core";
+import { CodedError, commitById, commitEffects, commitHistory } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { commitIdParamSchema, positiveIntSchema, validationError } from "./shared";
@@ -25,7 +25,7 @@ export function createHistoryRoutes(db: Database) {
         const query = c.req.valid("query");
 
         return c.json(
-          listStudioHistory(db, {
+          commitHistory(db, {
             limit: query.limit,
             page: query.page,
             kind: query.kind,
@@ -44,7 +44,11 @@ export function createHistoryRoutes(db: Database) {
       }),
       (c) => {
         const param = c.req.valid("param");
-        return c.json(getStudioCommitDetail(db, param.id), 200);
+        const commit = commitById(db, param.id);
+        if (!commit) {
+          throw new CodedError("NOT_FOUND", `Commit not found: ${param.id}`);
+        }
+        return c.json({ commit, effects: commitEffects(db, param.id) }, 200);
       },
     );
 }

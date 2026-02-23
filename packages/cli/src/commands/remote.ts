@@ -3,12 +3,12 @@ import { createInterface } from "node:readline/promises";
 import type { Database } from "bun:sqlite";
 import type { RemotePlatform } from "@toss/core";
 import {
-  cloneFromRemote,
-  connectRemote,
-  getRemoteStatus,
-  pullFromRemote,
-  pushToRemote,
-  syncWithRemote,
+  clone,
+  connect,
+  remoteStatus,
+  pull,
+  push,
+  sync,
 } from "@toss/core";
 import { promptRadioSelection } from "../prompts/radio";
 import type { RadioOption } from "../prompts/radio";
@@ -271,7 +271,7 @@ export async function runRemote(db: Database, args: string[]): Promise<void> {
   }
   if (sub === "connect") {
     const parsed = parseRemoteConnectArgs(rest);
-    let config: Awaited<ReturnType<typeof connectRemote>>;
+    let config: Awaited<ReturnType<typeof connect>>;
     let authToken: string | null | undefined;
     if (parsed.interactive) {
       if (!canUseConnectPrompt(stdin.isTTY === true, stdout.isTTY === true)) {
@@ -279,10 +279,10 @@ export async function runRemote(db: Database, args: string[]): Promise<void> {
       }
       const input = await promptRemoteConnect();
       authToken = input.authToken;
-      config = await connectRemote(db, input);
+      config = await connect(db, input);
     } else {
       authToken = parsed.authToken;
-      config = await connectRemote(db, {
+      config = await connect(db, {
         platform: parsed.platform,
         url: parsed.url,
         authToken: parsed.authToken,
@@ -297,8 +297,8 @@ export async function runRemote(db: Database, args: string[]): Promise<void> {
   }
   if (sub === "status") {
     parseRemoteStatusArgs(rest);
-    const status = await getRemoteStatus(db);
-    console.log(toJson(status));
+    const currentStatus = await remoteStatus(db);
+    console.log(toJson(currentStatus));
     return;
   }
   throw new Error(`Unknown remote subcommand: ${sub}`);
@@ -306,24 +306,24 @@ export async function runRemote(db: Database, args: string[]): Promise<void> {
 
 export async function runPush(db: Database, args: string[]): Promise<void> {
   parseNoArgs("push", args);
-  const result = await pushToRemote(db);
+  const result = await push(db);
   console.log(toJson({ status: "ok", ...result }));
 }
 
 export async function runPull(db: Database, args: string[]): Promise<void> {
   parseNoArgs("pull", args);
-  const result = await pullFromRemote(db);
+  const result = await pull(db);
   console.log(toJson({ status: "ok", ...result }));
 }
 
 export async function runSync(db: Database, args: string[]): Promise<void> {
   parseNoArgs("sync", args);
-  const result = await syncWithRemote(db);
+  const result = await sync(db);
   console.log(toJson({ status: "ok", ...result }));
 }
 
 export async function runClone(args: string[]): Promise<void> {
   const parsed = parseCloneArgs(args);
-  const result = await cloneFromRemote(parsed);
+  const result = await clone(parsed);
   console.log(toJson({ status: "ok", db_path: result.dbPath, sync: result.sync }));
 }

@@ -282,7 +282,7 @@ export interface VerifyResult {
   checkedAt: string;
 }
 
-export interface SnapshotEntry {
+export interface Snapshot {
   commitId: string;
   filePath: string;
   fileSha256: string;
@@ -292,7 +292,7 @@ export interface SnapshotEntry {
 
 export type SkillPlatform = "claude" | "cursor" | "codex" | "opencode" | "openclaw";
 
-export interface InitDatabaseOptions {
+export interface InitDbOptions {
   dbPath?: string;
   forceNew?: boolean;
 }

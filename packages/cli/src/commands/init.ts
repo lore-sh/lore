@@ -1,7 +1,7 @@
 import { relative, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
 import type { SkillPlatform } from "@toss/core";
-import { initDatabase } from "@toss/core";
+import { initDb } from "@toss/core";
 import { cleanSkills, generateSkills } from "../skills";
 import type { GeneratedPlatform } from "../skills";
 import { promptConfirm } from "../prompts/confirm";
@@ -329,14 +329,14 @@ export async function runInit(args: string[]): Promise<void> {
     openclawHeartbeat = resolved.interactive ? await promptHeartbeat() : true;
   }
 
-  const { dbPath } = await initDatabase({ forceNew: parsed.forceNew });
+  const { path } = await initDb({ forceNew: parsed.forceNew });
   const generatedSkills = !parsed.noSkills
     ? await generateSkills({ platforms: skillPlatforms, openclawHeartbeat })
     : null;
   if (parsed.json) {
     console.log(
       toJson({
-        dbPath,
+        dbPath: path,
         platforms: skillPlatforms,
         files: generatedSkills?.files.map((file) => file.path) ?? [],
       }),
@@ -345,7 +345,7 @@ export async function runInit(args: string[]): Promise<void> {
   }
   console.log(
     renderInitResult({
-      dbPath,
+      dbPath: path,
       forceNew: parsed.forceNew,
       selectedPlatforms: skillPlatforms,
       generatedSkills,

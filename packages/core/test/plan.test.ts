@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getHistory, initDatabase, readQuery } from "../src";
+import { history, initDb, query } from "../src";
 import { applyPlan, createTestContext, planCheck, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -7,7 +7,7 @@ const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name,
 describe("check", () => {
   testWithTmp("returns ok for valid plan and does not persist changes", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const createPlan = await writePlanFile(dir, "create-table-plan.json", {
       message: "create todos table",
@@ -29,15 +29,15 @@ describe("check", () => {
     expect(result.summary.operations).toBe(1);
     expect(result.summary.predicted.schemaEffects).toBeGreaterThan(0);
 
-    const tableRows = readQuery(currentDb(), "SELECT name FROM sqlite_master WHERE type='table' AND name='todos'");
+    const tableRows = query(currentDb(), "SELECT name FROM sqlite_master WHERE type='table' AND name='todos'");
     expect(tableRows).toEqual([]);
-    const history = getHistory(currentDb());
-    expect(history).toHaveLength(0);
+    const commits = history(currentDb());
+    expect(commits).toHaveLength(0);
   });
 
   testWithTmp("throws for invalid plan payload", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const invalidPlan = await writePlanFile(dir, "invalid-plan.json", {
       message: "",
@@ -50,7 +50,7 @@ describe("check", () => {
 
   testWithTmp("flags destructive operations with high risk and keeps rows unchanged", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "setup-plan-check.json", {
       message: "setup expenses",
@@ -81,13 +81,13 @@ describe("check", () => {
     expect(result.risk).toBe("high");
     expect(result.warnings.some((warning) => warning.code === "DESTRUCTIVE_OPERATION")).toBe(true);
 
-    const rows = readQuery(currentDb(), "SELECT id, item FROM expenses ORDER BY id");
+    const rows = query(currentDb(), "SELECT id, item FROM expenses ORDER BY id");
     expect(rows).toEqual([{ id: 1, item: "lunch" }]);
   });
 
   testWithTmp("returns runtime error when plan references missing table", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const invalidRuntime = await writePlanFile(dir, "missing-table-plan.json", {
       message: "insert missing table",
@@ -100,7 +100,7 @@ describe("check", () => {
 
   testWithTmp("throws on legacy scalar column default payload", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const legacyDefault = await writePlanFile(dir, "legacy-default-shape.json", {
       message: "legacy default shape",
@@ -122,7 +122,7 @@ describe("check", () => {
 
   testWithTmp("accepts SQL default object payload", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const sqlDefault = await writePlanFile(dir, "sql-default-shape.json", {
       message: "sql default shape",
@@ -149,7 +149,7 @@ describe("check", () => {
 
   testWithTmp("throws when plan file is missing", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     await expect(planCheck(currentDb(), `${dir}/missing-plan.json`)).rejects.toThrow();
   });

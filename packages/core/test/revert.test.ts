@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { initDatabase, readQuery, revertCommit } from "../src";
+import { initDb, query, revert } from "../src";
 import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -8,7 +8,7 @@ const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name,
 describe("revertCommit", () => {
   testWithTmp("drop_table revert restores table definition and rows", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "setup.json", {
       message: "setup",
@@ -32,16 +32,16 @@ describe("revertCommit", () => {
     await applyPlan(currentDb(), setup);
     const dropCommit = await applyPlan(currentDb(), drop);
 
-    const reverted = revertCommit(currentDb(), dropCommit.commitId);
+    const reverted = revert(currentDb(), dropCommit.commitId);
     expect(reverted.ok).toBe(true);
 
-    const rows = readQuery(currentDb(), "SELECT id, item FROM expenses");
+    const rows = query(currentDb(), "SELECT id, item FROM expenses");
     expect(rows).toEqual([{ id: 1, item: "dinner" }]);
   });
 
   testWithTmp("drop_table revert succeeds for AUTOINCREMENT tables with sqlite_sequence side effects", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_drop (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
@@ -54,19 +54,19 @@ describe("revertCommit", () => {
     });
 
     const dropped = await applyPlan(currentDb(), drop);
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for AUTOINCREMENT drop_table");
     }
 
-    const rows = readQuery(currentDb(), "SELECT id, body FROM auto_drop ORDER BY id");
+    const rows = query(currentDb(), "SELECT id, body FROM auto_drop ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "a" }]);
   });
 
   testWithTmp("drop_table revert restores FK-related tables in dependency-safe schema order", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -92,7 +92,7 @@ describe("revertCommit", () => {
     });
     const dropped = await applyPlan(currentDb(), dropBoth);
 
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for multi-table drop with FK dependencies");
@@ -113,7 +113,7 @@ describe("revertCommit", () => {
 
   testWithTmp("revert restores ON DELETE CASCADE side effects with dependency-safe order", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -137,11 +137,11 @@ describe("revertCommit", () => {
     });
     const deleted = await applyPlan(currentDb(), deleteParent);
 
-    const reverted = revertCommit(currentDb(), deleted.commitId);
+    const reverted = revert(currentDb(), deleted.commitId);
     expect(reverted.ok).toBe(true);
 
-    const parentRows = readQuery(currentDb(), "SELECT id, name FROM a_parent ORDER BY id");
-    const childRows = readQuery(currentDb(), "SELECT id, parent_id, body FROM z_child ORDER BY id");
+    const parentRows = query(currentDb(), "SELECT id, name FROM a_parent ORDER BY id");
+    const childRows = query(currentDb(), "SELECT id, parent_id, body FROM z_child ORDER BY id");
     expect(parentRows).toEqual([{ id: 1, name: "p1" }]);
     expect(childRows).toEqual([
       { id: 1, parent_id: 1, body: "c1" },
@@ -151,7 +151,7 @@ describe("revertCommit", () => {
 
   testWithTmp("revert restores trigger side effects", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE account (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL)");
@@ -171,18 +171,18 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "ledger", values: { id: 1, account_id: 1, amount: 7 } }],
     });
     const committed = await applyPlan(currentDb(), insertLedger);
-    const reverted = revertCommit(currentDb(), committed.commitId);
+    const reverted = revert(currentDb(), committed.commitId);
     expect(reverted.ok).toBe(true);
 
-    const accountRows = readQuery(currentDb(), "SELECT id, balance FROM account");
-    const ledgerRows = readQuery(currentDb(), "SELECT id, account_id, amount FROM ledger");
+    const accountRows = query(currentDb(), "SELECT id, balance FROM account");
+    const ledgerRows = query(currentDb(), "SELECT id, account_id, amount FROM ledger");
     expect(accountRows).toEqual([{ id: 1, balance: 0 }]);
     expect(ledgerRows).toEqual([]);
   });
 
   testWithTmp("revert succeeds when inverse child insert requires schema-restored parent table", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -208,7 +208,7 @@ describe("revertCommit", () => {
     });
     const committed = await applyPlan(currentDb(), destructive);
 
-    const reverted = revertCommit(currentDb(), committed.commitId);
+    const reverted = revert(currentDb(), committed.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for delete-child+drop-parent commit");
@@ -229,7 +229,7 @@ describe("revertCommit", () => {
 
   testWithTmp("revert reports structured conflict for UNIQUE constraint ahead of SQL crash", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "setup-unique.json", {
       message: "setup users",
@@ -258,7 +258,7 @@ describe("revertCommit", () => {
     const deleted = await applyPlan(currentDb(), deleteUser);
     await applyPlan(currentDb(), insertConflicting);
 
-    const result = revertCommit(currentDb(), deleted.commitId);
+    const result = revert(currentDb(), deleted.commitId);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.conflicts.length).toBeGreaterThan(0);
@@ -270,7 +270,7 @@ describe("revertCommit", () => {
 
   testWithTmp("schema rebuild + revert preserves FK/UNIQUE/CHECK/trigger semantics", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -301,7 +301,7 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_column", table: "constrained_items", column: "note" }],
     });
     const dropped = await applyPlan(currentDb(), dropNote);
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
 
     const verify = new Database(dbPath);
@@ -329,7 +329,7 @@ describe("revertCommit", () => {
 
   testWithTmp("schema rebuild + revert preserves self-referential FK targets", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -350,7 +350,7 @@ describe("revertCommit", () => {
     });
     const dropped = await applyPlan(currentDb(), dropNote);
 
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected self-referential FK revert success");
@@ -373,7 +373,7 @@ describe("revertCommit", () => {
 
   testWithTmp("revert of schema-changing commit fails when later rows touched same table", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "schema-row-conflict-setup.json", {
       message: "setup conflict table",
@@ -402,7 +402,7 @@ describe("revertCommit", () => {
     const dropped = await applyPlan(currentDb(), dropColumn);
     await applyPlan(currentDb(), laterInsert);
 
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(reverted.conflicts.some((conflict) => conflict.kind === "schema" && conflict.table === "conflict_items")).toBe(
@@ -410,13 +410,13 @@ describe("revertCommit", () => {
       );
     }
 
-    const rows = readQuery(currentDb(), "SELECT id FROM conflict_items ORDER BY id");
+    const rows = query(currentDb(), "SELECT id FROM conflict_items ORDER BY id");
     expect(rows).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
   testWithTmp("revert returns structured conflict when later drop_table removed target row table", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "missing-table-conflict-setup.json", {
       message: "setup",
@@ -445,7 +445,7 @@ describe("revertCommit", () => {
     const updated = await applyPlan(currentDb(), updatePlan);
     await applyPlan(currentDb(), dropPlan);
 
-    const result = revertCommit(currentDb(), updated.commitId);
+    const result = revert(currentDb(), updated.commitId);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(
@@ -461,7 +461,7 @@ describe("revertCommit", () => {
 
   testWithTmp("typed and BLOB values round-trip losslessly through commit and revert", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE blobs (id INTEGER PRIMARY KEY, data BLOB NOT NULL, n REAL NOT NULL, tag TEXT NOT NULL)");
@@ -473,7 +473,7 @@ describe("revertCommit", () => {
       operations: [{ type: "update", table: "blobs", values: { tag: "b" }, where: { id: 1 } }],
     });
     const updated = await applyPlan(currentDb(), updateTag);
-    const reverted = revertCommit(currentDb(), updated.commitId);
+    const reverted = revert(currentDb(), updated.commitId);
     expect(reverted.ok).toBe(true);
 
     const verify = new Database(dbPath);
@@ -493,7 +493,7 @@ describe("revertCommit", () => {
 
   testWithTmp("TEXT with embedded NUL bytes is preserved losslessly through commit and revert", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE text_nul_items (id INTEGER PRIMARY KEY, payload TEXT NOT NULL, tag TEXT NOT NULL)");
@@ -505,10 +505,10 @@ describe("revertCommit", () => {
       operations: [{ type: "update", table: "text_nul_items", values: { tag: "b" }, where: { id: 1 } }],
     });
     const updated = await applyPlan(currentDb(), updateTag);
-    const reverted = revertCommit(currentDb(), updated.commitId);
+    const reverted = revert(currentDb(), updated.commitId);
     expect(reverted.ok).toBe(true);
 
-    const rows = readQuery(currentDb(), 
+    const rows = query(currentDb(), 
       "SELECT id, hex(CAST(payload AS BLOB)) AS payload_hex, length(CAST(payload AS BLOB)) AS payload_len, tag FROM text_nul_items",
     );
     expect(rows).toEqual([{ id: 1, payload_hex: "410042", payload_len: 3, tag: "a" }]);
@@ -516,7 +516,7 @@ describe("revertCommit", () => {
 
   testWithTmp("revert applies sqlite_sequence inverse effects exactly", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_items (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
@@ -532,17 +532,17 @@ describe("revertCommit", () => {
     });
 
     const committed = await applyPlan(currentDb(), insertA);
-    const reverted = revertCommit(currentDb(), committed.commitId);
+    const reverted = revert(currentDb(), committed.commitId);
     expect(reverted.ok).toBe(true);
 
     await applyPlan(currentDb(), insertB);
-    const rows = readQuery(currentDb(), "SELECT id, body FROM auto_items ORDER BY id");
+    const rows = query(currentDb(), "SELECT id, body FROM auto_items ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "b" }]);
   });
 
   testWithTmp("revert returns conflict on later sqlite_sequence-only drift", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_items_later (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
@@ -560,7 +560,7 @@ describe("revertCommit", () => {
     const first = await applyPlan(currentDb(), insertA);
     await applyPlan(currentDb(), insertB);
 
-    const reverted = revertCommit(currentDb(), first.commitId);
+    const reverted = revert(currentDb(), first.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(
@@ -571,7 +571,7 @@ describe("revertCommit", () => {
 
   testWithTmp("revert reports conflict when sqlite_sequence drift remains after later insert/delete", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_items_hist (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
@@ -593,7 +593,7 @@ describe("revertCommit", () => {
     await applyPlan(currentDb(), insertB);
     await applyPlan(currentDb(), deleteB);
 
-    const reverted = revertCommit(currentDb(), first.commitId);
+    const reverted = revert(currentDb(), first.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(
@@ -604,7 +604,7 @@ describe("revertCommit", () => {
 
   testWithTmp("revert of revert is supported", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "setup.json", {
       message: "setup",
@@ -627,18 +627,18 @@ describe("revertCommit", () => {
 
     await applyPlan(currentDb(), setup);
     const dropped = await applyPlan(currentDb(), drop);
-    const first = revertCommit(currentDb(), dropped.commitId);
+    const first = revert(currentDb(), dropped.commitId);
     expect(first.ok).toBe(true);
     if (!first.ok) {
       throw new Error("expected first revert success");
     }
 
-    const second = revertCommit(currentDb(), first.revertCommit.commitId);
+    const second = revert(currentDb(), first.revertCommit.commitId);
     expect(second.ok).toBe(true);
     if (!second.ok) {
       throw new Error("expected second revert success");
     }
-    const tableCount = readQuery(currentDb(), "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='events'");
+    const tableCount = query(currentDb(), "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='events'");
     expect(tableCount).toEqual([{ c: 0 }]);
   });
 });

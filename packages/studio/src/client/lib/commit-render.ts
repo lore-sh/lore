@@ -1,4 +1,5 @@
-import type { EncodedCell, EncodedRow, Operation, StudioCommitDetail, StudioHistoryEntry } from "@toss/core";
+import type { CommitSummary, EncodedCell, EncodedRow, Operation } from "@toss/core";
+import type { CommitDetailPayload } from "./api";
 
 export interface RenderedLine {
   kind: "add" | "remove" | "neutral";
@@ -99,7 +100,7 @@ export function renderOperationLine(operation: Operation): string {
   }
 }
 
-export function renderRowEffectLines(effect: StudioCommitDetail["rowEffects"][number]): RenderedLine[] {
+export function renderRowEffectLines(effect: CommitDetailPayload["effects"]["rows"][number]): RenderedLine[] {
   if (effect.opKind === "insert" && effect.afterRow) {
     return sortedRowEntries(effect.afterRow).map(([column, cell]) => ({
       kind: "add",
@@ -138,7 +139,7 @@ export function renderRowEffectLines(effect: StudioCommitDetail["rowEffects"][nu
   return lines;
 }
 
-export function renderSchemaEffectLine(effect: StudioCommitDetail["schemaEffects"][number]): RenderedLine {
+export function renderSchemaEffectLine(effect: CommitDetailPayload["effects"]["schemas"][number]): RenderedLine {
   if (!effect.beforeTable && effect.afterTable) {
     return {
       kind: "add",
@@ -165,7 +166,7 @@ export function renderPkLabel(pk: Record<string, string>): string {
   return entries.map(([key, value]) => `${key}=${value}`).join(", ");
 }
 
-export function summarizeHistoryEntry(entry: StudioHistoryEntry): string {
+export function summarizeHistoryEntry(entry: CommitSummary): string {
   const parts: string[] = [];
   if (entry.rowEffectCount > 0) {
     parts.push(`${entry.rowEffectCount} row`);

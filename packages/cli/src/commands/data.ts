@@ -2,15 +2,15 @@ import type { Database } from "bun:sqlite";
 import {
   CodedError,
   apply,
-  autoSyncAfterApply,
+  autoSync,
   check,
   commitSizeWarning,
   type CheckIssue,
   type CheckResult,
   type CheckSummary,
-  getSchema,
+  schema,
   parsePlan,
-  readQuery,
+  query,
 } from "@toss/core";
 import { printTable, toJson, summarizeCommit } from "../format";
 
@@ -78,7 +78,7 @@ export function parseSchemaArgs(args: string[]): { table?: string | undefined } 
 
 export function runSchema(db: Database, args: string[]): void {
   const { table } = parseSchemaArgs(args);
-  console.log(toJson(getSchema(db, { table })));
+  console.log(toJson(schema(db, { table })));
 }
 
 export function validateSchemaArgs(args: string[]): void {
@@ -113,7 +113,7 @@ export async function runApply(db: Database, args: string[]): Promise<void> {
   const payload = await readPlanInput(planRef);
   const plan = parsePlan(payload);
   const commit = await apply(db, plan);
-  const sync = await autoSyncAfterApply(db);
+  const sync = await autoSync(db);
   const warning = commitSizeWarning(db, commit.commitId);
   console.log(
     toJson({
@@ -158,7 +158,7 @@ export function validateReadArgs(args: string[]): void {
 
 export function runRead(db: Database, args: string[]): void {
   const { sql, json } = parseReadArgs(args);
-  const rows = readQuery(db, sql);
+  const rows = query(db, sql);
   if (json) {
     console.log(toJson(rows));
     return;

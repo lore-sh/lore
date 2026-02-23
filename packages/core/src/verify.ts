@@ -1,14 +1,9 @@
 import type { Database } from "bun:sqlite";
-import {
-  LAST_VERIFIED_AT_META_KEY,
-  LAST_VERIFIED_OK_META_KEY,
-  getRow,
-  setMetaValue,
-} from "./engine/db";
+import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getRow, setMetaValue } from "./engine/db";
 import { computeCommitId, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
 import type { VerifyResult } from "./types";
 
-export function verifyDatabase(db: Database, options: { full?: boolean } = {}): VerifyResult {
+export function verify(db: Database, options: { full?: boolean } = {}): VerifyResult {
   const mode = options.full ? "full" : "quick";
   const issues: string[] = [];
 

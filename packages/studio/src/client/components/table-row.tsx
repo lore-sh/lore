@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import type { StudioTableSummary } from "@toss/core";
+import type { Table } from "@toss/core";
 import { formatRelativeTime } from "../lib/time";
 
 interface TableRowProps {
-  table: StudioTableSummary;
+  table: Table;
 }
 
 export function TableRow({ table }: TableRowProps) {

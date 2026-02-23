@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
-import { apply, check, initDatabase, openDb, parsePlan } from "../src";
+import { apply, check, initDb, openDb, parsePlan } from "../src";
 import { CodedError } from "../src/error";
 import { schemaHash } from "../src/engine/inspect";
 
@@ -102,7 +102,7 @@ export function currentDb(): Database {
     }
   }
   if (!persistentDb) {
-    throw new Error("Database is not set for this test. Call initDatabase(...) or withDbPath(...). ");
+    throw new Error("Database is not set for this test. Call initDb(...) or withDbPath(...). ");
   }
   return persistentDb;
 }
@@ -168,7 +168,7 @@ export async function planCheck(db: Database, planRef: string) {
 
 export async function computeSchemaHash(statements: string[]): Promise<string> {
   const { dbPath } = createTestContext();
-  await initDatabase({ dbPath });
+  await initDb({ dbPath });
   const db = new Database(dbPath, { strict: true });
   try {
     for (const sql of statements) {

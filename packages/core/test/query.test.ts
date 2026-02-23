@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { initDatabase, CodedError, readQuery } from "../src";
+import { initDb, CodedError, query } from "../src";
 import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-describe("readQuery", () => {
+describe("query", () => {
   testWithTmp("executes read-only SELECT", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const db = new Database(dbPath);
     try {
@@ -18,7 +18,7 @@ describe("readQuery", () => {
       db.close(false);
     }
 
-    const rows = readQuery(currentDb(), "SELECT id, name FROM users ORDER BY id ASC");
+    const rows = query(currentDb(), "SELECT id, name FROM users ORDER BY id ASC");
     expect(rows).toEqual([
       { id: 1, name: "alice" },
       { id: 2, name: "bob" },
@@ -27,11 +27,11 @@ describe("readQuery", () => {
 
   testWithTmp("rejects non-read SQL", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
-    expect(() => readQuery(currentDb(), "DELETE FROM users")).toThrow();
+    expect(() => query(currentDb(), "DELETE FROM users")).toThrow();
     try {
-      readQuery(currentDb(), "DELETE FROM users");
+      query(currentDb(), "DELETE FROM users");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
     }

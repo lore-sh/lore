@@ -1,10 +1,10 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
-import type { StudioCellValue, StudioTableDataView } from "@toss/core";
 import { useMemo, type ReactNode } from "react";
+import type { StudioCellValue, TableData } from "../lib/api";
 import { tableFilterValue, type TableRouteSearch } from "../lib/table-search";
 
 interface DataGridProps {
-  data: StudioTableDataView;
+  data: TableData;
   search: TableRouteSearch;
   onSort: (column: string) => void;
   onFilter: (column: string, value: string) => void;

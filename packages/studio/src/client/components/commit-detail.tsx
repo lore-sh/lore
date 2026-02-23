@@ -109,7 +109,7 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
             <section>
               <p className="ui-label">Effects</p>
               <div className="ui-stack-2">
-                {detailData.rowEffects.map((effect, index) => (
+                {detailData.effects.rows.map((effect, index) => (
                   <div key={`${effect.tableName}-${index}`} className="ui-effect-block">
                     <p className="ui-soft">
                       {effect.tableName}
@@ -125,7 +125,7 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
                   </div>
                 ))}
 
-                {detailData.schemaEffects.map((effect, index) => {
+                {detailData.effects.schemas.map((effect, index) => {
                   const line = renderSchemaEffectLine(effect);
                   return (
                     <div key={`${effect.tableName}-${index}`} className={diffKindClass(line.kind)}>

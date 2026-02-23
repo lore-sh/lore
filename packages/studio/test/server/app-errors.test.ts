@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { apply, initDatabase, parsePlan, revertCommit } from "@toss/core";
+import { apply, initDb, parsePlan, revert } from "@toss/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -54,7 +54,7 @@ describe("studio api error mapping", () => {
   test("returns NOT_FOUND as 404 for coded table lookup errors", async () => {
     const dbPath = createTempPath("studio-api-not-found-");
     const { status, body, contentType } = await withDbPath(dbPath, async (db) => {
-      await initDatabase({ dbPath });
+      await initDb({ dbPath });
       const app = createStudioApp(db);
       const response = await app.request("/api/tables/missing/history?limit=10&page=1");
       return {
@@ -75,7 +75,7 @@ describe("studio api error mapping", () => {
   test("removes legacy /api/schema endpoint", async () => {
     const dbPath = createTempPath("studio-api-no-schema-");
     const response = await withDbPath(dbPath, async (db) => {
-      await initDatabase({ dbPath });
+      await initDb({ dbPath });
       const app = createStudioApp(db);
       return await app.request("/api/schema");
     });
@@ -87,7 +87,7 @@ describe("studio api error mapping", () => {
   test("returns ALREADY_REVERTED as 409", async () => {
     const dbPath = createTempPath("studio-api-already-reverted-");
     const { status, body } = await withDbPath(dbPath, async (db) => {
-      await initDatabase({ dbPath });
+      await initDb({ dbPath });
       const planPath = join(dbPath, "..", "plan.json");
       await writeJson(planPath, {
         message: "create expenses",
@@ -100,7 +100,7 @@ describe("studio api error mapping", () => {
         ],
       });
       const commit = await applyPlan(db, planPath);
-      const first = revertCommit(db, commit.commitId);
+      const first = revert(db, commit.commitId);
       expect(first.ok).toBe(true);
 
       const app = createStudioApp(db);

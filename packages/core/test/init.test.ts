@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { getStatus, initDatabase, openDb } from "../src";
+import { status, initDb, openDb } from "../src";
 import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -38,26 +38,26 @@ function restoreGlobalEnv(snapshot: GlobalEnvSnapshot): void {
   }
 }
 
-describe("initDatabase", () => {
+describe("initDb", () => {
   testWithTmp("force-new reinitializes database", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE foo (id INTEGER PRIMARY KEY, v TEXT)");
     direct.run("INSERT INTO foo(id, v) VALUES(1, 'x')");
     direct.close(false);
 
-    const reinit = await initDatabase({ dbPath, forceNew: true });
-    expect(reinit.dbPath).toBe(dbPath);
-    const status = getStatus(currentDb());
-    expect(status.tableCount).toBe(0);
-    expect(status.headCommit).toBeNull();
+    const reinit = await initDb({ dbPath, forceNew: true });
+    expect(reinit.path).toBe(dbPath);
+    const currentStatus = status(currentDb());
+    expect(currentStatus.tableCount).toBe(0);
+    expect(currentStatus.headCommit).toBeNull();
   });
 
   testWithTmp("init applies drizzle migrations metadata", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const db = new Database(dbPath);
     try {
@@ -79,9 +79,9 @@ describe("initDatabase", () => {
     process.env.CODEX_HOME = join(dir, "codex-home");
     process.env.XDG_CONFIG_HOME = join(dir, "xdg-config");
     try {
-      const result = await initDatabase();
+      const result = await initDb();
       const expected = join(dir, "home", ".toss", "toss.db");
-      expect(result.dbPath).toBe(expected);
+      expect(result.path).toBe(expected);
       expect(await Bun.file(expected).exists()).toBe(true);
     } finally {
       restoreGlobalEnv(snapshot);

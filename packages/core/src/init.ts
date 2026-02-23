@@ -1,12 +1,10 @@
-import { initDb } from "./engine/db";
-import type { InitDatabaseOptions } from "./types";
+import { initDb as initEngineDb } from "./engine/db";
+import type { InitDbOptions } from "./types";
 
-export async function initDatabase(
-  options: InitDatabaseOptions = {},
-): Promise<{ dbPath: string }> {
-  const initialized = await initDb({
+export async function initDb(options: InitDbOptions = {}): Promise<{ path: string }> {
+  const initialized = await initEngineDb({
     dbPath: options.dbPath,
     forceNew: options.forceNew,
   });
-  return { dbPath: initialized.path };
+  return { path: initialized.path };
 }

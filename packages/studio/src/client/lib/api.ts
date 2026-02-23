@@ -1,12 +1,13 @@
 import type {
+  Commit,
+  CommitEffects,
+  CommitSummary,
   RevertConflictResult,
   RevertResult,
-  StudioCommitDetail,
-  StudioHistoryEntry,
-  StudioSchemaTable,
-  StudioTableDataView,
-  StudioTablesView,
+  SchemaTable,
   Status,
+  Table,
+  TablePage,
 } from "@toss/core";
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import type { StudioApi, StudioApiError } from "../../server/app";
@@ -28,6 +29,24 @@ type RevertConflictPayload = InferResponseType<typeof revertCommitEndpoint, 409>
 
 type TableRowsQueryJson = TableRowsQueryRequest["json"];
 type CommitQueryRaw = NonNullable<CommitsRequest["query"]>;
+
+export type StudioCellValue = string | number | boolean | null;
+export type StudioRow = Record<string, StudioCellValue>;
+
+export type TableData = Omit<TablePage, "rows"> & {
+  rows: StudioRow[];
+};
+
+export interface TablesPayload {
+  dbPath: string;
+  generatedAt: string;
+  tables: Table[];
+}
+
+export interface CommitDetailPayload {
+  commit: Commit;
+  effects: CommitEffects;
+}
 
 export type TableDataQuery = Omit<TableRowsQueryJson, "page" | "pageSize" | "filters"> & {
   page: number;
@@ -136,15 +155,15 @@ export async function fetchStatus(): Promise<Status> {
   return (await response.json()) as Status;
 }
 
-export async function fetchTables(): Promise<StudioTablesView> {
+export async function fetchTables(): Promise<TablesPayload> {
   const response = await tablesEndpoint();
   if (response.status !== 200) {
     await throwApiError(response);
   }
-  return (await response.json()) as StudioTablesView;
+  return (await response.json()) as TablesPayload;
 }
 
-export async function fetchTableData(name: string, query: TableDataQuery): Promise<StudioTableDataView> {
+export async function fetchTableData(name: string, query: TableDataQuery): Promise<TableData> {
   const response = await tableRowsQueryEndpoint({
     param: { name },
     json: query,
@@ -153,10 +172,10 @@ export async function fetchTableData(name: string, query: TableDataQuery): Promi
   if (response.status !== 200) {
     await throwApiError(response);
   }
-  return (await response.json()) as StudioTableDataView;
+  return (await response.json()) as TableData;
 }
 
-export async function fetchTableSchema(name: string): Promise<StudioSchemaTable> {
+export async function fetchTableSchema(name: string): Promise<SchemaTable> {
   const response = await tableSchemaEndpoint({
     param: { name },
   });
@@ -164,10 +183,10 @@ export async function fetchTableSchema(name: string): Promise<StudioSchemaTable>
   if (response.status !== 200) {
     await throwApiError(response);
   }
-  return (await response.json()) as StudioSchemaTable;
+  return (await response.json()) as SchemaTable;
 }
 
-export async function fetchTableHistory(name: string, limit = 50, page?: number): Promise<StudioHistoryEntry[]> {
+export async function fetchTableHistory(name: string, limit = 50, page?: number): Promise<CommitSummary[]> {
   const query: Record<string, string> = {
     limit: String(limit),
   };
@@ -184,10 +203,10 @@ export async function fetchTableHistory(name: string, limit = 50, page?: number)
   if (response.status !== 200) {
     await throwApiError(response);
   }
-  return (await response.json()) as StudioHistoryEntry[];
+  return (await response.json()) as CommitSummary[];
 }
 
-export async function fetchHistory(query: HistoryQuery): Promise<StudioHistoryEntry[]> {
+export async function fetchHistory(query: HistoryQuery): Promise<CommitSummary[]> {
   const encoded: Record<string, string> = {};
 
   if (typeof query.limit === "number") {
@@ -210,10 +229,10 @@ export async function fetchHistory(query: HistoryQuery): Promise<StudioHistoryEn
   if (response.status !== 200) {
     await throwApiError(response);
   }
-  return (await response.json()) as StudioHistoryEntry[];
+  return (await response.json()) as CommitSummary[];
 }
 
-export async function fetchCommitDetail(id: string): Promise<StudioCommitDetail> {
+export async function fetchCommitDetail(id: string): Promise<CommitDetailPayload> {
   const response = await commitDetailEndpoint({
     param: { id },
   });
@@ -221,7 +240,7 @@ export async function fetchCommitDetail(id: string): Promise<StudioCommitDetail>
   if (response.status !== 200) {
     await throwApiError(response);
   }
-  return (await response.json()) as StudioCommitDetail;
+  return (await response.json()) as CommitDetailPayload;
 }
 
 export async function revertCommitById(id: string): Promise<RevertResult> {

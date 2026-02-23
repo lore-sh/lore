@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  getHistory,
-  initDatabase,
+  history,
+  initDb,
   CodedError,
   maybeCreateSnapshot,
-  readQuery,
-  recoverFromSnapshot,
-  revertCommit,
-  verifyDatabase,
+  query,
+  recover,
+  revert,
+  verify,
 } from "../src";
 import { promotePreparedDatabase } from "../src/snapshot";
 import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/engine/db";
@@ -26,13 +26,13 @@ async function recoverAtCurrentDb(commitId: string) {
   const db = currentDb();
   const dbPath = db.filename;
   db.close(false);
-  return await recoverFromSnapshot(dbPath, commitId);
+  return await recover(dbPath, commitId);
 }
 
 describe("snapshot / recover", () => {
   testWithTmp("recover promotion failure preserves configured db path", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE keep_path_check (id INTEGER PRIMARY KEY, value TEXT NOT NULL)");
@@ -45,13 +45,13 @@ describe("snapshot / recover", () => {
     await expect(promotePreparedDatabase(missingPreparedPath, dbPath)).rejects.toBeInstanceOf(Error);
 
     expect(currentDb().filename).toBe(dbPath);
-    const rows = readQuery(currentDb(), "SELECT id, value FROM keep_path_check");
+    const rows = query(currentDb(), "SELECT id, value FROM keep_path_check");
     expect(rows).toEqual([{ id: 1, value: "ok" }]);
   });
 
   testWithTmp("snapshot recover restores and replays exact commit ids", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const create = await writePlanFile(dir, "create.json", {
       message: "create logs",
@@ -77,22 +77,22 @@ describe("snapshot / recover", () => {
     const result = await recoverAtCurrentDb(firstCommit.commitId);
     expect(result.replayedCommits).toBeGreaterThanOrEqual(1);
 
-    const rows = readQuery(currentDb(), "SELECT id, msg FROM logs");
+    const rows = query(currentDb(), "SELECT id, msg FROM logs");
     expect(rows).toEqual([{ id: 1, msg: "hello" }]);
 
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(secondCommit.commitId);
-    expect(history[0]?.kind).toBe(secondCommit.kind);
-    expect(history[0]?.createdAt).toBe(secondCommit.createdAt);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(secondCommit.commitId);
+    expect(commits[0]?.kind).toBe(secondCommit.kind);
+    expect(commits[0]?.createdAt).toBe(secondCommit.createdAt);
 
-    const verify = verifyDatabase(currentDb());
-    expect(verify.ok).toBe(true);
-    expect(verify.chainValid).toBe(true);
+    const verification = verify(currentDb());
+    expect(verification.ok).toBe(true);
+    expect(verification.chainValid).toBe(true);
   });
 
   testWithTmp("recover failure during replay does not overwrite original database", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const create = await writePlanFile(dir, "create-safe-recover.json", {
       message: "create table",
@@ -130,7 +130,7 @@ describe("snapshot / recover", () => {
 
     try {
       await recoverAtCurrentDb(base.commitId);
-      throw new Error("recoverFromSnapshot should fail due to tampered replay metadata");
+      throw new Error("recover should fail due to tampered replay metadata");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
       if (CodedError.is(error)) {
@@ -138,7 +138,7 @@ describe("snapshot / recover", () => {
       }
     }
 
-    const rowsAfterFailure = readQuery(currentDb(), "SELECT id, value FROM recover_guard ORDER BY id");
+    const rowsAfterFailure = query(currentDb(), "SELECT id, value FROM recover_guard ORDER BY id");
     expect(rowsAfterFailure).toEqual([
       { id: 1, value: "a" },
       { id: 2, value: "b" },
@@ -147,7 +147,7 @@ describe("snapshot / recover", () => {
 
   testWithTmp("snapshot creation does not leak tmp wal/shm sidecars", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const create = await writePlanFile(dir, "create-snap-clean.json", {
       message: "create snapshots table",
@@ -175,7 +175,7 @@ describe("snapshot / recover", () => {
 
   testWithTmp("snapshot recover succeeds when untouched pre-existing tables exist", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE external_data (id INTEGER PRIMARY KEY, body TEXT)");
@@ -206,18 +206,18 @@ describe("snapshot / recover", () => {
     const recovered = await recoverAtCurrentDb(snapshotBase.commitId);
     expect(recovered.replayedCommits).toBe(1);
 
-    const extRows = readQuery(currentDb(), "SELECT id, body FROM external_data");
+    const extRows = query(currentDb(), "SELECT id, body FROM external_data");
     expect(extRows).toEqual([{ id: 1, body: "stable" }]);
-    const orderRows = readQuery(currentDb(), "SELECT id, item FROM orders");
+    const orderRows = query(currentDb(), "SELECT id, item FROM orders");
     expect(orderRows).toEqual([{ id: 1, item: "book" }]);
 
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(replayed.commitId);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(replayed.commitId);
   });
 
   testWithTmp("snapshot replay does not re-fire triggers already captured in observed effects", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const create = await writePlanFile(dir, "create-ledger-tables.json", {
       message: "create ledger tables",
@@ -274,13 +274,13 @@ describe("snapshot / recover", () => {
 
     await recoverAtCurrentDb(markerCommit.commitId);
 
-    const rows = readQuery(currentDb(), "SELECT id, balance FROM account WHERE id=1");
+    const rows = query(currentDb(), "SELECT id, balance FROM account WHERE id=1");
     expect(rows).toEqual([{ id: 1, balance: 7 }]);
   });
 
   testWithTmp("snapshot replay interleaves schema before blocked row effects in revert commit", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -306,7 +306,7 @@ describe("snapshot / recover", () => {
     });
     const dropped = await applyPlanAndSnapshot(destructive);
 
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success before replay test");
@@ -329,13 +329,13 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
   testWithTmp("snapshot replay succeeds for first AUTOINCREMENT insert commit", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_replay (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
@@ -362,16 +362,16 @@ describe("snapshot / recover", () => {
     const recovered = await recoverAtCurrentDb(baseCommit.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
 
-    const rows = readQuery(currentDb(), "SELECT id, body FROM auto_replay ORDER BY id");
+    const rows = query(currentDb(), "SELECT id, body FROM auto_replay ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "x" }]);
 
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(firstInsert.commitId);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(firstInsert.commitId);
   });
 
   testWithTmp("snapshot replay succeeds for drop_table on AUTOINCREMENT table", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_schema (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL)");
@@ -399,15 +399,15 @@ describe("snapshot / recover", () => {
     const recovered = await recoverAtCurrentDb(markerCommit.commitId);
     expect(recovered.replayedCommits).toBeGreaterThanOrEqual(1);
 
-    const tableRows = readQuery(currentDb(), "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='auto_schema'");
+    const tableRows = query(currentDb(), "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='auto_schema'");
     expect(tableRows).toEqual([{ c: 0 }]);
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(dropped.commitId);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(dropped.commitId);
   });
 
   testWithTmp("snapshot replay restores FK-related schema effects in dependency-safe order", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -433,7 +433,7 @@ describe("snapshot / recover", () => {
     });
     const dropped = await applyPlanAndSnapshot(dropBoth);
 
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success before recover replay");
@@ -454,13 +454,13 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
   testWithTmp("snapshot replay of self-FK schema rebuild revert preserves FK targets", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -481,7 +481,7 @@ describe("snapshot / recover", () => {
     });
     const dropped = await applyPlanAndSnapshot(dropPlan);
 
-    const reverted = revertCommit(currentDb(), dropped.commitId);
+    const reverted = revert(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for self-FK schema rebuild");
@@ -507,13 +507,13 @@ describe("snapshot / recover", () => {
     expect(() => verify.run("INSERT INTO self_fk_replay(id, parent_id, note) VALUES (4, 999, 'bad')")).toThrow();
     verify.close(false);
 
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
   testWithTmp("snapshot replay preserves TEXT bytes with embedded NUL", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const create = await writePlanFile(dir, "create-text-nul-recover.json", {
       message: "create text nul replay table",
@@ -554,12 +554,12 @@ describe("snapshot / recover", () => {
     const updated = await applyPlanAndSnapshot(update);
 
     await recoverAtCurrentDb(markerCommit.commitId);
-    const rows = readQuery(currentDb(), 
+    const rows = query(currentDb(), 
       "SELECT id, hex(CAST(payload AS BLOB)) AS payload_hex, length(CAST(payload AS BLOB)) AS payload_len, tag FROM text_nul_recover",
     );
     expect(rows).toEqual([{ id: 1, payload_hex: "410042", payload_len: 3, tag: "b" }]);
 
-    const history = getHistory(currentDb());
-    expect(history[0]?.commitId).toBe(updated.commitId);
+    const commits = history(currentDb());
+    expect(commits[0]?.commitId).toBe(updated.commitId);
   });
 });

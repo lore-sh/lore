@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { initDatabase, CodedError, readQuery } from "../../src";
+import { initDb, CodedError, query } from "../../src";
 import { applyPlan, createTestContext, planCheck, writePlanFile, withTmpDirCleanup, currentDb } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -8,7 +8,7 @@ const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name,
 describe("alter_column_type", () => {
   testWithTmp("alter_column_type preserves FOREIGN KEY constraints", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -44,7 +44,7 @@ describe("alter_column_type", () => {
 
   testWithTmp("alter_column_type supports self-referential FOREIGN KEY tables", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA foreign_keys=ON");
@@ -79,7 +79,7 @@ describe("alter_column_type", () => {
 
   testWithTmp("alter_column_type supports legacy single-quoted identifiers in DDL", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE 'sq_users' ('id' INTEGER PRIMARY KEY, 'amount' TEXT)");
@@ -92,13 +92,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), 'SELECT typeof("amount") AS t FROM "sq_users" WHERE "id" = 1');
+    const rows = query(currentDb(), 'SELECT typeof("amount") AS t FROM "sq_users" WHERE "id" = 1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
   testWithTmp("alter_column_type works for quoted keyword column names", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run(`
@@ -116,13 +116,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), `SELECT typeof("primary") AS t, note FROM kw_cols`);
+    const rows = query(currentDb(), `SELECT typeof("primary") AS t, note FROM kw_cols`);
     expect(rows).toEqual([{ t: "integer", note: "x" }]);
   });
 
   testWithTmp("alter_column_type handles leading comments in column segments", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run(`
@@ -143,13 +143,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), "SELECT typeof(b) AS t, c FROM commented_cols WHERE id=1");
+    const rows = query(currentDb(), "SELECT typeof(b) AS t, c FROM commented_cols WHERE id=1");
     expect(rows).toEqual([{ t: "integer", c: "y" }]);
   });
 
   testWithTmp("alter_column_type preserves newline-terminated line comments around commas", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run(`
@@ -168,13 +168,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), "SELECT typeof(a) AS ta, typeof(b) AS tb FROM line_comment_cols WHERE id=1");
+    const rows = query(currentDb(), "SELECT typeof(a) AS ta, typeof(b) AS tb FROM line_comment_cols WHERE id=1");
     expect(rows).toEqual([{ ta: "text", tb: "integer" }]);
   });
 
   testWithTmp("alter_column_type preserves trailing line comment on last column segment", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run(`
@@ -192,13 +192,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), "SELECT typeof(b) AS tb FROM trailing_comment_last WHERE id=1");
+    const rows = query(currentDb(), "SELECT typeof(b) AS tb FROM trailing_comment_last WHERE id=1");
     expect(rows).toEqual([{ tb: "integer" }]);
   });
 
   testWithTmp("alter_column_type resolves table DDL case-insensitively and preserves secondary objects", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE Users (id INTEGER PRIMARY KEY, amount TEXT, note TEXT)");
@@ -230,7 +230,7 @@ describe("alter_column_type", () => {
 
   testWithTmp("alter_column_type supports non-ASCII bare identifiers", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE 사용자 (id INTEGER PRIMARY KEY, 이름 TEXT)");
@@ -243,13 +243,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), 'SELECT typeof("이름") AS t FROM "사용자" WHERE id=1');
+    const rows = query(currentDb(), 'SELECT typeof("이름") AS t FROM "사용자" WHERE id=1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
   testWithTmp("alter_column_type supports non-BMP bare identifiers", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE astral_cols (id INTEGER PRIMARY KEY, 𐐷 TEXT)");
@@ -262,13 +262,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), 'SELECT typeof("𐐷") AS t FROM "astral_cols" WHERE id=1');
+    const rows = query(currentDb(), 'SELECT typeof("𐐷") AS t FROM "astral_cols" WHERE id=1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
   testWithTmp("alter_column_type does not fold Unicode case when matching columns", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run('CREATE TABLE unicode_case_cols (id INTEGER PRIMARY KEY, "Ä" TEXT, "ä" TEXT)');
@@ -281,13 +281,13 @@ describe("alter_column_type", () => {
     });
     await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(currentDb(), 'SELECT typeof("Ä") AS upper_t, typeof("ä") AS lower_t FROM "unicode_case_cols" WHERE id=1');
+    const rows = query(currentDb(), 'SELECT typeof("Ä") AS upper_t, typeof("ä") AS lower_t FROM "unicode_case_cols" WHERE id=1');
     expect(rows).toEqual([{ upper_t: "integer", lower_t: "text" }]);
   });
 
   testWithTmp("alter_column_type preserves AUTOINCREMENT sqlite_sequence during table rebuild", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     direct.run("CREATE TABLE auto_items (id INTEGER PRIMARY KEY AUTOINCREMENT, amount TEXT NOT NULL)");
@@ -320,7 +320,7 @@ describe("alter_column_type", () => {
 describe("check operations", () => {
   testWithTmp("add_check enforces constraint for toss writes and raw SQL writes", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const create = await writePlanFile(dir, "check-create-tasks.json", {
       message: "create tasks",
@@ -373,7 +373,7 @@ describe("check operations", () => {
 
   testWithTmp("validator allows comment-like tokens inside CHECK string literals", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const create = await writePlanFile(dir, "check-literal-token-create.json", {
       message: "create tasks",
@@ -405,7 +405,7 @@ describe("check operations", () => {
 
   testWithTmp("validator rejects SQL comments outside literals in CHECK expression", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "check-comment-reject-setup.json", {
       message: "create tasks",
@@ -440,7 +440,7 @@ describe("check operations", () => {
 
   testWithTmp("validator rejects semicolons outside SQLite double-quoted identifiers", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "check-semicolon-quote-rule-setup.json", {
       message: "create tasks",
@@ -475,7 +475,7 @@ describe("check operations", () => {
 
   testWithTmp("validator rejects add_check payload that escapes into extra table constraints", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "check-constraint-injection-setup.json", {
       message: "create tasks",
@@ -510,7 +510,7 @@ describe("check operations", () => {
 
   testWithTmp("drop_check removes matching constraint by expression", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "check-drop-setup.json", {
       message: "setup tasks with check",
@@ -550,13 +550,13 @@ describe("check operations", () => {
     } finally {
       direct.close(false);
     }
-    const rows = readQuery(currentDb(), "SELECT status FROM tasks WHERE id=1");
+    const rows = query(currentDb(), "SELECT status FROM tasks WHERE id=1");
     expect(rows).toEqual([{ status: "cancelled" }]);
   });
 
   testWithTmp("drop_check recognizes CHECK constraints with comments between CONSTRAINT and CHECK", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     try {
@@ -587,7 +587,7 @@ describe("check operations", () => {
 
   testWithTmp("add_check duplicate detection recognizes constraints with CONSTRAINT/CHECK comments", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     try {
@@ -615,7 +615,7 @@ describe("check operations", () => {
 
   testWithTmp("drop_check matches CHECK expression regardless of whitespace before opening parenthesis", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     try {
@@ -646,7 +646,7 @@ describe("check operations", () => {
 
   testWithTmp("add_check duplicate detection ignores whitespace before opening parenthesis", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     try {
@@ -674,7 +674,7 @@ describe("check operations", () => {
 
   testWithTmp("add_check preserves AUTOINCREMENT sqlite_sequence during table rebuild", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     try {
@@ -712,7 +712,7 @@ describe("check operations", () => {
 
   testWithTmp("drop_check preserves AUTOINCREMENT sqlite_sequence during table rebuild", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     try {
@@ -751,7 +751,7 @@ describe("check operations", () => {
 
   testWithTmp("drop_check matches CHECK expression even when comment contains parenthesis tokens", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const direct = new Database(dbPath);
     try {
@@ -782,7 +782,7 @@ describe("check operations", () => {
 
   testWithTmp("add_check fails when existing rows violate expression and keeps data intact", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "check-invalid-existing-setup.json", {
       message: "setup invalid existing row",
@@ -812,12 +812,12 @@ describe("check operations", () => {
     });
 
     await expect(applyPlan(currentDb(), addCheck)).rejects.toThrow(/CHECK constraint failed/i);
-    expect(readQuery(currentDb(), "SELECT id, status FROM tasks")).toEqual([{ id: 1, status: "cancelled" }]);
+    expect(query(currentDb(), "SELECT id, status FROM tasks")).toEqual([{ id: 1, status: "cancelled" }]);
   });
 
   testWithTmp("planCheck marks drop_check as destructive/high risk", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "check-plan-setup.json", {
       message: "setup tasks with check",
@@ -851,7 +851,7 @@ describe("check operations", () => {
 
   testWithTmp("drop_check returns INVALID_OPERATION when expression does not exist", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const setup = await writePlanFile(dir, "check-drop-missing-setup.json", {
       message: "create tasks",

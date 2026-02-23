@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { getStatus, initDatabase } from "../src";
+import { status, initDb } from "../src";
 import { writeRemoteConfig } from "../src/config";
 import { createTestContext, withTestHome, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-describe("getStatus", () => {
+describe("status", () => {
   testWithTmp("returns table counts and offline sync state", async () => {
     const { dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     const db = new Database(dbPath);
     try {
@@ -19,23 +19,23 @@ describe("getStatus", () => {
       db.close(false);
     }
 
-    const status = getStatus(currentDb());
-    expect(status.tableCount).toBe(1);
-    expect(status.tables).toEqual([{ name: "users", count: 2 }]);
-    expect(status.sync.state).toBe("offline");
-    expect(status.storage.commitCount).toBe(0);
+    const currentStatus = status(currentDb());
+    expect(currentStatus.tableCount).toBe(1);
+    expect(currentStatus.tables).toEqual([{ name: "users", count: 2 }]);
+    expect(currentStatus.sync.state).toBe("offline");
+    expect(currentStatus.storage.commitCount).toBe(0);
   });
 
   testWithTmp("keeps offline state before first sync even when remote is configured", async () => {
     const { dir, dbPath } = createTestContext();
-    await initDatabase({ dbPath });
+    await initDb({ dbPath });
 
     withTestHome(dir, () => {
       writeRemoteConfig({ platform: "libsql", url: "libsql://status-test.turso.io" });
-      const status = getStatus(currentDb());
-      expect(status.sync.configured).toBe(true);
-      expect(status.sync.state).toBe("offline");
-      expect(status.sync.pendingCommits).toBe(0);
+      const currentStatus = status(currentDb());
+      expect(currentStatus.sync.configured).toBe(true);
+      expect(currentStatus.sync.state).toBe("offline");
+      expect(currentStatus.sync.pendingCommits).toBe(0);
     });
   });
 });

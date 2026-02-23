@@ -1,20 +1,14 @@
 import type { Database } from "bun:sqlite";
 import { sql } from "drizzle-orm";
-import {
-  LAST_VERIFIED_AT_META_KEY,
-  LAST_VERIFIED_OK_META_KEY,
-  getMetaValue,
-  getRow,
-  listUserTables,
-} from "./engine/db";
+import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getMetaValue, getRow, listUserTables } from "./engine/db";
 import { createEngineDb } from "./engine/client";
 import { SnapshotTable } from "./engine/schema.sql";
-import { buildSyncStatus } from "./sync";
-import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit, listCommits } from "./engine/log";
+import { syncStatus } from "./sync";
+import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit } from "./engine/log";
 import { quoteIdentifier } from "./engine/sql";
-import type { Commit, Status } from "./types";
+import type { Status } from "./types";
 
-export function getStatus(db: Database): Status {
+export function status(db: Database): Status {
   const tables = listUserTables(db).map((table) => {
     const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(table, { unsafe: true })}`);
     return { name: table, count: row?.c ?? 0 };
@@ -42,15 +36,11 @@ export function getStatus(db: Database): Status {
     snapshotCount: snapshotCountRow?.c ?? 0,
     lastVerifiedAt: getMetaValue(db, LAST_VERIFIED_AT_META_KEY),
     lastVerifiedOk: verifiedOkRaw === null ? null : verifiedOkRaw === "1",
-    sync: buildSyncStatus(db),
+    sync: syncStatus(db),
     storage: {
       commitCount,
       estimatedHistoryBytes: estimateHistorySizeBytes(db),
       latestCommitEstimatedBytes,
     },
   };
-}
-
-export function getHistory(db: Database): Commit[] {
-  return listCommits(db, true);
 }

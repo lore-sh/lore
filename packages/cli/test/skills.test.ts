@@ -3,7 +3,7 @@ import { chmod, mkdir } from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initDatabase } from "@toss/core";
+import { initDb } from "@toss/core";
 import { cleanSkills, generateSkills } from "../src/skills";
 
 interface GlobalEnvSnapshot {
@@ -58,7 +58,7 @@ function withSkillEnv(fn: (paths: GlobalEnvPaths, dbPath: string) => Promise<voi
     process.env.XDG_CONFIG_HOME = paths.xdgConfigHome;
     const dbPath = join(dir, "toss.db");
     try {
-      await initDatabase({ dbPath });
+      await initDb({ dbPath });
       await fn(paths, dbPath);
     } finally {
       restoreGlobalEnv(snapshot);

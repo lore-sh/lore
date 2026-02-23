@@ -1,11 +1,11 @@
 import type { Database } from "bun:sqlite";
 import {
-  getHistory,
-  getStatus,
-  recoverFromSnapshot,
+  history,
+  status,
+  recover,
   resolveDbPath,
-  revertCommit,
-  verifyDatabase,
+  revert,
+  verify,
 } from "@toss/core";
 import { formatTimestamp, printTable, summarizeCommit, toJson } from "../format";
 
@@ -94,31 +94,31 @@ export function validateRecoverArgs(args: string[]): void {
 
 export function runStatus(db: Database, args: string[]): void {
   const { json } = parseStatusArgs(args);
-  const status = getStatus(db);
+  const currentStatus = status(db);
   if (json) {
-    console.log(toJson(status));
+    console.log(toJson(currentStatus));
     return;
   }
-  const rows = status.tables.map((table) => ({ table: table.name, rows: table.count }));
-  console.log(`DB: ${status.dbPath}`);
-  console.log(`User Tables: ${status.tableCount}`);
-  console.log(`Snapshots: ${status.snapshotCount}`);
-  console.log(`Last Verified At: ${status.lastVerifiedAt ?? "never"}`);
-  const verifiedLabel = status.lastVerifiedOk === null ? "unknown" : status.lastVerifiedOk ? "yes" : "no";
+  const rows = currentStatus.tables.map((table) => ({ table: table.name, rows: table.count }));
+  console.log(`DB: ${currentStatus.dbPath}`);
+  console.log(`User Tables: ${currentStatus.tableCount}`);
+  console.log(`Snapshots: ${currentStatus.snapshotCount}`);
+  console.log(`Last Verified At: ${currentStatus.lastVerifiedAt ?? "never"}`);
+  const verifiedLabel = currentStatus.lastVerifiedOk === null ? "unknown" : currentStatus.lastVerifiedOk ? "yes" : "no";
   console.log(`Last Verified OK: ${verifiedLabel}`);
-  console.log(`Sync Configured: ${status.sync.configured ? "yes" : "no"}`);
-  console.log(`Sync State: ${status.sync.state}`);
-  console.log(`Pending Commits: ${status.sync.pendingCommits}`);
-  console.log(`Remote Platform: ${status.sync.remotePlatform ?? "not configured"}`);
-  console.log(`Remote: ${status.sync.remoteUrl ?? "not configured"}`);
-  console.log(`History Commits: ${status.storage.commitCount}`);
-  console.log(`History Size Estimate: ${status.storage.estimatedHistoryBytes} bytes`);
+  console.log(`Sync Configured: ${currentStatus.sync.configured ? "yes" : "no"}`);
+  console.log(`Sync State: ${currentStatus.sync.state}`);
+  console.log(`Pending Commits: ${currentStatus.sync.pendingCommits}`);
+  console.log(`Remote Platform: ${currentStatus.sync.remotePlatform ?? "not configured"}`);
+  console.log(`Remote: ${currentStatus.sync.remoteUrl ?? "not configured"}`);
+  console.log(`History Commits: ${currentStatus.storage.commitCount}`);
+  console.log(`History Size Estimate: ${currentStatus.storage.estimatedHistoryBytes} bytes`);
   console.log(
-    `Latest Commit Size Estimate: ${status.storage.latestCommitEstimatedBytes === null ? "n/a" : `${status.storage.latestCommitEstimatedBytes} bytes`}`,
+    `Latest Commit Size Estimate: ${currentStatus.storage.latestCommitEstimatedBytes === null ? "n/a" : `${currentStatus.storage.latestCommitEstimatedBytes} bytes`}`,
   );
   console.log(
-    status.headCommit
-      ? `HEAD: ${status.headCommit.commitId} (seq=${status.headCommit.seq}, kind=${status.headCommit.kind})`
+    currentStatus.headCommit
+      ? `HEAD: ${currentStatus.headCommit.commitId} (seq=${currentStatus.headCommit.seq}, kind=${currentStatus.headCommit.kind})`
       : "HEAD: none",
   );
   console.log(rows.length === 0 ? "(no user tables)" : printTable(rows));
@@ -126,12 +126,12 @@ export function runStatus(db: Database, args: string[]): void {
 
 export function runHistory(db: Database, args: string[]): void {
   const { verbose, json } = parseHistoryArgs(args);
-  const history = getHistory(db);
+  const entries = history(db);
   if (json) {
-    console.log(toJson(history));
+    console.log(toJson(entries));
     return;
   }
-  const rows = history.map((entry) =>
+  const rows = entries.map((entry) =>
     verbose
       ? {
           seq: entry.seq,
@@ -159,7 +159,7 @@ export function runHistory(db: Database, args: string[]): void {
 
 export function runRevert(db: Database, args: string[]): void {
   const { commitId } = parseRevertArgs(args);
-  const result = revertCommit(db, commitId);
+  const result = revert(db, commitId);
   if (!result.ok) {
     console.log(toJson({ status: "conflict", conflicts: result.conflicts }));
     process.exit(1);
@@ -169,7 +169,7 @@ export function runRevert(db: Database, args: string[]): void {
 
 export function runVerify(db: Database, args: string[]): void {
   const { full } = parseVerifyArgs(args);
-  const result = verifyDatabase(db, { full });
+  const result = verify(db, { full });
   console.log(toJson(result));
   if (!result.ok) {
     process.exit(1);
@@ -178,6 +178,6 @@ export function runVerify(db: Database, args: string[]): void {
 
 export async function runRecover(args: string[]): Promise<void> {
   const { snapshotCommitId } = parseRecoverArgs(args);
-  const result = await recoverFromSnapshot(resolveDbPath(), snapshotCommitId);
+  const result = await recover(resolveDbPath(), snapshotCommitId);
   console.log(toJson({ status: "ok", ...result }));
 }

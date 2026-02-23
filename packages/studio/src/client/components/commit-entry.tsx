@@ -1,17 +1,17 @@
 import { useState } from "react";
-import type { StudioHistoryEntry } from "@toss/core";
+import type { CommitSummary } from "@toss/core";
 import { formatRelativeTime } from "../lib/time";
 import { summarizeHistoryEntry } from "../lib/commit-render";
 import { CommitDetail } from "./commit-detail";
 
 interface CommitEntryProps {
-  commit: StudioHistoryEntry;
+  commit: CommitSummary;
   showAffectedTables?: boolean;
   expandable?: boolean;
   enableRevert?: boolean;
 }
 
-function affectedTablesLabel(commit: StudioHistoryEntry): string {
+function affectedTablesLabel(commit: CommitSummary): string {
   if (commit.affectedTables.length === 0) {
     return "no tables";
   }
