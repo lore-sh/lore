@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { applyPlan, initDatabase, CodedError, planCheck, readQuery } from "../../src";
-import { createTestContext, writePlanFile, withTmpDirCleanup } from "../helpers";
+import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -29,7 +29,7 @@ describe("alter_column_type", () => {
       message: "convert child amount",
       operations: [{ type: "alter_column_type", table: "children", column: "amount", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
     const verifyDb = new Database(dbPath);
     verifyDb.run("PRAGMA foreign_keys=ON");
@@ -64,7 +64,7 @@ describe("alter_column_type", () => {
       message: "alter self fk table",
       operations: [{ type: "alter_column_type", table: "tree_nodes", column: "weight", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
     const verifyDb = new Database(dbPath);
     verifyDb.run("PRAGMA foreign_keys=ON");
@@ -90,9 +90,9 @@ describe("alter_column_type", () => {
       message: "alter legacy single-quoted identifiers",
       operations: [{ type: "alter_column_type", table: "sq_users", column: "amount", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery('SELECT typeof("amount") AS t FROM "sq_users" WHERE "id" = 1');
+    const rows = readQuery(currentDb(), 'SELECT typeof("amount") AS t FROM "sq_users" WHERE "id" = 1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
@@ -114,9 +114,9 @@ describe("alter_column_type", () => {
       message: "convert quoted keyword column type",
       operations: [{ type: "alter_column_type", table: "kw_cols", column: "primary", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery(`SELECT typeof("primary") AS t, note FROM kw_cols`);
+    const rows = readQuery(currentDb(), `SELECT typeof("primary") AS t, note FROM kw_cols`);
     expect(rows).toEqual([{ t: "integer", note: "x" }]);
   });
 
@@ -141,9 +141,9 @@ describe("alter_column_type", () => {
       message: "convert commented column type",
       operations: [{ type: "alter_column_type", table: "commented_cols", column: "b", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery("SELECT typeof(b) AS t, c FROM commented_cols WHERE id=1");
+    const rows = readQuery(currentDb(), "SELECT typeof(b) AS t, c FROM commented_cols WHERE id=1");
     expect(rows).toEqual([{ t: "integer", c: "y" }]);
   });
 
@@ -166,9 +166,9 @@ describe("alter_column_type", () => {
       message: "convert line-commented column type",
       operations: [{ type: "alter_column_type", table: "line_comment_cols", column: "b", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery("SELECT typeof(a) AS ta, typeof(b) AS tb FROM line_comment_cols WHERE id=1");
+    const rows = readQuery(currentDb(), "SELECT typeof(a) AS ta, typeof(b) AS tb FROM line_comment_cols WHERE id=1");
     expect(rows).toEqual([{ ta: "text", tb: "integer" }]);
   });
 
@@ -190,9 +190,9 @@ describe("alter_column_type", () => {
       message: "convert last commented column type",
       operations: [{ type: "alter_column_type", table: "trailing_comment_last", column: "b", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery("SELECT typeof(b) AS tb FROM trailing_comment_last WHERE id=1");
+    const rows = readQuery(currentDb(), "SELECT typeof(b) AS tb FROM trailing_comment_last WHERE id=1");
     expect(rows).toEqual([{ tb: "integer" }]);
   });
 
@@ -217,7 +217,7 @@ describe("alter_column_type", () => {
       message: "alter users amount",
       operations: [{ type: "alter_column_type", table: "users", column: "amount", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
     const db = new Database(dbPath);
     const indexes = db.query("PRAGMA index_list('Users')").all() as Array<{ name: string }>;
@@ -241,9 +241,9 @@ describe("alter_column_type", () => {
       message: "alter unicode bare column",
       operations: [{ type: "alter_column_type", table: "사용자", column: "이름", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery('SELECT typeof("이름") AS t FROM "사용자" WHERE id=1');
+    const rows = readQuery(currentDb(), 'SELECT typeof("이름") AS t FROM "사용자" WHERE id=1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
@@ -260,9 +260,9 @@ describe("alter_column_type", () => {
       message: "alter astral bare column",
       operations: [{ type: "alter_column_type", table: "astral_cols", column: "𐐷", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery('SELECT typeof("𐐷") AS t FROM "astral_cols" WHERE id=1');
+    const rows = readQuery(currentDb(), 'SELECT typeof("𐐷") AS t FROM "astral_cols" WHERE id=1');
     expect(rows).toEqual([{ t: "integer" }]);
   });
 
@@ -279,9 +279,9 @@ describe("alter_column_type", () => {
       message: "alter only capital-a-umlaut",
       operations: [{ type: "alter_column_type", table: "unicode_case_cols", column: "Ä", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
-    const rows = readQuery('SELECT typeof("Ä") AS upper_t, typeof("ä") AS lower_t FROM "unicode_case_cols" WHERE id=1');
+    const rows = readQuery(currentDb(), 'SELECT typeof("Ä") AS upper_t, typeof("ä") AS lower_t FROM "unicode_case_cols" WHERE id=1');
     expect(rows).toEqual([{ upper_t: "integer", lower_t: "text" }]);
   });
 
@@ -299,7 +299,7 @@ describe("alter_column_type", () => {
       message: "alter type and keep sqlite_sequence",
       operations: [{ type: "alter_column_type", table: "auto_items", column: "amount", newType: "INTEGER" }],
     });
-    await applyPlan(alter);
+    await applyPlan(currentDb(), alter);
 
     const verifyDb = new Database(dbPath);
     try {
@@ -335,7 +335,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(create);
+    await applyPlan(currentDb(), create);
 
     const addCheck = await writePlanFile(dir, "check-add-status-enum.json", {
       message: "add status check",
@@ -347,19 +347,19 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(addCheck);
+    await applyPlan(currentDb(), addCheck);
 
     const insertValid = await writePlanFile(dir, "check-insert-valid.json", {
       message: "insert valid status",
       operations: [{ type: "insert", table: "tasks", values: { id: 1, status: "todo" } }],
     });
-    await applyPlan(insertValid);
+    await applyPlan(currentDb(), insertValid);
 
     const insertInvalid = await writePlanFile(dir, "check-insert-invalid.json", {
       message: "insert invalid status",
       operations: [{ type: "insert", table: "tasks", values: { id: 2, status: "cancelled" } }],
     });
-    await expect(applyPlan(insertInvalid)).rejects.toThrow(/CHECK constraint failed/i);
+    await expect(applyPlan(currentDb(), insertInvalid)).rejects.toThrow(/CHECK constraint failed/i);
 
     const direct = new Database(dbPath);
     try {
@@ -388,7 +388,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(create);
+    await applyPlan(currentDb(), create);
 
     const addCheck = await writePlanFile(dir, "check-literal-token-add.json", {
       message: "add literal token check",
@@ -400,7 +400,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(addCheck);
+    await applyPlan(currentDb(), addCheck);
   });
 
   testWithTmp("validator rejects SQL comments outside literals in CHECK expression", async () => {
@@ -420,7 +420,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const invalid = await writePlanFile(dir, "check-comment-reject.json", {
       message: "bad comment expression",
@@ -433,7 +433,7 @@ describe("check operations", () => {
       ],
     });
 
-    const result = await planCheck(invalid);
+    const result = await planCheck(currentDb(), invalid);
     expect(result.ok).toBe(false);
     expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
     expect(result.errors.some((error) => error.message.includes("must not contain SQL comments"))).toBe(true);
@@ -456,7 +456,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const invalid = await writePlanFile(dir, "check-semicolon-quote-rule.json", {
       message: "bad expression with semicolon outside sqlite double-quoted identifier",
@@ -469,7 +469,7 @@ describe("check operations", () => {
       ],
     });
 
-    const result = await planCheck(invalid);
+    const result = await planCheck(currentDb(), invalid);
     expect(result.ok).toBe(false);
     expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
     expect(result.errors.some((error) => error.message.includes("single SQL expression"))).toBe(true);
@@ -492,7 +492,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const injected = await writePlanFile(dir, "check-constraint-injection.json", {
       message: "attempt injected check payload",
@@ -505,7 +505,7 @@ describe("check operations", () => {
       ],
     });
 
-    const result = await planCheck(injected);
+    const result = await planCheck(currentDb(), injected);
     expect(result.ok).toBe(false);
     expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
     expect(result.errors.some((error) => error.message.includes("single SQL expression"))).toBe(true);
@@ -533,7 +533,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const dropCheck = await writePlanFile(dir, "check-drop-status-enum.json", {
       message: "drop status check",
@@ -545,7 +545,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(dropCheck);
+    await applyPlan(currentDb(), dropCheck);
 
     const direct = new Database(dbPath);
     try {
@@ -553,7 +553,7 @@ describe("check operations", () => {
     } finally {
       direct.close(false);
     }
-    const rows = readQuery("SELECT status FROM tasks WHERE id=1");
+    const rows = readQuery(currentDb(), "SELECT status FROM tasks WHERE id=1");
     expect(rows).toEqual([{ status: "cancelled" }]);
   });
 
@@ -578,7 +578,7 @@ describe("check operations", () => {
       message: "drop commented named check",
       operations: [{ type: "drop_check", table: "tasks", expression: "status IN ('todo','doing')" }],
     });
-    await applyPlan(dropCheck);
+    await applyPlan(currentDb(), dropCheck);
 
     const verify = new Database(dbPath);
     try {
@@ -610,7 +610,7 @@ describe("check operations", () => {
       operations: [{ type: "add_check", table: "tasks", expression: "status IN ('todo','doing')" }],
     });
 
-    const result = await planCheck(addDuplicate);
+    const result = await planCheck(currentDb(), addDuplicate);
     expect(result.ok).toBe(false);
     expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
     expect(result.errors.some((error) => error.message.includes("Equivalent CHECK constraint already exists"))).toBe(true);
@@ -637,7 +637,7 @@ describe("check operations", () => {
       message: "drop check with spacing variant before opening parenthesis",
       operations: [{ type: "drop_check", table: "tasks", expression: "status IN ('todo','doing')" }],
     });
-    await applyPlan(dropCheck);
+    await applyPlan(currentDb(), dropCheck);
 
     const verify = new Database(dbPath);
     try {
@@ -669,7 +669,7 @@ describe("check operations", () => {
       operations: [{ type: "add_check", table: "tasks", expression: "status IN ('todo','doing')" }],
     });
 
-    const result = await planCheck(addDuplicate);
+    const result = await planCheck(currentDb(), addDuplicate);
     expect(result.ok).toBe(false);
     expect(result.errors.some((error) => error.code === "INVALID_OPERATION")).toBe(true);
     expect(result.errors.some((error) => error.message.includes("Equivalent CHECK constraint already exists"))).toBe(true);
@@ -697,7 +697,7 @@ describe("check operations", () => {
       message: "add check and keep sqlite_sequence",
       operations: [{ type: "add_check", table: "tasks_auto", expression: "status IN ('todo','doing')" }],
     });
-    await applyPlan(addCheck);
+    await applyPlan(currentDb(), addCheck);
 
     const verify = new Database(dbPath);
     try {
@@ -736,7 +736,7 @@ describe("check operations", () => {
       message: "drop check and keep sqlite_sequence",
       operations: [{ type: "drop_check", table: "tasks_auto", expression: "status IN ('todo','doing')" }],
     });
-    await applyPlan(dropCheck);
+    await applyPlan(currentDb(), dropCheck);
 
     const verify = new Database(dbPath);
     try {
@@ -773,7 +773,7 @@ describe("check operations", () => {
       message: "drop check with parenthesis in comment",
       operations: [{ type: "drop_check", table: "tasks", expression: "status IN ('todo','doing')" }],
     });
-    await applyPlan(dropCheck);
+    await applyPlan(currentDb(), dropCheck);
 
     const verify = new Database(dbPath);
     try {
@@ -801,7 +801,7 @@ describe("check operations", () => {
         { type: "insert", table: "tasks", values: { id: 1, status: "cancelled" } },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const addCheck = await writePlanFile(dir, "check-invalid-existing-add-check.json", {
       message: "try strict status check",
@@ -814,8 +814,8 @@ describe("check operations", () => {
       ],
     });
 
-    await expect(applyPlan(addCheck)).rejects.toThrow(/CHECK constraint failed/i);
-    expect(readQuery("SELECT id, status FROM tasks")).toEqual([{ id: 1, status: "cancelled" }]);
+    await expect(applyPlan(currentDb(), addCheck)).rejects.toThrow(/CHECK constraint failed/i);
+    expect(readQuery(currentDb(), "SELECT id, status FROM tasks")).toEqual([{ id: 1, status: "cancelled" }]);
   });
 
   testWithTmp("planCheck marks drop_check as destructive/high risk", async () => {
@@ -840,13 +840,13 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const drop = await writePlanFile(dir, "check-plan-drop-check.json", {
       message: "drop status check",
       operations: [{ type: "drop_check", table: "tasks", expression: "status IN ('todo','doing','done')" }],
     });
-    const result = await planCheck(drop);
+    const result = await planCheck(currentDb(), drop);
     expect(result.ok).toBe(true);
     expect(result.risk).toBe("high");
     expect(result.warnings.some((warning) => warning.code === "DESTRUCTIVE_OPERATION")).toBe(true);
@@ -869,7 +869,7 @@ describe("check operations", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const dropMissing = await writePlanFile(dir, "check-drop-missing.json", {
       message: "drop missing check",
@@ -877,7 +877,7 @@ describe("check operations", () => {
     });
 
     try {
-      await applyPlan(dropMissing);
+      await applyPlan(currentDb(), dropMissing);
       throw new Error("applyPlan should fail for missing CHECK expression");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);

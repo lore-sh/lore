@@ -1,8 +1,8 @@
-import { withInitializedDatabase } from "./engine/db";
+import type { Database } from "bun:sqlite";
 import { executeReadSql } from "./engine/execute";
 import { validateReadSql } from "./engine/sql";
 
-export function readQuery(sqlInput: string): Record<string, unknown>[] {
+export function readQuery(db: Database, sqlInput: string): Record<string, unknown>[] {
   const sql = validateReadSql(sqlInput);
-  return withInitializedDatabase(({ db }) => executeReadSql(db, sql));
+  return executeReadSql(db, sql);
 }

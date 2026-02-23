@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createStudioApp, isAssetRequestPath } from "../../src/server/app";
 
 describe("studio app asset routing", () => {
@@ -10,8 +11,10 @@ describe("studio app asset routing", () => {
   });
 
   test("missing asset path returns 404 instead of index fallback", async () => {
-    const app = createStudioApp();
+    const db = new Database(":memory:", { strict: true });
+    const app = createStudioApp(db);
     const response = await app.request("/assets/__missing_studio_asset__.js");
+    db.close(false);
 
     expect(response.status).toBe(404);
     expect(await response.text()).toContain("Asset not found");

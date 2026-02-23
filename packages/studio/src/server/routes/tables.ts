@@ -1,4 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
+import type { Database } from "bun:sqlite";
 import { getStudioTableSchema, listStudioTableHistory, listStudioTables, readStudioTable } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -35,10 +36,10 @@ function normalizeFilters(filters: Record<string, string> | undefined): Record<s
   return normalized;
 }
 
-export function createTableRoutes() {
+export function createTableRoutes(db: Database) {
   return new Hono()
     .get("/", (c) => {
-      return c.json(listStudioTables(), 200);
+      return c.json(listStudioTables(db), 200);
     })
     .post(
       "/:name/rows/query",
@@ -57,7 +58,7 @@ export function createTableRoutes() {
         const query = c.req.valid("json");
 
         return c.json(
-          readStudioTable({
+          readStudioTable(db, {
             table: param.name,
             page: query.page,
             pageSize: query.pageSize,
@@ -78,7 +79,7 @@ export function createTableRoutes() {
       }),
       (c) => {
         const param = c.req.valid("param");
-        return c.json(getStudioTableSchema(param.name), 200);
+        return c.json(getStudioTableSchema(db, param.name), 200);
       },
     )
     .get(
@@ -98,7 +99,7 @@ export function createTableRoutes() {
         const query = c.req.valid("query");
 
         return c.json(
-          listStudioTableHistory(param.name, {
+          listStudioTableHistory(db, param.name, {
             limit: query.limit,
             page: query.page,
           }),

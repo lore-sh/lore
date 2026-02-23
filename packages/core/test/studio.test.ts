@@ -12,7 +12,7 @@ import {
   listStudioTables,
   readStudioTable,
 } from "../src";
-import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
+import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -44,18 +44,18 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "expenses", values: { id: 2, title: "hotel", amount: 2400 } }],
     });
 
-    await applyPlan(createPlanPath);
-    await applyPlan(insertOnePath);
-    await applyPlan(insertTwoPath);
+    await applyPlan(currentDb(), createPlanPath);
+    await applyPlan(currentDb(), insertOnePath);
+    await applyPlan(currentDb(), insertTwoPath);
 
-    const tables = listStudioTables();
+    const tables = listStudioTables(currentDb(), );
     expect(tables.tables).toHaveLength(1);
     expect(tables.tables[0]?.name).toBe("expenses");
     expect(tables.tables[0]?.rowCount).toBe(2);
     expect(tables.tables[0]?.columnCount).toBe(3);
     expect(typeof tables.tables[0]?.lastUpdatedAt).toBe("number");
 
-    const firstPage = readStudioTable({
+    const firstPage = readStudioTable(currentDb(), {
       table: "expenses",
       page: 1,
       pageSize: 1,
@@ -66,7 +66,7 @@ describe("studio api", () => {
     expect(firstPage.totalPages).toBe(2);
     expect(firstPage.rows[0]).toMatchObject({ title: "hotel", amount: 2400 });
 
-    const filtered = readStudioTable({
+    const filtered = readStudioTable(currentDb(), {
       table: "expenses",
       filters: { title: "din" },
     });
@@ -91,9 +91,9 @@ describe("studio api", () => {
         },
       ],
     });
-    await applyPlan(createPlanPath);
+    await applyPlan(currentDb(), createPlanPath);
 
-    const schema = getStudioSchema();
+    const schema = getStudioSchema(currentDb(), );
     const table = schema.tables.find((entry) => entry.name === "expenses");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -121,7 +121,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema();
+    const schema = getStudioSchema(currentDb(), );
     const table = schema.tables.find((entry) => entry.name === "ledger");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "account")).toMatchObject({
@@ -153,7 +153,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema();
+    const schema = getStudioSchema(currentDb(), );
     const table = schema.tables.find((entry) => entry.name === "sessions");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -183,7 +183,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema();
+    const schema = getStudioSchema(currentDb(), );
     const table = schema.tables.find((entry) => entry.name === "expr_unique");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -213,17 +213,17 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "expenses", values: { id: 1 } }],
     });
 
-    await applyPlan(createPlanPath);
-    await applyPlan(insertPlanPath);
+    await applyPlan(currentDb(), createPlanPath);
+    await applyPlan(currentDb(), insertPlanPath);
 
-    const history = listStudioHistory();
+    const history = listStudioHistory(currentDb(), );
     expect(history).toHaveLength(2);
     expect(history[0]?.shortId.length).toBe(12);
     expect(history[0]?.message).toBe("insert 1");
 
     const commitId = history[0]?.commitId;
     expect(typeof commitId).toBe("string");
-    const detail = getStudioCommitDetail(commitId ?? "");
+    const detail = getStudioCommitDetail(currentDb(), commitId ?? "");
     expect(detail.commit.operations).toHaveLength(1);
     expect(detail.rowEffects).toHaveLength(1);
     expect(detail.rowEffects[0]?.tableName).toBe("expenses");
@@ -253,9 +253,9 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "ledger", values: { id: 2 } }],
     });
 
-    await applyPlan(createPlanPath);
-    await applyPlan(insertOnePath);
-    await applyPlan(insertTwoPath);
+    await applyPlan(currentDb(), createPlanPath);
+    await applyPlan(currentDb(), insertOnePath);
+    await applyPlan(currentDb(), insertTwoPath);
 
     const direct = new Database(dbPath);
     direct.run("PRAGMA ignore_check_constraints=ON");
@@ -267,7 +267,7 @@ describe("studio api", () => {
     direct.run("PRAGMA ignore_check_constraints=OFF");
     direct.close(false);
 
-    const history = listStudioHistory({ limit: 1 });
+    const history = listStudioHistory(currentDb(), { limit: 1 });
     expect(history).toHaveLength(1);
     expect(history[0]?.message).toBe("insert 2");
   });
@@ -305,12 +305,12 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "calendar", values: { id: 1 } }],
     });
 
-    await applyPlan(createExpensesPath);
-    await applyPlan(createCalendarPath);
-    await applyPlan(insertExpensesPath);
-    await applyPlan(insertCalendarPath);
+    await applyPlan(currentDb(), createExpensesPath);
+    await applyPlan(currentDb(), createCalendarPath);
+    await applyPlan(currentDb(), insertExpensesPath);
+    await applyPlan(currentDb(), insertCalendarPath);
 
-    const filtered = listStudioHistory({
+    const filtered = listStudioHistory(currentDb(), {
       kind: "apply",
       table: "expenses",
       limit: 10,
@@ -324,7 +324,7 @@ describe("studio api", () => {
     expect(filtered[0]?.affectedTables).toEqual(["expenses"]);
     expect(filtered[1]?.message).toBe("create expenses");
 
-    const paged = listStudioHistory({ limit: 1, page: 2 });
+    const paged = listStudioHistory(currentDb(), { limit: 1, page: 2 });
     expect(paged).toHaveLength(1);
     expect(paged[0]?.message).toBe("insert expenses");
   });
@@ -348,10 +348,10 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "Expenses", values: { id: 1 } }],
     });
 
-    await applyPlan(createExpensesPath);
-    await applyPlan(insertExpensesPath);
+    await applyPlan(currentDb(), createExpensesPath);
+    await applyPlan(currentDb(), insertExpensesPath);
 
-    const history = listStudioHistory({
+    const history = listStudioHistory(currentDb(), {
       table: "expenses",
       limit: 10,
       page: 1,
@@ -384,11 +384,11 @@ describe("studio api", () => {
       operations: [{ type: "drop_table", table: "archive" }],
     });
 
-    await applyPlan(createPath);
-    await applyPlan(insertPath);
-    await applyPlan(dropPath);
+    await applyPlan(currentDb(), createPath);
+    await applyPlan(currentDb(), insertPath);
+    await applyPlan(currentDb(), dropPath);
 
-    const history = listStudioHistory({
+    const history = listStudioHistory(currentDb(), {
       table: "archive",
       limit: 10,
       page: 1,
@@ -426,11 +426,11 @@ describe("studio api", () => {
       operations: [{ type: "insert", table: "expenses", values: { id: 1 } }],
     });
 
-    await applyPlan(createExpensesPath);
-    await applyPlan(createCalendarPath);
-    await applyPlan(insertExpensesPath);
+    await applyPlan(currentDb(), createExpensesPath);
+    await applyPlan(currentDb(), createCalendarPath);
+    await applyPlan(currentDb(), insertExpensesPath);
 
-    const history = listStudioTableHistory("expenses", { limit: 10, page: 1 });
+    const history = listStudioTableHistory(currentDb(), "expenses", { limit: 10, page: 1 });
     expect(history).toHaveLength(2);
     expect(history.map((entry) => entry.message)).toEqual(["insert expenses", "create expenses"]);
     expect(history.every((entry) => entry.affectedTables.includes("expenses"))).toBe(true);
@@ -440,7 +440,7 @@ describe("studio api", () => {
     const { dir, dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    await applyPlan(
+    await applyPlan(currentDb(), 
       await writePlanFile(dir, "studio-table-history-page-create.json", {
         message: "create expenses",
         operations: [
@@ -452,25 +452,25 @@ describe("studio api", () => {
         ],
       }),
     );
-    await applyPlan(
+    await applyPlan(currentDb(), 
       await writePlanFile(dir, "studio-table-history-page-insert-1.json", {
         message: "insert expenses 1",
         operations: [{ type: "insert", table: "expenses", values: { id: 1 } }],
       }),
     );
-    await applyPlan(
+    await applyPlan(currentDb(), 
       await writePlanFile(dir, "studio-table-history-page-insert-2.json", {
         message: "insert expenses 2",
         operations: [{ type: "insert", table: "expenses", values: { id: 2 } }],
       }),
     );
 
-    const secondPage = listStudioTableHistory("expenses", { limit: 1, page: 2 });
+    const secondPage = listStudioTableHistory(currentDb(), "expenses", { limit: 1, page: 2 });
     expect(secondPage).toHaveLength(1);
     expect(secondPage[0]?.message).toBe("insert expenses 1");
 
     try {
-      listStudioTableHistory("missing_table", { limit: 10, page: 1 });
+      listStudioTableHistory(currentDb(), "missing_table", { limit: 10, page: 1 });
       throw new Error("listStudioTableHistory should fail for unknown tables");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
@@ -497,12 +497,12 @@ describe("studio api", () => {
     direct.run(`INSERT INTO calc(id, amount) VALUES (2, 2)`);
     direct.close(false);
 
-    const tables = listStudioTables();
+    const tables = listStudioTables(currentDb(), );
     const calcSummary = tables.tables.find((table) => table.name === "calc");
     expect(calcSummary).toBeDefined();
     expect(calcSummary?.columnCount).toBe(4);
 
-    const sorted = readStudioTable({
+    const sorted = readStudioTable(currentDb(), {
       table: "calc",
       sortBy: "amount_x3",
       sortDir: "desc",
@@ -511,14 +511,14 @@ describe("studio api", () => {
     expect(sorted.columns.some((column) => column.name === "amount_x3")).toBe(true);
     expect(sorted.rows[0]).toMatchObject({ id: 2, amount_x2: 4, amount_x3: 6 });
 
-    const filtered = readStudioTable({
+    const filtered = readStudioTable(currentDb(), {
       table: "calc",
       filters: { amount_x2: "4" },
     });
     expect(filtered.totalRows).toBe(1);
     expect(filtered.rows[0]).toMatchObject({ id: 2, amount_x2: 4, amount_x3: 6 });
 
-    const schema = getStudioSchema();
+    const schema = getStudioSchema(currentDb(), );
     const calcSchema = schema.tables.find((table) => table.name === "calc");
     expect(calcSchema).toBeDefined();
     expect(calcSchema?.columns.find((column) => column.name === "amount_x2")?.hidden).toBe(false);
@@ -538,10 +538,10 @@ describe("studio api", () => {
         },
       ],
     });
-    await applyPlan(createPlanPath);
+    await applyPlan(currentDb(), createPlanPath);
 
     try {
-      readStudioTable({ table: "expenses", filters: { unknown: "1" } });
+      readStudioTable(currentDb(), { table: "expenses", filters: { unknown: "1" } });
       throw new Error("readStudioTable should fail for unknown filter columns");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
@@ -569,7 +569,7 @@ describe("studio api", () => {
     direct.run(`INSERT INTO ledger(account, at, amount) VALUES ('c', '2026-01-01', 200)`);
     direct.close(false);
 
-    const defaultSorted = readStudioTable({
+    const defaultSorted = readStudioTable(currentDb(), {
       table: "ledger",
       page: 1,
       pageSize: 10,
@@ -577,7 +577,7 @@ describe("studio api", () => {
     expect(defaultSorted.totalRows).toBe(3);
     expect(defaultSorted.rows.map((row) => row.account)).toEqual(["a", "b", "c"]);
 
-    const customSorted = readStudioTable({
+    const customSorted = readStudioTable(currentDb(), {
       table: "ledger",
       sortBy: "amount",
       sortDir: "desc",
@@ -602,14 +602,14 @@ describe("studio api", () => {
     direct.run(`INSERT INTO shadowed(rowid, amount, name) VALUES ('m', 10, 'third')`);
     direct.close(false);
 
-    const defaultSorted = readStudioTable({
+    const defaultSorted = readStudioTable(currentDb(), {
       table: "shadowed",
       page: 1,
       pageSize: 10,
     });
     expect(defaultSorted.rows.map((row) => row.name)).toEqual(["first", "second", "third"]);
 
-    const sortedByAmount = readStudioTable({
+    const sortedByAmount = readStudioTable(currentDb(), {
       table: "shadowed",
       page: 1,
       pageSize: 10,

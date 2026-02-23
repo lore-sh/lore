@@ -3,11 +3,44 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { Database } from "bun:sqlite";
-import { configureDatabase, initDatabase } from "../src";
-import { closeClient, getClientPath } from "../src/engine/client";
+import { initDatabase, openDb } from "../src";
+import { CodedError } from "../src/error";
 import { schemaHash } from "../src/engine/inspect";
 
 const tmpDirScopeStorage = new AsyncLocalStorage<Set<string>>();
+const scopedDbStorage = new AsyncLocalStorage<Database>();
+let persistentDb: Database | null = null;
+let lastDbPath: string | null = null;
+
+function isClosedDatabaseError(error: unknown): boolean {
+  return error instanceof RangeError && error.message.includes("closed database");
+}
+
+function isOpenDatabase(db: Database): boolean {
+  try {
+    db.query("SELECT 1").get();
+    return true;
+  } catch (error) {
+    if (isClosedDatabaseError(error)) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function openTestDb(dbPath: string): Database {
+  try {
+    return openDb(dbPath);
+  } catch (error) {
+    if (!CodedError.hasCode(error, "NOT_INITIALIZED")) {
+      throw error;
+    }
+    const db = new Database(dbPath, { strict: true });
+    db.run("PRAGMA foreign_keys=ON");
+    db.run("PRAGMA busy_timeout=5000");
+    return db;
+  }
+}
 
 function currentTmpDirScope(): Set<string> {
   const scope = tmpDirScopeStorage.getStore();
@@ -23,6 +56,68 @@ function cleanupTmpDirScope(scope: Iterable<string>): void {
   }
 }
 
+function closePersistentDb(): void {
+  if (!persistentDb) {
+    return;
+  }
+  try {
+    persistentDb.close(false);
+  } catch {
+    // ignore duplicate-close during test cleanup
+  }
+  persistentDb = null;
+}
+
+export function currentDb(): Database {
+  const scoped = scopedDbStorage.getStore();
+  if (scoped) {
+    if (isOpenDatabase(scoped)) {
+      return scoped;
+    }
+    if (persistentDb && isOpenDatabase(persistentDb)) {
+      return persistentDb;
+    }
+    if (lastDbPath) {
+      if (persistentDb) {
+        try {
+          persistentDb.close(false);
+        } catch {
+          // ignore duplicate-close
+        }
+      }
+      const reopened = openTestDb(lastDbPath);
+      persistentDb = reopened;
+      return reopened;
+    }
+  }
+  if (persistentDb && isOpenDatabase(persistentDb)) {
+    return persistentDb;
+  }
+  persistentDb = null;
+  if (lastDbPath) {
+    try {
+      persistentDb = openTestDb(lastDbPath);
+    } catch {
+      // keep default error below
+    }
+  }
+  if (!persistentDb) {
+    throw new Error("Database is not set for this test. Call initDatabase(...) or withDbPath(...). ");
+  }
+  return persistentDb;
+}
+
+export function replacePersistentDb(db: Database): void {
+  if (persistentDb && persistentDb !== db) {
+    try {
+      persistentDb.close(false);
+    } catch {
+      // ignore duplicate-close
+    }
+  }
+  persistentDb = db;
+}
+
 export function withTmpDirCleanup<T>(fn: () => T | Promise<T>): () => Promise<T> {
   return async () => {
     const scope = new Set<string>();
@@ -30,7 +125,7 @@ export function withTmpDirCleanup<T>(fn: () => T | Promise<T>): () => Promise<T>
       try {
         return await fn();
       } finally {
-        closeClient();
+        closePersistentDb();
         cleanupTmpDirScope(scope);
       }
     });
@@ -42,6 +137,7 @@ export function createTestContext(): { dir: string; dbPath: string } {
   const dir = mkdtempSync(join(tmpdir(), "toss-core-test-"));
   scope.add(dir);
   const dbPath = join(dir, "toss.db");
+  lastDbPath = dbPath;
   return { dir, dbPath };
 }
 
@@ -52,10 +148,9 @@ export async function writePlanFile(dir: string, name: string, payload: unknown)
 }
 
 export async function computeSchemaHash(statements: string[]): Promise<string> {
-  closeClient();
   const { dbPath } = createTestContext();
   await initDatabase({ dbPath });
-  const db = new Database(dbPath);
+  const db = new Database(dbPath, { strict: true });
   try {
     for (const sql of statements) {
       db.run(sql);
@@ -63,7 +158,7 @@ export async function computeSchemaHash(statements: string[]): Promise<string> {
     return schemaHash(db);
   } finally {
     db.close(false);
-    closeClient();
+    closePersistentDb();
   }
 }
 
@@ -103,20 +198,32 @@ export function withTestHome<T>(home: string, run: () => T): T {
   }
 }
 
-export async function withDbPath<T>(dbPath: string, run: () => Promise<T>): Promise<T> {
-  const previousClientPath = getClientPath();
+export async function withDbPath<T>(dbPath: string, run: ((db: Database) => Promise<T>) | (() => Promise<T>)): Promise<T> {
   const snapshot = captureEnv();
-  closeClient();
   process.env.HOME = dirname(dbPath);
   process.env.USERPROFILE = dirname(dbPath);
   delete process.env.TURSO_AUTH_TOKEN;
-  configureDatabase(dbPath);
+  lastDbPath = dbPath;
+
+  const db = openTestDb(dbPath);
+  const previous = persistentDb;
+  persistentDb = db;
   try {
-    return await run();
+    return await scopedDbStorage.run(db, async () => {
+      if (run.length > 0) {
+        return await (run as (db: Database) => Promise<T>)(db);
+      }
+      return await (run as () => Promise<T>)();
+    });
   } finally {
-    closeClient();
-    if (previousClientPath) {
-      configureDatabase(previousClientPath);
+    const activeDb = persistentDb;
+    persistentDb = previous;
+    try {
+      if (activeDb && activeDb !== previous) {
+        activeDb.close(false);
+      }
+    } catch {
+      // ignore duplicate-close
     }
     restoreEnv(snapshot);
   }

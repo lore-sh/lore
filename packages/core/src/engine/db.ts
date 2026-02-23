@@ -1,11 +1,12 @@
-import type { SQLQueryBindings, Database } from "bun:sqlite";
+import type { SQLQueryBindings } from "bun:sqlite";
+import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { createEngineDb, getClientPath, getSqlite, hasClient, initClient, withClient } from "./client";
-import { MetaTable, RefTable } from "./schema.sql";
 import { CodedError } from "../error";
-import { resolveHomeDir } from "./files";
+import { deleteWithSidecars, resolveHomeDir } from "./files";
+import { createEngineDb } from "./client";
+import { MetaTable, RefTable } from "./schema.sql";
 
 export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
@@ -45,9 +46,8 @@ export const PRESERVED_META_DEFAULTS = [
 ] as const;
 const ENGINE_MIGRATIONS_DIR = resolve(import.meta.dir, "../../migration");
 
-export interface DatabaseContext {
-  db: Database;
-  dbPath: string;
+export interface OpenDbOptions {
+  busyTimeoutMs?: number | undefined;
 }
 
 function defaultDbPath(): string {
@@ -73,23 +73,69 @@ function assertDatabaseFileExists(dbPath: string): void {
   }
 }
 
-function runtimeDbPath(): string {
-  return getClientPath() ?? resolveDbPath();
+function applyPragmas(db: Database, options: OpenDbOptions = {}): void {
+  db.run("PRAGMA foreign_keys=ON");
+  db.run(`PRAGMA busy_timeout=${Math.max(0, Math.floor(options.busyTimeoutMs ?? 5000))}`);
+  db.run("PRAGMA journal_mode=WAL");
+  db.run("PRAGMA synchronous=NORMAL");
+  db.run("PRAGMA optimize=0x10002");
 }
 
-function openDatabase(dbPath: string, options: { recreateClient?: boolean } = {}): DatabaseContext {
-  ensureDatabaseDirectory(dbPath);
-  if (!hasClient()) {
-    initClient(dbPath);
-  } else if (getClientPath() !== dbPath) {
-    initClient(dbPath, { recreate: options.recreateClient ?? false });
+export function openDb(pathFromArg?: string, options: OpenDbOptions = {}): Database {
+  const dbPath = resolveDbPath(pathFromArg);
+  assertDatabaseFileExists(dbPath);
+  const db = new Database(dbPath, { strict: true });
+  try {
+    applyPragmas(db, options);
+    assertInitialized(db);
+    return db;
+  } catch (error) {
+    db.close(false);
+    throw error;
   }
-  const db = getSqlite();
-  return { db, dbPath };
 }
 
-export function configureDatabase(dbPathFromArg?: string): DatabaseContext {
-  return openDatabase(resolveDbPath(dbPathFromArg), { recreateClient: true });
+function initializeStorage(db: Database): void {
+  if (!existsSync(ENGINE_MIGRATIONS_DIR)) {
+    throw new CodedError("CONFIG", `Engine migrations directory not found: ${ENGINE_MIGRATIONS_DIR}`);
+  }
+  const engineDb = createEngineDb(db);
+  migrate(engineDb, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
+  for (const [key, value] of RESETTABLE_META_DEFAULTS) {
+    engineDb.insert(MetaTable)
+      .values({ key, value })
+      .onConflictDoUpdate({ target: MetaTable.key, set: { value } })
+      .run();
+  }
+  for (const [key, value] of PRESERVED_META_DEFAULTS) {
+    engineDb.insert(MetaTable)
+      .values({ key, value })
+      .onConflictDoNothing({ target: MetaTable.key })
+      .run();
+  }
+  engineDb.insert(RefTable)
+    .values({ name: MAIN_REF_NAME, commitId: null, updatedAt: Date.now() })
+    .onConflictDoNothing({ target: RefTable.name })
+    .run();
+}
+
+export async function initDb(
+  options: { dbPath?: string | undefined; forceNew?: boolean | undefined } = {},
+): Promise<{ path: string }> {
+  const dbPath = resolveDbPath(options.dbPath);
+  ensureDatabaseDirectory(dbPath);
+  if (options.forceNew) {
+    await deleteWithSidecars(dbPath);
+  }
+  const db = new Database(dbPath, { strict: true });
+  try {
+    applyPragmas(db);
+    initializeStorage(db);
+    assertInitialized(db);
+  } finally {
+    db.close(false);
+  }
+  return { path: dbPath };
 }
 
 export function getRow<T>(db: Database, sql: string, ...bindings: SQLQueryBindings[]): T | null {
@@ -100,49 +146,6 @@ export function getRows<T>(db: Database, sql: string, ...bindings: SQLQueryBindi
   return db.query<T, SQLQueryBindings[]>(sql).all(...bindings);
 }
 
-function openInitializedDatabase(): DatabaseContext {
-  const resolvedPath = runtimeDbPath();
-  assertDatabaseFileExists(resolvedPath);
-  const ctx = openDatabase(resolvedPath);
-  assertInitialized(ctx.db, ctx.dbPath);
-  return ctx;
-}
-
-export function withInitializedDatabase<T>(run: (ctx: DatabaseContext) => T): T {
-  return run(openInitializedDatabase());
-}
-
-export async function withInitializedDatabaseAsync<T>(
-  run: (ctx: DatabaseContext) => Promise<T>,
-): Promise<T> {
-  return await run(openInitializedDatabase());
-}
-
-export function initializeStorage(): void {
-  if (!existsSync(ENGINE_MIGRATIONS_DIR)) {
-    throw new CodedError("CONFIG", `Engine migrations directory not found: ${ENGINE_MIGRATIONS_DIR}`);
-  }
-  withClient((db) => {
-    migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
-    for (const [key, value] of RESETTABLE_META_DEFAULTS) {
-      db.insert(MetaTable)
-        .values({ key, value })
-        .onConflictDoUpdate({ target: MetaTable.key, set: { value } })
-        .run();
-    }
-    for (const [key, value] of PRESERVED_META_DEFAULTS) {
-      db.insert(MetaTable)
-        .values({ key, value })
-        .onConflictDoNothing({ target: MetaTable.key })
-        .run();
-    }
-    db.insert(RefTable)
-      .values({ name: MAIN_REF_NAME, commitId: null, updatedAt: Date.now() })
-      .onConflictDoNothing({ target: RefTable.name })
-      .run();
-  });
-}
-
 export function tableExists(db: Database, name: string): boolean {
   const row = getRow<{ ok?: number }>(db, "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", name);
   return row?.ok === 1;
@@ -150,8 +153,15 @@ export function tableExists(db: Database, name: string): boolean {
 
 export function isInitialized(db: Database): boolean {
   const requiredTables = [
-    META_TABLE, COMMIT_TABLE, COMMIT_PARENT_TABLE, REF_TABLE,
-    REFLOG_TABLE, OP_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, SNAPSHOT_TABLE,
+    META_TABLE,
+    COMMIT_TABLE,
+    COMMIT_PARENT_TABLE,
+    REF_TABLE,
+    REFLOG_TABLE,
+    OP_TABLE,
+    ROW_EFFECT_TABLE,
+    SCHEMA_EFFECT_TABLE,
+    SNAPSHOT_TABLE,
   ];
   if (requiredTables.some((table) => !tableExists(db, table))) {
     return false;
@@ -162,9 +172,9 @@ export function isInitialized(db: Database): boolean {
   return hasRow(REF_TABLE, "name", MAIN_REF_NAME);
 }
 
-export function assertInitialized(db: Database, dbPath: string): void {
+export function assertInitialized(db: Database): void {
   if (!isInitialized(db)) {
-    throw notInitializedError(dbPath);
+    throw notInitializedError(db.filename);
   }
 }
 

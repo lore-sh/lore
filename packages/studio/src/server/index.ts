@@ -1,5 +1,7 @@
 import { createStudioApp } from "./app";
 import { join } from "node:path";
+import { openDb } from "@toss/core";
+import type { Database } from "bun:sqlite";
 import { shouldRebuildClientBundle } from "./client-bundle";
 import { DEFAULT_STUDIO_PORT, normalizeStudioPort, parseStudioPortArg } from "./port";
 import type { StartStudioServerOptions } from "./types";
@@ -74,16 +76,87 @@ export interface StartedStudioServer {
   server: Bun.Server<unknown>;
 }
 
+function closeDb(db: Database): void {
+  try {
+    db.close(false);
+  } catch {
+    // ignore duplicate-close during process teardown
+  }
+}
+
+function signalExitCode(signal: NodeJS.Signals): number {
+  if (signal === "SIGINT") {
+    return 130;
+  }
+  if (signal === "SIGTERM") {
+    return 143;
+  }
+  return 1;
+}
+
+function registerSignalCleanup(onSignal: (signal: NodeJS.Signals) => void): () => void {
+  const onSigterm = () => {
+    onSignal("SIGTERM");
+  };
+  const onSigint = () => {
+    onSignal("SIGINT");
+  };
+  process.once("SIGTERM", onSigterm);
+  process.once("SIGINT", onSigint);
+  return () => {
+    process.off("SIGTERM", onSigterm);
+    process.off("SIGINT", onSigint);
+  };
+}
+
+export function attachServerCleanup(server: Bun.Server<unknown>, db: Database): void {
+  let cleaned = false;
+  let detachSignalCleanup = () => { };
+  const cleanup = () => {
+    if (cleaned) {
+      return;
+    }
+    cleaned = true;
+    detachSignalCleanup();
+    closeDb(db);
+  };
+  const stopServer = server.stop.bind(server);
+  server.stop = ((...args: Parameters<typeof stopServer>) => {
+    cleanup();
+    return stopServer(...args);
+  }) as typeof server.stop;
+  detachSignalCleanup = registerSignalCleanup((signal) => {
+    try {
+      server.stop();
+    } catch {
+      // continue termination even if server stop throws
+    }
+    try {
+      process.kill(process.pid, signal);
+    } catch {
+      process.exit(signalExitCode(signal));
+    }
+  });
+}
+
 export function startStudioServer(options: StartStudioServerOptions = {}): StartedStudioServer {
   ensureClientBundle();
   const port = normalizeStudioPort(options.port);
   const host = options.host ?? DEFAULT_HOST;
-  const app = createStudioApp();
-  const server = Bun.serve({
-    hostname: host,
-    port,
-    fetch: app.fetch,
-  });
+  const db = openDb(options.dbPath);
+  const app = createStudioApp(db);
+  let server: Bun.Server<unknown>;
+  try {
+    server = Bun.serve({
+      hostname: host,
+      port,
+      fetch: app.fetch,
+    });
+  } catch (error) {
+    closeDb(db);
+    throw error;
+  }
+  attachServerCleanup(server, db);
   const url = `http://${host}:${server.port}`;
   if (options.open !== false) {
     openBrowser(url);

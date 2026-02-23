@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initDatabase } from "@toss/core";
-import { closeClient } from "@toss/core/src/engine/client";
 import { cleanSkills, generateSkills } from "../src/skills";
 
 interface GlobalEnvSnapshot {
@@ -62,7 +61,6 @@ function withSkillEnv(fn: (paths: GlobalEnvPaths, dbPath: string) => Promise<voi
       await initDatabase({ dbPath });
       await fn(paths, dbPath);
     } finally {
-      closeClient();
       restoreGlobalEnv(snapshot);
       rmSync(dir, { recursive: true, force: true });
     }

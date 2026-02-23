@@ -4,6 +4,10 @@ import {
   parseCloneArgs,
   parseClonePlatform,
   parseRemoteConnectArgs,
+  validatePullArgs,
+  validatePushArgs,
+  validateRemoteArgs,
+  validateSyncArgs,
   platformName,
 } from "../../src/commands/remote";
 
@@ -110,5 +114,17 @@ describe("remote command", () => {
   test("parseCloneArgs requires url and platform", () => {
     expect(() => parseCloneArgs([])).toThrow("clone requires <url>");
     expect(() => parseCloneArgs(["libsql://db.turso.io"])).toThrow("clone requires --platform");
+  });
+
+  test("validateRemoteArgs checks subcommand shape", () => {
+    expect(() => validateRemoteArgs([])).toThrow("remote requires subcommand");
+    expect(() => validateRemoteArgs(["status", "--unknown"])).toThrow("remote status does not accept arguments");
+    expect(() => validateRemoteArgs(["unknown"])).toThrow("Unknown remote subcommand: unknown");
+  });
+
+  test("validate push/pull/sync args reject extras", () => {
+    expect(() => validatePushArgs(["--x"])).toThrow("push does not accept arguments");
+    expect(() => validatePullArgs(["--x"])).toThrow("pull does not accept arguments");
+    expect(() => validateSyncArgs(["--x"])).toThrow("sync does not accept arguments");
   });
 });

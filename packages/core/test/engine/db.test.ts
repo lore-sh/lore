@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { listUserTables, resolveDbPath, withInitializedDatabase } from "../../src/engine/db";
+import { listUserTables, resolveDbPath } from "../../src/engine/db";
 import { CodedError } from "../../src/error";
 import { initDatabase } from "../../src";
-import { createTestContext, withTmpDirCleanup } from "../helpers";
+import { createTestContext, currentDb, withTmpDirCleanup } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -43,14 +43,13 @@ describe("db path resolution", () => {
   testWithTmp("listUserTables excludes only real internal prefixes", async () => {
     const { dbPath } = createTestContext();
     await initDatabase({ dbPath });
-    withInitializedDatabase(({ db }) => {
-      db.run("CREATE TABLE abdrizzle_logs(id INTEGER PRIMARY KEY)");
-      db.run("CREATE TABLE atoss_table(id INTEGER PRIMARY KEY)");
-      db.run("CREATE TABLE __drizzle_custom(id INTEGER PRIMARY KEY)");
-      db.run("CREATE TABLE _toss_custom(id INTEGER PRIMARY KEY)");
-    });
+    const db = currentDb();
+    db.run("CREATE TABLE abdrizzle_logs(id INTEGER PRIMARY KEY)");
+    db.run("CREATE TABLE atoss_table(id INTEGER PRIMARY KEY)");
+    db.run("CREATE TABLE __drizzle_custom(id INTEGER PRIMARY KEY)");
+    db.run("CREATE TABLE _toss_custom(id INTEGER PRIMARY KEY)");
 
-    const names = withInitializedDatabase(({ db }) => listUserTables(db));
+    const names = listUserTables(db);
     expect(names.includes("abdrizzle_logs")).toBe(true);
     expect(names.includes("atoss_table")).toBe(true);
     expect(names.includes("__drizzle_custom")).toBe(false);

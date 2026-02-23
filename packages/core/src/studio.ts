@@ -8,7 +8,6 @@ import {
   getRow,
   getRows,
   listUserTables,
-  withInitializedDatabase,
 } from "./engine/db";
 import { CodedError } from "./error";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./engine/log";
@@ -274,113 +273,109 @@ function toStudioRow(row: JsonObject): StudioRow {
   return output;
 }
 
-export function listStudioTables(): StudioTablesView {
-  return withInitializedDatabase(({ db, dbPath }) => {
-    const tableNames = listUserTables(db);
-    const tables = tableNames.map((name) => {
-      const column = getRow<{ c: number }>(
-        db,
-        `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteIdentifier(name, { unsafe: true })}) WHERE hidden IN (0, 2, 3)`,
-      );
-      const updated = getRow<{ created_at: number }>(
-        db,
-        `
-          SELECT c.created_at
-          FROM ${COMMIT_TABLE} AS c
-          JOIN (
-            SELECT commit_id FROM ${ROW_EFFECT_TABLE} WHERE table_name = ?
-            UNION
-            SELECT commit_id FROM ${SCHEMA_EFFECT_TABLE} WHERE table_name = ?
-          ) AS touched
-            ON touched.commit_id = c.commit_id
-          ORDER BY c.seq DESC
-          LIMIT 1
-        `,
-        name,
-        name,
-      );
-      return {
-        name,
-        rowCount: countTableRows(db, name),
-        columnCount: column?.c ?? 0,
-        lastUpdatedAt: updated?.created_at ?? null,
-      };
-    });
+export function listStudioTables(db: Database): StudioTablesView {
+  const tableNames = listUserTables(db);
+  const tables = tableNames.map((name) => {
+    const column = getRow<{ c: number }>(
+      db,
+      `SELECT COUNT(*) AS c FROM pragma_table_xinfo(${quoteIdentifier(name, { unsafe: true })}) WHERE hidden IN (0, 2, 3)`,
+    );
+    const updated = getRow<{ created_at: number }>(
+      db,
+      `
+        SELECT c.created_at
+        FROM ${COMMIT_TABLE} AS c
+        JOIN (
+          SELECT commit_id FROM ${ROW_EFFECT_TABLE} WHERE table_name = ?
+          UNION
+          SELECT commit_id FROM ${SCHEMA_EFFECT_TABLE} WHERE table_name = ?
+        ) AS touched
+          ON touched.commit_id = c.commit_id
+        ORDER BY c.seq DESC
+        LIMIT 1
+      `,
+      name,
+      name,
+    );
     return {
-      dbPath,
-      generatedAt: new Date().toISOString(),
-      tables,
+      name,
+      rowCount: countTableRows(db, name),
+      columnCount: column?.c ?? 0,
+      lastUpdatedAt: updated?.created_at ?? null,
     };
   });
+  return {
+    dbPath: db.filename,
+    generatedAt: new Date().toISOString(),
+    tables,
+  };
 }
 
-export function readStudioTable(options: ReadStudioTableOptions): StudioTableDataView {
-  return withInitializedDatabase(({ db }) => {
-    const tableName = resolveTableName(listUserTables(db), options.table);
-    const schema = describeSchema(db);
-    const table = findTableFromSchema(schema, tableName);
-    const columns = mapColumns(table);
-    const columnNames = new Set(columns.map((column) => column.name));
-    const pageSize = normalizePageSize(options.pageSize);
-    const requestedPage = normalizePage(options.page);
-    const sortDir = options.sortDir === "desc" ? "desc" : "asc";
+export function readStudioTable(db: Database, options: ReadStudioTableOptions): StudioTableDataView {
+  const tableName = resolveTableName(listUserTables(db), options.table);
+  const schema = describeSchema(db);
+  const table = findTableFromSchema(schema, tableName);
+  const columns = mapColumns(table);
+  const columnNames = new Set(columns.map((column) => column.name));
+  const pageSize = normalizePageSize(options.pageSize);
+  const requestedPage = normalizePage(options.page);
+  const sortDir = options.sortDir === "desc" ? "desc" : "asc";
 
-    const filters: Record<string, string> = {};
-    const whereParts: string[] = [];
-    const bindings: string[] = [];
-    const rawFilters = options.filters ?? {};
-    for (const [column, rawValue] of Object.entries(rawFilters)) {
-      if (!columnNames.has(column)) {
-        throw new CodedError("INVALID_OPERATION", `Filter column not found: ${column}`);
-      }
-      const value = rawValue.trim();
-      if (value.length === 0) {
-        continue;
-      }
-      filters[column] = value;
-      whereParts.push(`CAST(${quoteIdentifier(column, { unsafe: true })} AS TEXT) LIKE ? ESCAPE '\\'`);
-      bindings.push(`%${escapeLikePattern(value)}%`);
+  const filters: Record<string, string> = {};
+  const whereParts: string[] = [];
+  const bindings: string[] = [];
+  const rawFilters = options.filters ?? {};
+  for (const [column, rawValue] of Object.entries(rawFilters)) {
+    if (!columnNames.has(column)) {
+      throw new CodedError("INVALID_OPERATION", `Filter column not found: ${column}`);
     }
-
-    const sortBy = options.sortBy?.trim();
-    if (sortBy && !columnNames.has(sortBy)) {
-      throw new CodedError("INVALID_OPERATION", `Sort column not found: ${sortBy}`);
+    const value = rawValue.trim();
+    if (value.length === 0) {
+      continue;
     }
+    filters[column] = value;
+    whereParts.push(`CAST(${quoteIdentifier(column, { unsafe: true })} AS TEXT) LIKE ? ESCAPE '\\'`);
+    bindings.push(`%${escapeLikePattern(value)}%`);
+  }
 
-    const whereSql = whereParts.length === 0 ? "" : ` WHERE ${whereParts.join(" AND ")}`;
-    const totalRow = getRow<{ c: number }>(
-      db,
-      `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}`,
-      ...bindings,
-    );
-    const totalRows = totalRow?.c ?? 0;
-    const totalPages = totalRows === 0 ? 1 : Math.ceil(totalRows / pageSize);
-    const page = Math.min(requestedPage, totalPages);
-    const offset = (page - 1) * pageSize;
+  const sortBy = options.sortBy?.trim();
+  if (sortBy && !columnNames.has(sortBy)) {
+    throw new CodedError("INVALID_OPERATION", `Sort column not found: ${sortBy}`);
+  }
 
-    const orderSql = orderClause(table, sortBy, sortDir);
+  const whereSql = whereParts.length === 0 ? "" : ` WHERE ${whereParts.join(" AND ")}`;
+  const totalRow = getRow<{ c: number }>(
+    db,
+    `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}`,
+    ...bindings,
+  );
+  const totalRows = totalRow?.c ?? 0;
+  const totalPages = totalRows === 0 ? 1 : Math.ceil(totalRows / pageSize);
+  const page = Math.min(requestedPage, totalPages);
+  const offset = (page - 1) * pageSize;
 
-    const rows = getRows<Record<string, unknown>>(
-      db,
-      `SELECT * FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}${orderSql} LIMIT ? OFFSET ?`,
-      ...bindings,
-      pageSize,
-      offset,
-    );
+  const orderSql = orderClause(table, sortBy, sortDir);
 
-    return {
-      table: tableName,
-      page,
-      pageSize,
-      totalRows,
-      totalPages,
-      sortBy: sortBy ?? null,
-      sortDir,
-      filters,
-      columns,
-      rows: rows.map((row) => toStudioRow(normalizeRowObject(row))),
-    };
-  });
+  const rows = getRows<Record<string, unknown>>(
+    db,
+    `SELECT * FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql}${orderSql} LIMIT ? OFFSET ?`,
+    ...bindings,
+    pageSize,
+    offset,
+  );
+
+  return {
+    table: tableName,
+    page,
+    pageSize,
+    totalRows,
+    totalPages,
+    sortBy: sortBy ?? null,
+    sortDir,
+    filters,
+    columns,
+    rows: rows.map((row) => toStudioRow(normalizeRowObject(row))),
+  };
 }
 
 function mapSchemaTable(table: SchemaTableDescriptor): StudioSchemaTable {
@@ -400,28 +395,24 @@ function mapSchemaTable(table: SchemaTableDescriptor): StudioSchemaTable {
   };
 }
 
-export function getStudioSchema(): StudioSchemaView {
-  return withInitializedDatabase(({ db, dbPath }) => {
-    const descriptor = describeSchema(db);
-    const tables = descriptor.tables.map((table) => ({
-      ...mapSchemaTable(table),
-      rowCount: countTableRows(db, table.table),
-    }));
-    return {
-      dbPath,
-      generatedAt: new Date().toISOString(),
-      tables,
-    };
-  });
+export function getStudioSchema(db: Database): StudioSchemaView {
+  const descriptor = describeSchema(db);
+  const tables = descriptor.tables.map((table) => ({
+    ...mapSchemaTable(table),
+    rowCount: countTableRows(db, table.table),
+  }));
+  return {
+    dbPath: db.filename,
+    generatedAt: new Date().toISOString(),
+    tables,
+  };
 }
 
-export function getStudioTableSchema(table: string): StudioSchemaTable {
-  return withInitializedDatabase(({ db }) => {
-    const tableName = resolveTableName(listUserTables(db), table);
-    const descriptor = describeSchema(db);
-    const target = findTableFromSchema(descriptor, tableName);
-    return { ...mapSchemaTable(target), rowCount: countTableRows(db, tableName) };
-  });
+export function getStudioTableSchema(db: Database, table: string): StudioSchemaTable {
+  const tableName = resolveTableName(listUserTables(db), table);
+  const descriptor = describeSchema(db);
+  const target = findTableFromSchema(descriptor, tableName);
+  return { ...mapSchemaTable(target), rowCount: countTableRows(db, tableName) };
 }
 
 function toStudioHistoryEntry(
@@ -485,6 +476,7 @@ function toStudioHistoryEntry(
 }
 
 export function listStudioHistory(
+  db: Database,
   options: {
     limit?: number | undefined;
     page?: number | undefined;
@@ -492,111 +484,106 @@ export function listStudioHistory(
     table?: string | undefined;
   } = {},
 ): StudioHistoryEntry[] {
-  return withInitializedDatabase(({ db }) => {
-    const max = normalizePageSize(options.limit);
-    const page = normalizePage(options.page);
-    const offset = (page - 1) * max;
-    const kind = options.kind === "apply" || options.kind === "revert" ? options.kind : null;
-    const rawTable = options.table?.trim() ?? "";
-    const table = rawTable.length > 0 ? rawTable : null;
-    const rows = getRows<{
-      commit_id: string;
-      seq: number;
-      kind: CommitKind;
-      message: string;
-      created_at: number;
-    }>(
-      db,
-      `
-        SELECT c.commit_id, c.seq, c.kind, c.message, c.created_at
-        FROM ${COMMIT_TABLE} AS c
-        WHERE (? IS NULL OR c.kind = ?)
-          AND (
-            ? IS NULL
-            OR EXISTS (
-              SELECT 1
-              FROM ${ROW_EFFECT_TABLE} AS r
-              WHERE r.commit_id = c.commit_id
-                AND r.table_name = ? COLLATE NOCASE
-            )
-            OR EXISTS (
-              SELECT 1
-              FROM ${SCHEMA_EFFECT_TABLE} AS s
-              WHERE s.commit_id = c.commit_id
-                AND s.table_name = ? COLLATE NOCASE
-            )
+  const max = normalizePageSize(options.limit);
+  const page = normalizePage(options.page);
+  const offset = (page - 1) * max;
+  const kind = options.kind === "apply" || options.kind === "revert" ? options.kind : null;
+  const rawTable = options.table?.trim() ?? "";
+  const table = rawTable.length > 0 ? rawTable : null;
+  const rows = getRows<{
+    commit_id: string;
+    seq: number;
+    kind: CommitKind;
+    message: string;
+    created_at: number;
+  }>(
+    db,
+    `
+      SELECT c.commit_id, c.seq, c.kind, c.message, c.created_at
+      FROM ${COMMIT_TABLE} AS c
+      WHERE (? IS NULL OR c.kind = ?)
+        AND (
+          ? IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM ${ROW_EFFECT_TABLE} AS r
+            WHERE r.commit_id = c.commit_id
+              AND r.table_name = ? COLLATE NOCASE
           )
-        ORDER BY c.seq DESC
-        LIMIT ?
-        OFFSET ?
-      `,
-      kind,
-      kind,
-      table,
-      table,
-      table,
-      max,
-      offset,
-    );
-    return rows.map((row) => toStudioHistoryEntry(db, row));
-  });
+          OR EXISTS (
+            SELECT 1
+            FROM ${SCHEMA_EFFECT_TABLE} AS s
+            WHERE s.commit_id = c.commit_id
+              AND s.table_name = ? COLLATE NOCASE
+          )
+        )
+      ORDER BY c.seq DESC
+      LIMIT ?
+      OFFSET ?
+    `,
+    kind,
+    kind,
+    table,
+    table,
+    table,
+    max,
+    offset,
+  );
+  return rows.map((row) => toStudioHistoryEntry(db, row));
 }
 
 export function listStudioTableHistory(
+  db: Database,
   table: string,
   options: {
     limit?: number | undefined;
     page?: number | undefined;
   } = {},
 ): StudioHistoryEntry[] {
-  return withInitializedDatabase(({ db }) => {
-    const rawTableName = table.trim();
-    if (rawTableName.length === 0) {
-      throw new CodedError("INVALID_OPERATION", "Table name is required");
-    }
-    const tableName = resolveTableName(listUserTables(db), rawTableName);
-    const max = normalizePageSize(options.limit);
-    const page = normalizePage(options.page);
-    const offset = (page - 1) * max;
-    const rows = getRows<{
-      commit_id: string;
-      seq: number;
-      kind: CommitKind;
-      message: string;
-      created_at: number;
-    }>(
-      db,
-      `
-        SELECT DISTINCT c.commit_id, c.seq, c.kind, c.message, c.created_at
-        FROM ${COMMIT_TABLE} AS c
-        WHERE c.commit_id IN (
-          SELECT commit_id FROM ${ROW_EFFECT_TABLE} WHERE table_name = ?
-          UNION
-          SELECT commit_id FROM ${SCHEMA_EFFECT_TABLE} WHERE table_name = ?
-        )
-        ORDER BY c.seq DESC
-        LIMIT ?
-        OFFSET ?
-      `,
-      tableName,
-      tableName,
-      max,
-      offset,
-    );
-    return rows.map((row) => toStudioHistoryEntry(db, row));
-  });
+  const rawTableName = table.trim();
+  if (rawTableName.length === 0) {
+    throw new CodedError("INVALID_OPERATION", "Table name is required");
+  }
+  const tableName = resolveTableName(listUserTables(db), rawTableName);
+  const max = normalizePageSize(options.limit);
+  const page = normalizePage(options.page);
+  const offset = (page - 1) * max;
+  const rows = getRows<{
+    commit_id: string;
+    seq: number;
+    kind: CommitKind;
+    message: string;
+    created_at: number;
+  }>(
+    db,
+    `
+      SELECT DISTINCT c.commit_id, c.seq, c.kind, c.message, c.created_at
+      FROM ${COMMIT_TABLE} AS c
+      WHERE c.commit_id IN (
+        SELECT commit_id FROM ${ROW_EFFECT_TABLE} WHERE table_name = ?
+        UNION
+        SELECT commit_id FROM ${SCHEMA_EFFECT_TABLE} WHERE table_name = ?
+      )
+      ORDER BY c.seq DESC
+      LIMIT ?
+      OFFSET ?
+    `,
+    tableName,
+    tableName,
+    max,
+    offset,
+  );
+  return rows.map((row) => toStudioHistoryEntry(db, row));
 }
 
-export function getStudioCommitDetail(commitId: string): StudioCommitDetail {
-  return withInitializedDatabase(({ db }) => {
-    const commit = getCommitById(db, commitId);
-    if (!commit) {
-      throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
-    }
-    return {
-      commit,
-      rowEffects: getRowEffectsByCommitId(db, commitId),
-      schemaEffects: getSchemaEffectsByCommitId(db, commitId),
-    };
-  });
+export function getStudioCommitDetail(db: Database, commitId: string): StudioCommitDetail {
+  const commit = getCommitById(db, commitId);
+  if (!commit) {
+    throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
+  }
+  return {
+    commit,
+    rowEffects: getRowEffectsByCommitId(db, commitId),
+    schemaEffects: getSchemaEffectsByCommitId(db, commitId),
+  };
 }

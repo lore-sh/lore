@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { CodedError } from "@toss/core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { formatError, getCommandHandler, runCli } from "../src/main";
 
 async function expectUnknownCommand(command: string): Promise<void> {
@@ -37,5 +40,31 @@ describe("main command dispatch", () => {
 
   test("formatError falls back to generic error output", () => {
     expect(formatError(new Error("boom"))).toBe("Error: boom");
+  });
+
+  test("validates db command args before opening database", async () => {
+    const home = mkdtempSync(join(tmpdir(), "toss-cli-home-"));
+    const snapshot = {
+      HOME: process.env.HOME,
+      USERPROFILE: process.env.USERPROFILE,
+    };
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    try {
+      await expect(runCli(["status", "--unknown"])).rejects.toThrow("status does not accept argument: --unknown");
+      await expect(runCli(["remote"])).rejects.toThrow("remote requires subcommand: connect | status");
+    } finally {
+      if (snapshot.HOME === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = snapshot.HOME;
+      }
+      if (snapshot.USERPROFILE === undefined) {
+        delete process.env.USERPROFILE;
+      } else {
+        process.env.USERPROFILE = snapshot.USERPROFILE;
+      }
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

@@ -1,9 +1,10 @@
 import { zValidator } from "@hono/zod-validator";
+import type { Database } from "bun:sqlite";
 import { revertCommit } from "@toss/core";
 import { Hono } from "hono";
 import { commitIdParamSchema, validationError } from "./shared";
 
-export function createRevertRoutes() {
+export function createRevertRoutes(db: Database) {
   return new Hono().post(
     "/:id/revert",
     zValidator("param", commitIdParamSchema, (result, c) => {
@@ -13,7 +14,7 @@ export function createRevertRoutes() {
     }),
     (c) => {
       const param = c.req.valid("param");
-      const result = revertCommit(param.id);
+      const result = revertCommit(db, param.id);
       if (result.ok) {
         return c.json(result, 200);
       }

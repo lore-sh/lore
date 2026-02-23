@@ -1,13 +1,15 @@
+import type { Database } from "bun:sqlite";
 import {
   getHistory,
   getStatus,
   recoverFromSnapshot,
+  resolveDbPath,
   revertCommit,
   verifyDatabase,
 } from "@toss/core";
 import { formatTimestamp, printTable, summarizeCommit, toJson } from "../format";
 
-export function runStatus(args: string[]): void {
+function parseStatusArgs(args: string[]): { json: boolean } {
   let json = false;
   for (const arg of args) {
     if (arg === "--json") {
@@ -16,7 +18,83 @@ export function runStatus(args: string[]): void {
     }
     throw new Error(`status does not accept argument: ${arg}`);
   }
-  const status = getStatus();
+  return { json };
+}
+
+function parseHistoryArgs(args: string[]): { verbose: boolean; json: boolean } {
+  let verbose = false;
+  let json = false;
+  for (const arg of args) {
+    if (arg === "--verbose") {
+      verbose = true;
+      continue;
+    }
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    throw new Error(`history does not accept argument: ${arg}`);
+  }
+  return { verbose, json };
+}
+
+function parseRevertArgs(args: string[]): { commitId: string } {
+  const commitId = args[0];
+  if (!commitId) {
+    throw new Error("revert requires <commit_id>");
+  }
+  if (args.length > 1) {
+    throw new Error("revert accepts exactly one <commit_id>");
+  }
+  return { commitId };
+}
+
+function parseVerifyArgs(args: string[]): { full: boolean } {
+  let full = false;
+  for (const arg of args) {
+    if (arg === "--full") {
+      full = true;
+      continue;
+    }
+    throw new Error("verify accepts only --full");
+  }
+  return { full };
+}
+
+function parseRecoverArgs(args: string[]): { snapshotCommitId: string } {
+  const snapshotCommitId = args[0];
+  if (!snapshotCommitId) {
+    throw new Error("recover requires <commit_id>");
+  }
+  if (args.length > 1) {
+    throw new Error("recover accepts exactly one <commit_id>");
+  }
+  return { snapshotCommitId };
+}
+
+export function validateStatusArgs(args: string[]): void {
+  parseStatusArgs(args);
+}
+
+export function validateHistoryArgs(args: string[]): void {
+  parseHistoryArgs(args);
+}
+
+export function validateRevertArgs(args: string[]): void {
+  parseRevertArgs(args);
+}
+
+export function validateVerifyArgs(args: string[]): void {
+  parseVerifyArgs(args);
+}
+
+export function validateRecoverArgs(args: string[]): void {
+  parseRecoverArgs(args);
+}
+
+export function runStatus(db: Database, args: string[]): void {
+  const { json } = parseStatusArgs(args);
+  const status = getStatus(db);
   if (json) {
     console.log(toJson(status));
     return;
@@ -46,21 +124,9 @@ export function runStatus(args: string[]): void {
   console.log(rows.length === 0 ? "(no user tables)" : printTable(rows));
 }
 
-export function runHistory(args: string[]): void {
-  let verbose = false;
-  let json = false;
-  for (const arg of args) {
-    if (arg === "--verbose") {
-      verbose = true;
-      continue;
-    }
-    if (arg === "--json") {
-      json = true;
-      continue;
-    }
-    throw new Error(`history does not accept argument: ${arg}`);
-  }
-  const history = getHistory();
+export function runHistory(db: Database, args: string[]): void {
+  const { verbose, json } = parseHistoryArgs(args);
+  const history = getHistory(db);
   if (json) {
     console.log(toJson(history));
     return;
@@ -91,15 +157,9 @@ export function runHistory(args: string[]): void {
   console.log(rows.length === 0 ? "(no commits)" : printTable(rows));
 }
 
-export function runRevert(args: string[]): void {
-  const commitId = args[0];
-  if (!commitId) {
-    throw new Error("revert requires <commit_id>");
-  }
-  if (args.length > 1) {
-    throw new Error("revert accepts exactly one <commit_id>");
-  }
-  const result = revertCommit(commitId);
+export function runRevert(db: Database, args: string[]): void {
+  const { commitId } = parseRevertArgs(args);
+  const result = revertCommit(db, commitId);
   if (!result.ok) {
     console.log(toJson({ status: "conflict", conflicts: result.conflicts }));
     process.exit(1);
@@ -107,16 +167,9 @@ export function runRevert(args: string[]): void {
   console.log(toJson({ status: "ok", revert_commit: summarizeCommit(result.revertCommit) }));
 }
 
-export function runVerify(args: string[]): void {
-  let full = false;
-  for (const arg of args) {
-    if (arg === "--full") {
-      full = true;
-      continue;
-    }
-    throw new Error("verify accepts only --full");
-  }
-  const result = verifyDatabase({ full });
+export function runVerify(db: Database, args: string[]): void {
+  const { full } = parseVerifyArgs(args);
+  const result = verifyDatabase(db, { full });
   console.log(toJson(result));
   if (!result.ok) {
     process.exit(1);
@@ -124,13 +177,7 @@ export function runVerify(args: string[]): void {
 }
 
 export async function runRecover(args: string[]): Promise<void> {
-  const snapshotCommitId = args[0];
-  if (!snapshotCommitId) {
-    throw new Error("recover requires <commit_id>");
-  }
-  if (args.length > 1) {
-    throw new Error("recover accepts exactly one <commit_id>");
-  }
-  const result = await recoverFromSnapshot(snapshotCommitId);
+  const { snapshotCommitId } = parseRecoverArgs(args);
+  const result = await recoverFromSnapshot(resolveDbPath(), snapshotCommitId);
   console.log(toJson({ status: "ok", ...result }));
 }

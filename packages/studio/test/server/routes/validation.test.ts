@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createStudioApp } from "../../../src/server/app";
 
 describe("studio route validation", () => {
   test("POST /api/tables/:name/rows/query returns 400 for invalid payload", async () => {
-    const app = createStudioApp();
+    const db = new Database(":memory:", { strict: true });
+    const app = createStudioApp(db);
     const response = await app.request("/api/tables/expenses/rows/query", {
       method: "POST",
       headers: {
@@ -17,6 +19,7 @@ describe("studio route validation", () => {
         },
       }),
     });
+    db.close(false);
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -26,7 +29,8 @@ describe("studio route validation", () => {
   });
 
   test("POST /api/tables/:name/rows/query returns VALIDATION_ERROR for malformed JSON", async () => {
-    const app = createStudioApp();
+    const db = new Database(":memory:", { strict: true });
+    const app = createStudioApp(db);
     const response = await app.request("/api/tables/expenses/rows/query", {
       method: "POST",
       headers: {
@@ -34,6 +38,7 @@ describe("studio route validation", () => {
       },
       body: "{",
     });
+    db.close(false);
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -43,8 +48,10 @@ describe("studio route validation", () => {
   });
 
   test("GET /api/commits rejects invalid kind query", async () => {
-    const app = createStudioApp();
+    const db = new Database(":memory:", { strict: true });
+    const app = createStudioApp(db);
     const response = await app.request("/api/commits?kind=invalid");
+    db.close(false);
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -52,8 +59,10 @@ describe("studio route validation", () => {
   });
 
   test("GET /api/commits/:id rejects empty param", async () => {
-    const app = createStudioApp();
+    const db = new Database(":memory:", { strict: true });
+    const app = createStudioApp(db);
     const response = await app.request("/api/commits/%20");
+    db.close(false);
 
     expect(response.status).toBe(400);
     const payload = await response.json();
@@ -61,8 +70,10 @@ describe("studio route validation", () => {
   });
 
   test("GET /api/unknown returns JSON 404", async () => {
-    const app = createStudioApp();
+    const db = new Database(":memory:", { strict: true });
+    const app = createStudioApp(db);
     const response = await app.request("/api/unknown");
+    db.close(false);
 
     expect(response.status).toBe(404);
     const payload = await response.json();

@@ -5,7 +5,6 @@ import {
   runInSavepoint,
   runInTransactionWithDeferredForeignKeys,
   tableExists,
-  withInitializedDatabase,
 } from "./engine/db";
 import { createEngineDb } from "./engine/client";
 import { CommitTable } from "./engine/schema.sql";
@@ -212,62 +211,60 @@ function preflightInverseApply(
   }
 }
 
-export function revertCommit(commitId: string): RevertResult {
-  return withInitializedDatabase(({ db }) => {
-    return runInTransactionWithDeferredForeignKeys(db, () => {
-      const targetCommit = getCommitById(db, commitId);
-      if (!targetCommit) {
-        throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
-      }
-      if (!targetCommit.revertible) {
-        throw new CodedError("NOT_REVERTIBLE", `Commit ${commitId} has no inverse metadata`);
-      }
+export function revertCommit(db: Database, commitId: string): RevertResult {
+  return runInTransactionWithDeferredForeignKeys(db, () => {
+    const targetCommit = getCommitById(db, commitId);
+    if (!targetCommit) {
+      throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
+    }
+    if (!targetCommit.revertible) {
+      throw new CodedError("NOT_REVERTIBLE", `Commit ${commitId} has no inverse metadata`);
+    }
 
-      const already = createEngineDb(db)
-        .select({ commitId: CommitTable.commitId })
-        .from(CommitTable)
-        .where(and(eq(CommitTable.kind, "revert"), eq(CommitTable.revertTargetId, commitId)))
-        .limit(1)
-        .get();
-      if (already) {
-        throw new CodedError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
-      }
+    const already = createEngineDb(db)
+      .select({ commitId: CommitTable.commitId })
+      .from(CommitTable)
+      .where(and(eq(CommitTable.kind, "revert"), eq(CommitTable.revertTargetId, commitId)))
+      .limit(1)
+      .get();
+    if (already) {
+      throw new CodedError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
+    }
 
-      const targetRows = getRowEffectsByCommitId(db, commitId);
-      const targetSchemas = getSchemaEffectsByCommitId(db, commitId);
-      const later = fetchLaterEffects(db, targetCommit.seq);
-      const conflicts = [
-        ...detectRowConflict(db, targetRows, later.rows),
-        ...detectSchemaConflicts(targetSchemas, later.schemas),
-        ...detectSchemaRowConflicts(targetSchemas, later.rows),
-        ...preflightInverseApply(db, targetRows, targetSchemas),
-      ];
-      if (conflicts.length > 0) {
-        return { ok: false, conflicts };
-      }
+    const targetRows = getRowEffectsByCommitId(db, commitId);
+    const targetSchemas = getSchemaEffectsByCommitId(db, commitId);
+    const later = fetchLaterEffects(db, targetCommit.seq);
+    const conflicts = [
+      ...detectRowConflict(db, targetRows, later.rows),
+      ...detectSchemaConflicts(targetSchemas, later.schemas),
+      ...detectSchemaRowConflicts(targetSchemas, later.rows),
+      ...preflightInverseApply(db, targetRows, targetSchemas),
+    ];
+    if (conflicts.length > 0) {
+      return { ok: false, conflicts };
+    }
 
-      const beforeSchemaHash = schemaHash(db);
-      const beforeObservedState = captureObservedState(db);
-      applyUserRowAndSchemaEffects(db, targetRows, targetSchemas, "inverse", {
-        disableTableTriggers: true,
-      });
-      applyRowEffectsWithOptions(db, targetRows, "inverse", {
-        disableTableTriggers: true,
-        includeUserEffects: false,
-        includeSystemEffects: true,
-        systemPolicy: "reconcile",
-      });
-      assertNoForeignKeyViolations(db, "REVERT_FAILED", "revert apply");
-
-      const revertCommitEntry = appendCommitFromObservedChange(db, {
-        operations: [],
-        kind: "revert",
-        message: `Revert ${targetCommit.commitId}: ${targetCommit.message}`,
-        revertTargetId: targetCommit.commitId,
-        beforeSchemaHash,
-        beforeObservedState,
-      });
-      return { ok: true, revertCommit: revertCommitEntry };
+    const beforeSchemaHash = schemaHash(db);
+    const beforeObservedState = captureObservedState(db);
+    applyUserRowAndSchemaEffects(db, targetRows, targetSchemas, "inverse", {
+      disableTableTriggers: true,
     });
+    applyRowEffectsWithOptions(db, targetRows, "inverse", {
+      disableTableTriggers: true,
+      includeUserEffects: false,
+      includeSystemEffects: true,
+      systemPolicy: "reconcile",
+    });
+    assertNoForeignKeyViolations(db, "REVERT_FAILED", "revert apply");
+
+    const revertCommitEntry = appendCommitFromObservedChange(db, {
+      operations: [],
+      kind: "revert",
+      message: `Revert ${targetCommit.commitId}: ${targetCommit.message}`,
+      revertTargetId: targetCommit.commitId,
+      beforeSchemaHash,
+      beforeObservedState,
+    });
+    return { ok: true, revertCommit: revertCommitEntry };
   });
 }

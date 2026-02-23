@@ -1,4 +1,5 @@
-import { withInitializedDatabase, getRow } from "./engine/db";
+import type { Database } from "bun:sqlite";
+import { getRow } from "./engine/db";
 import { CodedError } from "./error";
 import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
 import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
@@ -34,20 +35,18 @@ function sqliteIdentifierEquals(left: string, right: string): boolean {
   return left === right || asciiCaseFold(left) === asciiCaseFold(right);
 }
 
-export function getSchema(options: GetSchemaOptions = {}): SchemaView {
-  return withInitializedDatabase(({ db, dbPath }) => {
-    const descriptor = describeSchema(db);
-    const selected = selectTables(descriptor.tables, options.table);
-    const tables = selected.map(({ table: name, ...rest }) => {
-      const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(name, { unsafe: true })}`);
-      return { name, ...rest, rowCount: row?.c ?? 0 };
-    });
-
-    return {
-      dbPath,
-      generatedAt: new Date().toISOString(),
-      schemaHash: schemaHashFromDescriptor(descriptor),
-      tables,
-    };
+export function getSchema(db: Database, options: GetSchemaOptions = {}): SchemaView {
+  const descriptor = describeSchema(db);
+  const selected = selectTables(descriptor.tables, options.table);
+  const tables = selected.map(({ table: name, ...rest }) => {
+    const row = getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(name, { unsafe: true })}`);
+    return { name, ...rest, rowCount: row?.c ?? 0 };
   });
+
+  return {
+    dbPath: db.filename,
+    generatedAt: new Date().toISOString(),
+    schemaHash: schemaHashFromDescriptor(descriptor),
+    tables,
+  };
 }

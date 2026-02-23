@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { applyPlan, initDatabase, readQuery, revertCommit } from "../src";
-import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
+import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -29,13 +29,13 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "expenses" }],
     });
 
-    await applyPlan(setup);
-    const dropCommit = await applyPlan(drop);
+    await applyPlan(currentDb(), setup);
+    const dropCommit = await applyPlan(currentDb(), drop);
 
-    const reverted = revertCommit(dropCommit.commitId);
+    const reverted = revertCommit(currentDb(), dropCommit.commitId);
     expect(reverted.ok).toBe(true);
 
-    const rows = readQuery("SELECT id, item FROM expenses");
+    const rows = readQuery(currentDb(), "SELECT id, item FROM expenses");
     expect(rows).toEqual([{ id: 1, item: "dinner" }]);
   });
 
@@ -53,14 +53,14 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "auto_drop" }],
     });
 
-    const dropped = await applyPlan(drop);
-    const reverted = revertCommit(dropped.commitId);
+    const dropped = await applyPlan(currentDb(), drop);
+    const reverted = revertCommit(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for AUTOINCREMENT drop_table");
     }
 
-    const rows = readQuery("SELECT id, body FROM auto_drop ORDER BY id");
+    const rows = readQuery(currentDb(), "SELECT id, body FROM auto_drop ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "a" }]);
   });
 
@@ -90,9 +90,9 @@ describe("revertCommit", () => {
         { type: "drop_table", table: "a_parent" },
       ],
     });
-    const dropped = await applyPlan(dropBoth);
+    const dropped = await applyPlan(currentDb(), dropBoth);
 
-    const reverted = revertCommit(dropped.commitId);
+    const reverted = revertCommit(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for multi-table drop with FK dependencies");
@@ -135,13 +135,13 @@ describe("revertCommit", () => {
       message: "delete parent 1",
       operations: [{ type: "delete", table: "a_parent", where: { id: 1 } }],
     });
-    const deleted = await applyPlan(deleteParent);
+    const deleted = await applyPlan(currentDb(), deleteParent);
 
-    const reverted = revertCommit(deleted.commitId);
+    const reverted = revertCommit(currentDb(), deleted.commitId);
     expect(reverted.ok).toBe(true);
 
-    const parentRows = readQuery("SELECT id, name FROM a_parent ORDER BY id");
-    const childRows = readQuery("SELECT id, parent_id, body FROM z_child ORDER BY id");
+    const parentRows = readQuery(currentDb(), "SELECT id, name FROM a_parent ORDER BY id");
+    const childRows = readQuery(currentDb(), "SELECT id, parent_id, body FROM z_child ORDER BY id");
     expect(parentRows).toEqual([{ id: 1, name: "p1" }]);
     expect(childRows).toEqual([
       { id: 1, parent_id: 1, body: "c1" },
@@ -170,12 +170,12 @@ describe("revertCommit", () => {
       message: "insert ledger row",
       operations: [{ type: "insert", table: "ledger", values: { id: 1, account_id: 1, amount: 7 } }],
     });
-    const committed = await applyPlan(insertLedger);
-    const reverted = revertCommit(committed.commitId);
+    const committed = await applyPlan(currentDb(), insertLedger);
+    const reverted = revertCommit(currentDb(), committed.commitId);
     expect(reverted.ok).toBe(true);
 
-    const accountRows = readQuery("SELECT id, balance FROM account");
-    const ledgerRows = readQuery("SELECT id, account_id, amount FROM ledger");
+    const accountRows = readQuery(currentDb(), "SELECT id, balance FROM account");
+    const ledgerRows = readQuery(currentDb(), "SELECT id, account_id, amount FROM ledger");
     expect(accountRows).toEqual([{ id: 1, balance: 0 }]);
     expect(ledgerRows).toEqual([]);
   });
@@ -206,9 +206,9 @@ describe("revertCommit", () => {
         { type: "drop_table", table: "parent_nodes" },
       ],
     });
-    const committed = await applyPlan(destructive);
+    const committed = await applyPlan(currentDb(), destructive);
 
-    const reverted = revertCommit(committed.commitId);
+    const reverted = revertCommit(currentDb(), committed.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected revert success for delete-child+drop-parent commit");
@@ -254,11 +254,11 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "users", values: { id: 2, email: "a@example.com" } }],
     });
 
-    await applyPlan(setup);
-    const deleted = await applyPlan(deleteUser);
-    await applyPlan(insertConflicting);
+    await applyPlan(currentDb(), setup);
+    const deleted = await applyPlan(currentDb(), deleteUser);
+    await applyPlan(currentDb(), insertConflicting);
 
-    const result = revertCommit(deleted.commitId);
+    const result = revertCommit(currentDb(), deleted.commitId);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.conflicts.length).toBeGreaterThan(0);
@@ -300,8 +300,8 @@ describe("revertCommit", () => {
       message: "drop note",
       operations: [{ type: "drop_column", table: "constrained_items", column: "note" }],
     });
-    const dropped = await applyPlan(dropNote);
-    const reverted = revertCommit(dropped.commitId);
+    const dropped = await applyPlan(currentDb(), dropNote);
+    const reverted = revertCommit(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
 
     const verify = new Database(dbPath);
@@ -348,9 +348,9 @@ describe("revertCommit", () => {
       message: "drop note from self fk table",
       operations: [{ type: "drop_column", table: "self_fk_nodes", column: "note" }],
     });
-    const dropped = await applyPlan(dropNote);
+    const dropped = await applyPlan(currentDb(), dropNote);
 
-    const reverted = revertCommit(dropped.commitId);
+    const reverted = revertCommit(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(true);
     if (!reverted.ok) {
       throw new Error("expected self-referential FK revert success");
@@ -398,11 +398,11 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "conflict_items", values: { id: 2 } }],
     });
 
-    await applyPlan(setup);
-    const dropped = await applyPlan(dropColumn);
-    await applyPlan(laterInsert);
+    await applyPlan(currentDb(), setup);
+    const dropped = await applyPlan(currentDb(), dropColumn);
+    await applyPlan(currentDb(), laterInsert);
 
-    const reverted = revertCommit(dropped.commitId);
+    const reverted = revertCommit(currentDb(), dropped.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(reverted.conflicts.some((conflict) => conflict.kind === "schema" && conflict.table === "conflict_items")).toBe(
@@ -410,7 +410,7 @@ describe("revertCommit", () => {
       );
     }
 
-    const rows = readQuery("SELECT id FROM conflict_items ORDER BY id");
+    const rows = readQuery(currentDb(), "SELECT id FROM conflict_items ORDER BY id");
     expect(rows).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
@@ -441,11 +441,11 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "missing_table_conflict" }],
     });
 
-    await applyPlan(setup);
-    const updated = await applyPlan(updatePlan);
-    await applyPlan(dropPlan);
+    await applyPlan(currentDb(), setup);
+    const updated = await applyPlan(currentDb(), updatePlan);
+    await applyPlan(currentDb(), dropPlan);
 
-    const result = revertCommit(updated.commitId);
+    const result = revertCommit(currentDb(), updated.commitId);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(
@@ -472,8 +472,8 @@ describe("revertCommit", () => {
       message: "update blob row tag",
       operations: [{ type: "update", table: "blobs", values: { tag: "b" }, where: { id: 1 } }],
     });
-    const updated = await applyPlan(updateTag);
-    const reverted = revertCommit(updated.commitId);
+    const updated = await applyPlan(currentDb(), updateTag);
+    const reverted = revertCommit(currentDb(), updated.commitId);
     expect(reverted.ok).toBe(true);
 
     const verify = new Database(dbPath);
@@ -504,11 +504,11 @@ describe("revertCommit", () => {
       message: "update tag for nul-text row",
       operations: [{ type: "update", table: "text_nul_items", values: { tag: "b" }, where: { id: 1 } }],
     });
-    const updated = await applyPlan(updateTag);
-    const reverted = revertCommit(updated.commitId);
+    const updated = await applyPlan(currentDb(), updateTag);
+    const reverted = revertCommit(currentDb(), updated.commitId);
     expect(reverted.ok).toBe(true);
 
-    const rows = readQuery(
+    const rows = readQuery(currentDb(), 
       "SELECT id, hex(CAST(payload AS BLOB)) AS payload_hex, length(CAST(payload AS BLOB)) AS payload_len, tag FROM text_nul_items",
     );
     expect(rows).toEqual([{ id: 1, payload_hex: "410042", payload_len: 3, tag: "a" }]);
@@ -531,12 +531,12 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "auto_items", values: { body: "b" } }],
     });
 
-    const committed = await applyPlan(insertA);
-    const reverted = revertCommit(committed.commitId);
+    const committed = await applyPlan(currentDb(), insertA);
+    const reverted = revertCommit(currentDb(), committed.commitId);
     expect(reverted.ok).toBe(true);
 
-    await applyPlan(insertB);
-    const rows = readQuery("SELECT id, body FROM auto_items ORDER BY id");
+    await applyPlan(currentDb(), insertB);
+    const rows = readQuery(currentDb(), "SELECT id, body FROM auto_items ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "b" }]);
   });
 
@@ -557,10 +557,10 @@ describe("revertCommit", () => {
       operations: [{ type: "insert", table: "auto_items_later", values: { body: "b" } }],
     });
 
-    const first = await applyPlan(insertA);
-    await applyPlan(insertB);
+    const first = await applyPlan(currentDb(), insertA);
+    await applyPlan(currentDb(), insertB);
 
-    const reverted = revertCommit(first.commitId);
+    const reverted = revertCommit(currentDb(), first.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(
@@ -589,11 +589,11 @@ describe("revertCommit", () => {
       message: "delete b",
       operations: [{ type: "delete", table: "auto_items_hist", where: { id: 2 } }],
     });
-    const first = await applyPlan(insertA);
-    await applyPlan(insertB);
-    await applyPlan(deleteB);
+    const first = await applyPlan(currentDb(), insertA);
+    await applyPlan(currentDb(), insertB);
+    await applyPlan(currentDb(), deleteB);
 
-    const reverted = revertCommit(first.commitId);
+    const reverted = revertCommit(currentDb(), first.commitId);
     expect(reverted.ok).toBe(false);
     if (!reverted.ok) {
       expect(
@@ -625,20 +625,20 @@ describe("revertCommit", () => {
       operations: [{ type: "drop_table", table: "events" }],
     });
 
-    await applyPlan(setup);
-    const dropped = await applyPlan(drop);
-    const first = revertCommit(dropped.commitId);
+    await applyPlan(currentDb(), setup);
+    const dropped = await applyPlan(currentDb(), drop);
+    const first = revertCommit(currentDb(), dropped.commitId);
     expect(first.ok).toBe(true);
     if (!first.ok) {
       throw new Error("expected first revert success");
     }
 
-    const second = revertCommit(first.revertCommit.commitId);
+    const second = revertCommit(currentDb(), first.revertCommit.commitId);
     expect(second.ok).toBe(true);
     if (!second.ok) {
       throw new Error("expected second revert success");
     }
-    const tableCount = readQuery("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='events'");
+    const tableCount = readQuery(currentDb(), "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='events'");
     expect(tableCount).toEqual([{ c: 0 }]);
   });
 });

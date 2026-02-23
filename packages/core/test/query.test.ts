@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { initDatabase, CodedError, readQuery } from "../src";
-import { createTestContext, withTmpDirCleanup } from "./helpers";
+import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -18,7 +18,7 @@ describe("readQuery", () => {
       db.close(false);
     }
 
-    const rows = readQuery("SELECT id, name FROM users ORDER BY id ASC");
+    const rows = readQuery(currentDb(), "SELECT id, name FROM users ORDER BY id ASC");
     expect(rows).toEqual([
       { id: 1, name: "alice" },
       { id: 2, name: "bob" },
@@ -29,9 +29,9 @@ describe("readQuery", () => {
     const { dbPath } = createTestContext();
     await initDatabase({ dbPath });
 
-    expect(() => readQuery("DELETE FROM users")).toThrow();
+    expect(() => readQuery(currentDb(), "DELETE FROM users")).toThrow();
     try {
-      readQuery("DELETE FROM users");
+      readQuery(currentDb(), "DELETE FROM users");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
     }

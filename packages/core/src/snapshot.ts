@@ -2,18 +2,17 @@ import { Database } from "bun:sqlite";
 import { desc, eq } from "drizzle-orm";
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { closeClient, createEngineDb } from "./engine/client";
+import { createEngineDb } from "./engine/client";
 import {
   assertInitialized,
-  configureDatabase,
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
   getRow,
   listUserTables,
   MAIN_REF_NAME,
+  openDb,
+  resolveDbPath,
   runInTransactionWithDeferredForeignKeys,
-  withInitializedDatabase,
-  withInitializedDatabaseAsync,
 } from "./engine/db";
 import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
 import { CodedError } from "./error";
@@ -33,7 +32,7 @@ export async function hashFile(path: string): Promise<string> {
 }
 
 function openStagingWritableDatabase(stagingPath: string): Database {
-  const db = new Database(stagingPath);
+  const db = new Database(stagingPath, { strict: true });
   db.run("PRAGMA journal_mode=DELETE");
   db.run("PRAGMA synchronous=FULL");
   db.run("PRAGMA foreign_keys=ON");
@@ -49,9 +48,9 @@ function countRows(db: Database): number {
 }
 
 function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: number; rowCountHint: number } {
-  const db = new Database(snapshotDbPath, { readonly: true });
+  const db = new Database(snapshotDbPath, { readonly: true, strict: true });
   try {
-    assertInitialized(db, snapshotDbPath);
+    assertInitialized(db);
     const engineDb = createEngineDb(db);
     const head = engineDb.select({ commitId: RefTable.commitId }).from(RefTable).where(eq(RefTable.name, MAIN_REF_NAME)).limit(1).get();
     const commitId = head?.commitId;
@@ -68,29 +67,18 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
   }
 }
 
-export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
-  const runtime = withInitializedDatabase(({ db, dbPath }) => {
-    const interval = DEFAULT_SNAPSHOT_INTERVAL;
-    if (interval <= 0 || commit.seq % interval !== 0) {
-      return null;
-    }
-    return { dbPath };
-  });
-  if (!runtime) {
+export async function maybeCreateSnapshot(db: Database, commit: CommitEntry): Promise<void> {
+  const interval = DEFAULT_SNAPSHOT_INTERVAL;
+  if (interval <= 0 || commit.seq % interval !== 0) {
     return;
   }
-  const { dbPath } = runtime;
 
+  const dbPath = db.filename;
   const snapshotsDir = resolve(dirname(dbPath), "snapshots");
   await mkdir(snapshotsDir, { recursive: true });
   const tmpSnapshotPath = resolve(snapshotsDir, `tmp-${crypto.randomUUID().replaceAll("-", "")}.db`);
 
-  withInitializedDatabase(({ db: snapshotDb, dbPath: currentPath }) => {
-    if (currentPath !== dbPath) {
-      throw new CodedError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
-    }
-    snapshotDb.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
-  });
+  db.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
 
   const snapshotHead = readSnapshotHead(tmpSnapshotPath);
   const snapshotPath = resolve(snapshotsDir, `${snapshotHead.seq}-${snapshotHead.commitId}.db`);
@@ -98,70 +86,60 @@ export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
   await rename(tmpSnapshotPath, snapshotPath);
   const [digest] = await Promise.all([hashFile(snapshotPath), deleteWithSidecars(tmpSnapshotPath)]);
 
-  await withInitializedDatabaseAsync(async ({ db: writeDb, dbPath: currentPath }) => {
-    if (currentPath !== dbPath) {
-      throw new CodedError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
-    }
-    const engineDb = createEngineDb(writeDb);
-    engineDb
-      .insert(SnapshotTable)
-      .values({
-        commitId: snapshotHead.commitId,
+  const engineDb = createEngineDb(db);
+  engineDb
+    .insert(SnapshotTable)
+    .values({
+      commitId: snapshotHead.commitId,
+      filePath: snapshotPath,
+      fileSha256: digest,
+      createdAt: Date.now(),
+      rowCountHint: snapshotHead.rowCountHint,
+    })
+    .onConflictDoUpdate({
+      target: SnapshotTable.commitId,
+      set: {
         filePath: snapshotPath,
         fileSha256: digest,
         createdAt: Date.now(),
         rowCountHint: snapshotHead.rowCountHint,
-      })
-      .onConflictDoUpdate({
-        target: SnapshotTable.commitId,
-        set: {
-          filePath: snapshotPath,
-          fileSha256: digest,
-          createdAt: Date.now(),
-          rowCountHint: snapshotHead.rowCountHint,
-        },
-      })
-      .run();
+      },
+    })
+    .run();
 
-    const retain = DEFAULT_SNAPSHOT_RETAIN;
-    const allSnapshots = engineDb
-      .select({ commitId: SnapshotTable.commitId, filePath: SnapshotTable.filePath })
-      .from(SnapshotTable)
-      .orderBy(desc(SnapshotTable.createdAt))
-      .all();
-    const stale = allSnapshots.slice(Math.max(retain, 0));
-    for (const row of stale) {
-      await deleteWithSidecars(row.filePath);
-      engineDb.delete(SnapshotTable).where(eq(SnapshotTable.commitId, row.commitId)).run();
-    }
-  });
+  const retain = DEFAULT_SNAPSHOT_RETAIN;
+  const allSnapshots = engineDb
+    .select({ commitId: SnapshotTable.commitId, filePath: SnapshotTable.filePath })
+    .from(SnapshotTable)
+    .orderBy(desc(SnapshotTable.createdAt))
+    .all();
+  const stale = allSnapshots.slice(Math.max(retain, 0));
+  for (const row of stale) {
+    await deleteWithSidecars(row.filePath);
+    engineDb.delete(SnapshotTable).where(eq(SnapshotTable.commitId, row.commitId)).run();
+  }
 }
 
-export function listSnapshots(): SnapshotEntry[] {
-  return withInitializedDatabase(({ db }) =>
-    createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all(),
-  );
+export function listSnapshots(db: Database): SnapshotEntry[] {
+  return createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
 }
 
 export async function promotePreparedDatabase(preparedDbPath: string, dbPath: string): Promise<void> {
-  closeClient({ resetPath: false });
   try {
     await rename(preparedDbPath, dbPath);
     await deleteWalAndShm(dbPath);
-    configureDatabase(dbPath);
   } catch (error) {
     await deleteWithSidecars(preparedDbPath);
-    try {
-      configureDatabase(dbPath);
-    } catch {
-      // Best effort: preserve runtime continuity on the original path.
-    }
     throw error;
   }
 }
 
-function resolveSnapshotForRecovery(commitId: string): { dbPath: string; snapshotPath: string; replayCommits: CommitReplayInput[] } {
-  return withInitializedDatabase(({ db, dbPath }) => {
+function resolveSnapshotForRecovery(
+  dbPath: string,
+  commitId: string,
+): { snapshotPath: string; replayCommits: CommitReplayInput[] } {
+  const db = openDb(dbPath);
+  try {
     const snapshot = createEngineDb(db)
       .select({
         filePath: SnapshotTable.filePath,
@@ -176,17 +154,20 @@ function resolveSnapshotForRecovery(commitId: string): { dbPath: string; snapsho
       throw new CodedError("NOT_FOUND", `Snapshot not found for commit: ${commitId}`);
     }
     return {
-      dbPath,
       snapshotPath: snapshot.filePath,
       replayCommits: loadCommitReplayInputs(db, snapshot.seq),
     };
-  });
+  } finally {
+    db.close(false);
+  }
 }
 
 export async function recoverFromSnapshot(
+  dbPathInput: string,
   commitId: string,
 ): Promise<{ dbPath: string; restoredCommitId: string; replayedCommits: number }> {
-  const { dbPath, snapshotPath, replayCommits } = resolveSnapshotForRecovery(commitId);
+  const dbPath = resolveDbPath(dbPathInput);
+  const { snapshotPath, replayCommits } = resolveSnapshotForRecovery(dbPath, commitId);
 
   const stagingPath = `${dbPath}.recover-${crypto.randomUUID().replaceAll("-", "")}.staging.db`;
   await deleteWithSidecars(stagingPath);
@@ -195,7 +176,7 @@ export async function recoverFromSnapshot(
   let closed = false;
   let promoted = false;
   try {
-    assertInitialized(replayDb, stagingPath);
+    assertInitialized(replayDb);
     for (const replay of replayCommits) {
       runInTransactionWithDeferredForeignKeys(replayDb, () => {
         replayCommitExactly(replayDb, replay, { errorCode: "RECOVER_FAILED" });

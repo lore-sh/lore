@@ -1,4 +1,5 @@
-import { runInSavepoint, runInTransaction, withInitializedDatabase, withInitializedDatabaseAsync } from "./engine/db";
+import type { Database } from "bun:sqlite";
+import { runInSavepoint, runInTransaction } from "./engine/db";
 import { CodedError } from "./error";
 import { executeOperation } from "./engine/execute";
 import { appendCommitFromObservedChange } from "./engine/log";
@@ -14,30 +15,28 @@ export function readPlanInput(planRef: string): Promise<string> {
   return Bun.file(planRef).text();
 }
 
-export async function applyPlan(planRef: string): Promise<CommitEntry> {
+export async function applyPlan(db: Database, planRef: string): Promise<CommitEntry> {
   const payload = await readPlanInput(planRef);
   const plan = parseAndValidateOperationPlan(payload);
 
-  const commit = await withInitializedDatabaseAsync(async ({ db }) =>
-    runInTransaction(db, () => {
-      const beforeSchemaHash = schemaHash(db);
-      const beforeObservedState = captureObservedState(db);
-      for (const operation of plan.operations) {
-        executeOperation(db, operation);
-      }
-      return appendCommitFromObservedChange(db, {
-        operations: plan.operations,
-        kind: "apply",
-        message: plan.message,
-        revertTargetId: null,
-        beforeSchemaHash,
-        beforeObservedState,
-      });
-    }),
-  );
+  const commit = runInTransaction(db, () => {
+    const beforeSchemaHash = schemaHash(db);
+    const beforeObservedState = captureObservedState(db);
+    for (const operation of plan.operations) {
+      executeOperation(db, operation);
+    }
+    return appendCommitFromObservedChange(db, {
+      operations: plan.operations,
+      kind: "apply",
+      message: plan.message,
+      revertTargetId: null,
+      beforeSchemaHash,
+      beforeObservedState,
+    });
+  });
 
   const { maybeCreateSnapshot } = await import("./snapshot");
-  await maybeCreateSnapshot(commit);
+  await maybeCreateSnapshot(db, commit);
   return commit;
 }
 
@@ -169,31 +168,29 @@ interface DryRunResult {
   predicted: PlanCheckSummary["predicted"];
 }
 
-function dryRun(operations: Operation[]): DryRunResult {
+function dryRunWithDb(db: Database, operations: Operation[]): DryRunResult {
   try {
-    const predicted = withInitializedDatabase(({ db }) => {
-      const before = captureObservedState(db);
-      return runInSavepoint(
-        db,
-        "toss_plan_check",
-        () => {
-          for (const op of operations) {
-            executeOperation(db, op);
-          }
-          const after = captureObservedState(db);
-          const diff = diffObservedState(before, after);
-          return {
-            rowEffects: diff.rowEffects.length,
-            schemaEffects: diff.schemaEffects.length,
-            tables: uniqueSorted([
-              ...diff.rowEffects.map((e) => e.tableName),
-              ...diff.schemaEffects.map((e) => e.tableName),
-            ]),
-          };
-        },
-        { rollbackOnSuccess: true },
-      );
-    });
+    const before = captureObservedState(db);
+    const predicted = runInSavepoint(
+      db,
+      "toss_plan_check",
+      () => {
+        for (const op of operations) {
+          executeOperation(db, op);
+        }
+        const after = captureObservedState(db);
+        const diff = diffObservedState(before, after);
+        return {
+          rowEffects: diff.rowEffects.length,
+          schemaEffects: diff.schemaEffects.length,
+          tables: uniqueSorted([
+            ...diff.rowEffects.map((e) => e.tableName),
+            ...diff.schemaEffects.map((e) => e.tableName),
+          ]),
+        };
+      },
+      { rollbackOnSuccess: true },
+    );
     return { errors: [], predicted };
   } catch (error) {
     return {
@@ -203,7 +200,7 @@ function dryRun(operations: Operation[]): DryRunResult {
   }
 }
 
-export async function planCheck(planRef: string): Promise<PlanCheckResult> {
+export async function planCheck(db: Database, planRef: string): Promise<PlanCheckResult> {
   const checkedAt = new Date().toISOString();
   let payload: string;
   try {
@@ -221,7 +218,7 @@ export async function planCheck(planRef: string): Promise<PlanCheckResult> {
 
   const warnings = destructiveWarnings(plan.operations);
   const summaryBase = summarizeOperations(plan.operations);
-  const { errors, predicted } = dryRun(plan.operations);
+  const { errors, predicted } = dryRunWithDb(db, plan.operations);
 
   const summary: PlanCheckSummary = { ...summaryBase, predicted };
 

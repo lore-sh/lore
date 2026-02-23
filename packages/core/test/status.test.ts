@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { getStatus, initDatabase } from "../src";
 import { writeRemoteConfig } from "../src/config";
-import { createTestContext, withTestHome, withTmpDirCleanup } from "./helpers";
+import { createTestContext, withTestHome, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -19,7 +19,7 @@ describe("getStatus", () => {
       db.close(false);
     }
 
-    const status = getStatus();
+    const status = getStatus(currentDb(), );
     expect(status.tableCount).toBe(1);
     expect(status.tables).toEqual([{ name: "users", count: 2 }]);
     expect(status.sync.state).toBe("offline");
@@ -32,7 +32,7 @@ describe("getStatus", () => {
 
     withTestHome(dir, () => {
       writeRemoteConfig({ platform: "libsql", url: "libsql://status-test.turso.io" });
-      const status = getStatus();
+      const status = getStatus(currentDb(), );
       expect(status.sync.configured).toBe(true);
       expect(status.sync.state).toBe("offline");
       expect(status.sync.pendingCommits).toBe(0);

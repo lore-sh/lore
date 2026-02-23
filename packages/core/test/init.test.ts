@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { join } from "node:path";
-import { getStatus, initDatabase } from "../src";
-import { createTestContext, withTmpDirCleanup } from "./helpers";
+import { getStatus, initDatabase, openDb } from "../src";
+import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -50,7 +50,7 @@ describe("initDatabase", () => {
 
     const reinit = await initDatabase({ dbPath, forceNew: true });
     expect(reinit.dbPath).toBe(dbPath);
-    const status = getStatus();
+    const status = getStatus(currentDb(), );
     expect(status.tableCount).toBe(0);
     expect(status.headCommit).toBeNull();
   });
@@ -97,7 +97,7 @@ describe("initDatabase", () => {
     try {
       const expected = join(dir, "home", ".toss", "toss.db");
       expect(await Bun.file(expected).exists()).toBe(false);
-      expect(() => getStatus()).toThrow("Database is not initialized");
+      expect(() => openDb()).toThrow("Database is not initialized");
       expect(await Bun.file(expected).exists()).toBe(false);
     } finally {
       restoreGlobalEnv(snapshot);

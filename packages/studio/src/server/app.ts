@@ -1,4 +1,5 @@
 import { CodedError, toHttpProblem } from "@toss/core";
+import type { Database } from "bun:sqlite";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { join } from "node:path";
@@ -56,17 +57,17 @@ export function isAssetRequestPath(path: string): boolean {
   return path.startsWith("/assets/");
 }
 
-export function createStudioApi() {
+export function createStudioApi(db: Database) {
   return new Hono()
     .basePath("/api")
-    .route("/tables", createTableRoutes())
-    .route("/commits", createHistoryRoutes())
-    .route("/commits", createRevertRoutes())
-    .route("/", createStatusRoutes());
+    .route("/tables", createTableRoutes(db))
+    .route("/commits", createHistoryRoutes(db))
+    .route("/commits", createRevertRoutes(db))
+    .route("/", createStatusRoutes(db));
 }
 
-export function createStudioApp() {
-  const api = createStudioApi();
+export function createStudioApp(db: Database) {
+  const api = createStudioApi(db);
   const app = new Hono()
     .route("/", api)
     .all("/api/*", (c) => {
@@ -129,6 +130,4 @@ export function createStudioApp() {
 
   return app;
 }
-
-export const studioApi = createStudioApi();
-export type StudioApi = typeof studioApi;
+export type StudioApi = ReturnType<typeof createStudioApi>;

@@ -1,5 +1,6 @@
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
+import type { Database } from "bun:sqlite";
 import type { RemotePlatform } from "@toss/core";
 import {
   cloneFromRemote,
@@ -175,6 +176,12 @@ function parseRemoteStatusArgs(args: string[]): void {
   }
 }
 
+function parseNoArgs(command: "push" | "pull" | "sync", args: string[]): void {
+  if (args.length > 0) {
+    throw new Error(`${command} does not accept arguments`);
+  }
+}
+
 export function parseClonePlatform(value: string): RemotePlatform {
   if (!isPlatform(value)) {
     throw new Error(`clone does not accept --platform=${value}. Use turso or libsql.`);
@@ -227,7 +234,36 @@ export function parseCloneArgs(args: string[]): {
   return { platform, url, forceNew };
 }
 
-export async function runRemote(args: string[]): Promise<void> {
+export function validateRemoteArgs(args: string[]): void {
+  const sub = args[0];
+  const rest = args.slice(1);
+  if (!sub) {
+    throw new Error("remote requires subcommand: connect | status");
+  }
+  if (sub === "connect") {
+    parseRemoteConnectArgs(rest);
+    return;
+  }
+  if (sub === "status") {
+    parseRemoteStatusArgs(rest);
+    return;
+  }
+  throw new Error(`Unknown remote subcommand: ${sub}`);
+}
+
+export function validatePushArgs(args: string[]): void {
+  parseNoArgs("push", args);
+}
+
+export function validatePullArgs(args: string[]): void {
+  parseNoArgs("pull", args);
+}
+
+export function validateSyncArgs(args: string[]): void {
+  parseNoArgs("sync", args);
+}
+
+export async function runRemote(db: Database, args: string[]): Promise<void> {
   const sub = args[0];
   const rest = args.slice(1);
   if (!sub) {
@@ -243,10 +279,10 @@ export async function runRemote(args: string[]): Promise<void> {
       }
       const input = await promptRemoteConnect();
       authToken = input.authToken;
-      config = await connectRemote(input);
+      config = await connectRemote(db, input);
     } else {
       authToken = parsed.authToken;
-      config = await connectRemote({
+      config = await connectRemote(db, {
         platform: parsed.platform,
         url: parsed.url,
         authToken: parsed.authToken,
@@ -261,34 +297,28 @@ export async function runRemote(args: string[]): Promise<void> {
   }
   if (sub === "status") {
     parseRemoteStatusArgs(rest);
-    const status = await getRemoteStatus();
+    const status = await getRemoteStatus(db);
     console.log(toJson(status));
     return;
   }
   throw new Error(`Unknown remote subcommand: ${sub}`);
 }
 
-export async function runPush(args: string[]): Promise<void> {
-  if (args.length > 0) {
-    throw new Error("push does not accept arguments");
-  }
-  const result = await pushToRemote();
+export async function runPush(db: Database, args: string[]): Promise<void> {
+  parseNoArgs("push", args);
+  const result = await pushToRemote(db);
   console.log(toJson({ status: "ok", ...result }));
 }
 
-export async function runPull(args: string[]): Promise<void> {
-  if (args.length > 0) {
-    throw new Error("pull does not accept arguments");
-  }
-  const result = await pullFromRemote();
+export async function runPull(db: Database, args: string[]): Promise<void> {
+  parseNoArgs("pull", args);
+  const result = await pullFromRemote(db);
   console.log(toJson({ status: "ok", ...result }));
 }
 
-export async function runSync(args: string[]): Promise<void> {
-  if (args.length > 0) {
-    throw new Error("sync does not accept arguments");
-  }
-  const result = await syncWithRemote();
+export async function runSync(db: Database, args: string[]): Promise<void> {
+  parseNoArgs("sync", args);
+  const result = await syncWithRemote(db);
   console.log(toJson({ status: "ok", ...result }));
 }
 

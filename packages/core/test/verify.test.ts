@@ -7,7 +7,7 @@ import {
   verifyDatabase,
 } from "../src";
 import { COMMIT_TABLE } from "../src/engine/db";
-import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
+import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -30,13 +30,13 @@ describe("verifyDatabase", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
-    const quick = verifyDatabase();
+    const quick = verifyDatabase(currentDb(), );
     expect(quick.ok).toBe(true);
     expect(quick.mode).toBe("quick");
 
-    const firstStatus = getStatus();
+    const firstStatus = getStatus(currentDb(), );
     expect(firstStatus.lastVerifiedAt).not.toBeNull();
     expect(firstStatus.lastVerifiedOk).toBe(true);
 
@@ -44,11 +44,11 @@ describe("verifyDatabase", () => {
     tamper.query(`UPDATE ${COMMIT_TABLE} SET message='tampered' WHERE seq=1`).run();
     tamper.close(false);
 
-    const broken = verifyDatabase({ full: true });
+    const broken = verifyDatabase(currentDb(), { full: true });
     expect(broken.ok).toBe(false);
     expect(broken.mode).toBe("full");
 
-    const secondStatus = getStatus();
+    const secondStatus = getStatus(currentDb(), );
     expect(secondStatus.lastVerifiedOk).toBe(false);
   });
 });

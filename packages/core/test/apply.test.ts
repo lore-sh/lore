@@ -10,7 +10,7 @@ import {
 } from "../src";
 import { executeOperation } from "../src/engine/execute";
 import type { RestoreTableOperation } from "../src/types";
-import { createTestContext, writePlanFile, withTmpDirCleanup } from "./helpers";
+import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -38,17 +38,17 @@ describe("applyPlan", () => {
       operations: [{ type: "insert", table: "expenses", values: { id: 1, item: "dinner", amount: 1200 } }],
     });
 
-    await applyPlan(createPlanPath);
-    const insertCommit = await applyPlan(insertPlanPath);
+    await applyPlan(currentDb(), createPlanPath);
+    const insertCommit = await applyPlan(currentDb(), insertPlanPath);
 
-    const status = getStatus();
+    const status = getStatus(currentDb(), );
     expect(status.tableCount).toBe(1);
     expect(status.headCommit?.commitId).toBe(insertCommit.commitId);
     expect(status.snapshotCount).toBe(0);
     expect(status.lastVerifiedAt).toBeNull();
     expect(status.lastVerifiedOk).toBeNull();
 
-    const history = getHistory();
+    const history = getHistory(currentDb(), );
     expect(history).toHaveLength(2);
     expect(history[0]?.commitId).toBe(insertCommit.commitId);
     expect(history[0]?.parentIds).toHaveLength(1);
@@ -69,7 +69,7 @@ describe("applyPlan", () => {
     });
 
     try {
-      await applyPlan(insertPlan);
+      await applyPlan(currentDb(), insertPlan);
       throw new Error("applyPlan should fail for table without PK");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
@@ -101,7 +101,7 @@ describe("applyPlan", () => {
     });
 
     try {
-      await applyPlan(plan);
+      await applyPlan(currentDb(), plan);
       throw new Error("applyPlan should fail when NULL PK values exist in tracked table");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);
@@ -134,15 +134,15 @@ describe("applyPlan", () => {
         },
       ],
     });
-    await applyPlan(createPlanPath);
+    await applyPlan(currentDb(), createPlanPath);
 
     const insertPlanPath = await writePlanFile(dir, "insert-events.sql-default.json", {
       message: "insert event without recorded_at",
       operations: [{ type: "insert", table: "events", values: { id: 1, title: "release" } }],
     });
-    await applyPlan(insertPlanPath);
+    await applyPlan(currentDb(), insertPlanPath);
 
-    const rows = readQuery("SELECT id, title, recorded_at FROM events");
+    const rows = readQuery(currentDb(), "SELECT id, title, recorded_at FROM events");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ id: 1, title: "release" });
     expect(typeof rows[0]?.recorded_at).toBe("string");
@@ -171,7 +171,7 @@ describe("applyPlan", () => {
         },
       ],
     });
-    await applyPlan(setup);
+    await applyPlan(currentDb(), setup);
 
     const addColumnPlan = await writePlanFile(dir, "add-column-sql-default-fail.json", {
       message: "try to add created_at with sql default",
@@ -188,7 +188,7 @@ describe("applyPlan", () => {
       ],
     });
 
-    await expect(applyPlan(addColumnPlan)).rejects.toThrow(
+    await expect(applyPlan(currentDb(), addColumnPlan)).rejects.toThrow(
       /add_column with SQL default is only allowed on empty tables/i,
     );
   });

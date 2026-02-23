@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import {
   applyPlan,
   autoSyncAfterApply,
@@ -33,25 +34,33 @@ export function parseSchemaArgs(args: string[]): { table?: string | undefined } 
   return { table };
 }
 
-export function runSchema(args: string[]): void {
+export function runSchema(db: Database, args: string[]): void {
   const { table } = parseSchemaArgs(args);
-  console.log(toJson(getSchema({ table })));
+  console.log(toJson(getSchema(db, { table })));
 }
 
-export async function runPlan(args: string[]): Promise<void> {
+export function validateSchemaArgs(args: string[]): void {
+  parseSchemaArgs(args);
+}
+
+export async function runPlan(db: Database, args: string[]): Promise<void> {
   const planRef = parseSinglePlanRef("plan", args);
-  const result = await planCheck(planRef);
+  const result = await planCheck(db, planRef);
   console.log(toJson(result));
   if (!result.ok) {
     process.exit(1);
   }
 }
 
-export async function runApply(args: string[]): Promise<void> {
+export function validatePlanArgs(args: string[]): void {
+  parseSinglePlanRef("plan", args);
+}
+
+export async function runApply(db: Database, args: string[]): Promise<void> {
   const plan = parseSinglePlanRef("apply", args);
-  const commit = await applyPlan(plan);
-  const sync = await autoSyncAfterApply();
-  const warning = commitSizeWarning(commit.commitId);
+  const commit = await applyPlan(db, plan);
+  const sync = await autoSyncAfterApply(db);
+  const warning = commitSizeWarning(db, commit.commitId);
   console.log(
     toJson({
       status: "ok",
@@ -63,7 +72,11 @@ export async function runApply(args: string[]): Promise<void> {
   );
 }
 
-export function runRead(args: string[]): void {
+export function validateApplyArgs(args: string[]): void {
+  parseSinglePlanRef("apply", args);
+}
+
+function parseReadArgs(args: string[]): { sql: string; json: boolean } {
   let sql: string | null = null;
   let json = false;
   for (let i = 0; i < args.length; i += 1) {
@@ -82,7 +95,16 @@ export function runRead(args: string[]): void {
   if (!sql) {
     throw new Error('read requires --sql "<SELECT...>"');
   }
-  const rows = readQuery(sql);
+  return { sql, json };
+}
+
+export function validateReadArgs(args: string[]): void {
+  parseReadArgs(args);
+}
+
+export function runRead(db: Database, args: string[]): void {
+  const { sql, json } = parseReadArgs(args);
+  const rows = readQuery(db, sql);
   if (json) {
     console.log(toJson(rows));
     return;
