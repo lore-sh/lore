@@ -30,7 +30,7 @@ export interface Snapshot {
   rowCountHint: number;
 }
 
-export async function hashFile(path: string): Promise<string> {
+async function hashFile(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
   const stream = Bun.file(path).stream();
   for await (const chunk of stream) {
@@ -126,10 +126,6 @@ export async function maybeCreateSnapshot(db: Database, commit: Commit): Promise
     await deleteWithSidecars(row.filePath);
     engineDb.delete(SnapshotTable).where(eq(SnapshotTable.commitId, row.commitId)).run();
   }
-}
-
-export function snapshots(db: Database): Snapshot[] {
-  return createEngineDb(db).select().from(SnapshotTable).orderBy(desc(SnapshotTable.createdAt)).all();
 }
 
 export async function promotePrepared(preparedDbPath: string, dbPath: string): Promise<void> {
