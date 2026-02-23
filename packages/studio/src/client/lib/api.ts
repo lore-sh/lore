@@ -11,6 +11,7 @@ import type {
 } from "@toss/core";
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import type { StudioApi, StudioApiError } from "../../server/app";
+import type { StudioRow } from "../../server/studio-row";
 
 const client = hc<StudioApi>("/");
 
@@ -29,9 +30,6 @@ type RevertConflictPayload = InferResponseType<typeof revertCommitEndpoint, 409>
 
 type TableRowsQueryJson = TableRowsQueryRequest["json"];
 type CommitQueryRaw = NonNullable<CommitsRequest["query"]>;
-
-export type StudioCellValue = string | number | boolean | null;
-export type StudioRow = Record<string, StudioCellValue>;
 
 export type TableData = Omit<TablePage, "rows"> & {
   rows: StudioRow[];

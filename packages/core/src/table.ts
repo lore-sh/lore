@@ -52,11 +52,11 @@ interface OrderTerm {
 const MAX_PAGE_SIZE = 500;
 const DEFAULT_PAGE_SIZE = 50;
 
-function countTableRows(db: Database, tableName: string): number {
+export function countTableRows(db: Database, tableName: string): number {
   return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`)?.c ?? 0;
 }
 
-function isVisibleColumn(hidden: number): boolean {
+export function isVisibleColumn(hidden: number): boolean {
   return hidden === 0 || hidden === 2 || hidden === 3;
 }
 
@@ -85,15 +85,14 @@ export function resolveTableName(db: Database, requestedTable: string): string {
   throw new CodedError("NOT_FOUND", `Table not found: ${requestedTable}`);
 }
 
-function normalizePageSize(input: number | undefined): number {
+export function normalizePageSize(input: number | undefined): number {
   if (typeof input !== "number" || !Number.isFinite(input) || input < 1) {
     return DEFAULT_PAGE_SIZE;
   }
-  const truncated = Math.floor(input);
-  return Math.min(MAX_PAGE_SIZE, truncated);
+  return Math.min(MAX_PAGE_SIZE, Math.floor(input));
 }
 
-function normalizePage(input: number | undefined): number {
+export function normalizePage(input: number | undefined): number {
   if (typeof input !== "number" || !Number.isFinite(input) || input < 1) {
     return 1;
   }
@@ -104,7 +103,7 @@ function escapeLikePattern(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
-function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
+export function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
   const names = new Set<string>();
   const primaryKeyColumns = table.columns.filter((column) => column.pk > 0);
   if (primaryKeyColumns.length === 1) {

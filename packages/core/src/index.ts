@@ -13,5 +13,5 @@ export * from "./verify";
 export * from "./snapshot";
 export * from "./sync";
 export { openDb, resolveDbPath } from "./engine/db";
-export { operationPlanSchema } from "./engine/validate";
+export { operationPlanSchema, parsePlan } from "./engine/validate";
 export { deleteIfExists, isEnoent, resolveHomeDir } from "./engine/files";

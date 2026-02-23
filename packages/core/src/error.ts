@@ -73,7 +73,7 @@ export class CodedError extends Error {
     if (!(error instanceof Error)) {
       return false;
     }
-    if (error.name !== "CodedError" && error.name !== "TossError") {
+    if (error.name !== "CodedError") {
       return false;
     }
     return "code" in error && isErrorCode(error.code);
@@ -115,4 +115,3 @@ export function toHttpProblem(error: CodedError, instance: string): HttpProblem 
   };
 }
 
-export { CodedError as TossError };

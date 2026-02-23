@@ -104,7 +104,12 @@ export function runStatus(db: Database, args: string[]): void {
   console.log(`User Tables: ${currentStatus.tableCount}`);
   console.log(`Snapshots: ${currentStatus.snapshotCount}`);
   console.log(`Last Verified At: ${currentStatus.lastVerifiedAt ?? "never"}`);
-  const verifiedLabel = currentStatus.lastVerifiedOk === null ? "unknown" : currentStatus.lastVerifiedOk ? "yes" : "no";
+  let verifiedLabel = "unknown";
+  if (currentStatus.lastVerifiedOk === true) {
+    verifiedLabel = "yes";
+  } else if (currentStatus.lastVerifiedOk === false) {
+    verifiedLabel = "no";
+  }
   console.log(`Last Verified OK: ${verifiedLabel}`);
   console.log(`Sync Configured: ${currentStatus.sync.configured ? "yes" : "no"}`);
   console.log(`Sync State: ${currentStatus.sync.state}`);

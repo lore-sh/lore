@@ -1,5 +1,4 @@
 import type { Database } from "bun:sqlite";
-import { getRow } from "./engine/db";
 import {
   describeSchema,
   schemaHashFromDescriptor,
@@ -8,8 +7,7 @@ import {
   type SchemaTableDescriptor,
   type SchemaTriggerDescriptor,
 } from "./engine/inspect";
-import { quoteIdentifier } from "./engine/sql";
-import { resolveTableName } from "./table";
+import { countTableRows, isVisibleColumn, resolveTableName, uniqueColumnNames } from "./table";
 
 export interface SchemaOptions {
   table?: string | undefined;
@@ -49,32 +47,6 @@ export interface Schema {
   tables: SchemaTable[];
 }
 
-function countRows(db: Database, tableName: string): number {
-  return getRow<{ c: number }>(db, `SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`)?.c ?? 0;
-}
-
-function isVisibleColumn(hidden: number): boolean {
-  return hidden === 0 || hidden === 2 || hidden === 3;
-}
-
-function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
-  const names = new Set<string>();
-  const primaryKeyColumns = table.columns.filter((column) => column.pk > 0);
-  if (primaryKeyColumns.length === 1) {
-    names.add(primaryKeyColumns[0]!.name);
-  }
-  for (const index of table.indexes) {
-    if (!index.unique || index.partial) {
-      continue;
-    }
-    const keyTerms = index.columns.filter((column) => column.key === 1);
-    if (keyTerms.length === 1 && keyTerms[0]!.name) {
-      names.add(keyTerms[0]!.name);
-    }
-  }
-  return names;
-}
-
 function mapSchemaTable(db: Database, table: SchemaTableDescriptor): SchemaTable {
   const unique = uniqueColumnNames(table);
   return {
@@ -96,7 +68,7 @@ function mapSchemaTable(db: Database, table: SchemaTableDescriptor): SchemaTable
     indexes: table.indexes,
     checks: table.checks,
     triggers: table.triggers,
-    rowCount: countRows(db, table.table),
+    rowCount: countTableRows(db, table.table),
   };
 }
 

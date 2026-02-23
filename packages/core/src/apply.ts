@@ -7,8 +7,6 @@ import { captureObservedState, diffObservedState } from "./engine/diff";
 import { schemaHash } from "./engine/inspect";
 import type { CheckResult, CheckIssue, CheckSummary, Commit, Operation, OperationPlan } from "./types";
 
-export { parsePlan } from "./engine/validate";
-
 export async function apply(db: Database, plan: OperationPlan): Promise<Commit> {
   const commit = runInTransaction(db, () => {
     const beforeSchemaHash = schemaHash(db);

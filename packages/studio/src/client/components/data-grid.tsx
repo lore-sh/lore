@@ -1,6 +1,7 @@
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
 import { useMemo, type ReactNode } from "react";
-import type { StudioCellValue, TableData } from "../lib/api";
+import type { StudioCellValue } from "../../server/studio-row";
+import type { TableData } from "../lib/api";
 import { tableFilterValue, type TableRouteSearch } from "../lib/table-search";
 
 interface DataGridProps {

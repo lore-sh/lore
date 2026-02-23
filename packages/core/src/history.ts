@@ -1,10 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { COMMIT_PARENT_TABLE, COMMIT_TABLE, OP_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, getRow, getRows } from "./engine/db";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId, listCommits } from "./engine/log";
+import { normalizePage, normalizePageSize } from "./table";
 import type { Commit, CommitKind } from "./types";
-
-const MAX_PAGE_SIZE = 500;
-const DEFAULT_PAGE_SIZE = 50;
 
 export interface CommitEffects {
   rows: ReturnType<typeof getRowEffectsByCommitId>;
@@ -29,21 +27,6 @@ export interface HistoryOptions {
   page?: number | undefined;
   kind?: CommitKind | undefined;
   table?: string | undefined;
-}
-
-function normalizePageSize(input: number | undefined): number {
-  if (typeof input !== "number" || !Number.isFinite(input) || input < 1) {
-    return DEFAULT_PAGE_SIZE;
-  }
-  const truncated = Math.floor(input);
-  return Math.min(MAX_PAGE_SIZE, truncated);
-}
-
-function normalizePage(input: number | undefined): number {
-  if (typeof input !== "number" || !Number.isFinite(input) || input < 1) {
-    return 1;
-  }
-  return Math.floor(input);
 }
 
 function toCommitSummary(
@@ -97,11 +80,11 @@ function toCommitSummary(
     kind: row.kind,
     message: row.message,
     createdAt: row.created_at,
-    parentIds: parents.map((parent) => parent.parent_commit_id),
+    parentIds: parents.map(({ parent_commit_id }) => parent_commit_id),
     operationCount: counts?.operation_count ?? 0,
     rowEffectCount: counts?.row_effect_count ?? 0,
     schemaEffectCount: counts?.schema_effect_count ?? 0,
-    affectedTables: affectedRows.map((affected) => affected.table_name),
+    affectedTables: affectedRows.map(({ table_name }) => table_name),
   };
 }
 
@@ -110,11 +93,11 @@ export function history(db: Database): Commit[] {
 }
 
 export function commitHistory(db: Database, options: HistoryOptions = {}): CommitSummary[] {
-  const max = normalizePageSize(options.limit);
+  const pageSize = normalizePageSize(options.limit);
   const page = normalizePage(options.page);
-  const offset = (page - 1) * max;
+  const offset = (page - 1) * pageSize;
   const kind = options.kind === "apply" || options.kind === "revert" ? options.kind : null;
-  const table = options.table?.trim() ? options.table.trim() : null;
+  const table = options.table?.trim() || null;
 
   const rows = getRows<{
     commit_id: string;
@@ -152,7 +135,7 @@ export function commitHistory(db: Database, options: HistoryOptions = {}): Commi
     table,
     table,
     table,
-    max,
+    pageSize,
     offset,
   );
 
