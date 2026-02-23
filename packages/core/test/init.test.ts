@@ -50,7 +50,7 @@ describe("initDatabase", () => {
 
     const reinit = await initDatabase({ dbPath, forceNew: true });
     expect(reinit.dbPath).toBe(dbPath);
-    const status = getStatus(currentDb(), );
+    const status = getStatus(currentDb());
     expect(status.tableCount).toBe(0);
     expect(status.headCommit).toBeNull();
   });

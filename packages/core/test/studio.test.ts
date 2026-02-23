@@ -48,7 +48,7 @@ describe("studio api", () => {
     await applyPlan(currentDb(), insertOnePath);
     await applyPlan(currentDb(), insertTwoPath);
 
-    const tables = listStudioTables(currentDb(), );
+    const tables = listStudioTables(currentDb());
     expect(tables.tables).toHaveLength(1);
     expect(tables.tables[0]?.name).toBe("expenses");
     expect(tables.tables[0]?.rowCount).toBe(2);
@@ -93,7 +93,7 @@ describe("studio api", () => {
     });
     await applyPlan(currentDb(), createPlanPath);
 
-    const schema = getStudioSchema(currentDb(), );
+    const schema = getStudioSchema(currentDb());
     const table = schema.tables.find((entry) => entry.name === "expenses");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -121,7 +121,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema(currentDb(), );
+    const schema = getStudioSchema(currentDb());
     const table = schema.tables.find((entry) => entry.name === "ledger");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "account")).toMatchObject({
@@ -153,7 +153,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema(currentDb(), );
+    const schema = getStudioSchema(currentDb());
     const table = schema.tables.find((entry) => entry.name === "sessions");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -183,7 +183,7 @@ describe("studio api", () => {
     `);
     direct.close(false);
 
-    const schema = getStudioSchema(currentDb(), );
+    const schema = getStudioSchema(currentDb());
     const table = schema.tables.find((entry) => entry.name === "expr_unique");
     expect(table).toBeDefined();
     expect(table?.columns.find((column) => column.name === "id")).toMatchObject({
@@ -216,7 +216,7 @@ describe("studio api", () => {
     await applyPlan(currentDb(), createPlanPath);
     await applyPlan(currentDb(), insertPlanPath);
 
-    const history = listStudioHistory(currentDb(), );
+    const history = listStudioHistory(currentDb());
     expect(history).toHaveLength(2);
     expect(history[0]?.shortId.length).toBe(12);
     expect(history[0]?.message).toBe("insert 1");
@@ -497,7 +497,7 @@ describe("studio api", () => {
     direct.run(`INSERT INTO calc(id, amount) VALUES (2, 2)`);
     direct.close(false);
 
-    const tables = listStudioTables(currentDb(), );
+    const tables = listStudioTables(currentDb());
     const calcSummary = tables.tables.find((table) => table.name === "calc");
     expect(calcSummary).toBeDefined();
     expect(calcSummary?.columnCount).toBe(4);
@@ -518,7 +518,7 @@ describe("studio api", () => {
     expect(filtered.totalRows).toBe(1);
     expect(filtered.rows[0]).toMatchObject({ id: 2, amount_x2: 4, amount_x3: 6 });
 
-    const schema = getStudioSchema(currentDb(), );
+    const schema = getStudioSchema(currentDb());
     const calcSchema = schema.tables.find((table) => table.name === "calc");
     expect(calcSchema).toBeDefined();
     expect(calcSchema?.columns.find((column) => column.name === "amount_x2")?.hidden).toBe(false);

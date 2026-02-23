@@ -19,7 +19,7 @@ describe("getStatus", () => {
       db.close(false);
     }
 
-    const status = getStatus(currentDb(), );
+    const status = getStatus(currentDb());
     expect(status.tableCount).toBe(1);
     expect(status.tables).toEqual([{ name: "users", count: 2 }]);
     expect(status.sync.state).toBe("offline");
@@ -32,7 +32,7 @@ describe("getStatus", () => {
 
     withTestHome(dir, () => {
       writeRemoteConfig({ platform: "libsql", url: "libsql://status-test.turso.io" });
-      const status = getStatus(currentDb(), );
+      const status = getStatus(currentDb());
       expect(status.sync.configured).toBe(true);
       expect(status.sync.state).toBe("offline");
       expect(status.sync.pendingCommits).toBe(0);

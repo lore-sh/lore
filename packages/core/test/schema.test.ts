@@ -36,7 +36,7 @@ describe("getSchema", () => {
     const expectedHash = schemaHash(direct);
     direct.close(false);
 
-    const schema = getSchema(currentDb(), );
+    const schema = getSchema(currentDb());
     expect(schema.schemaHash).toBe(expectedHash);
     expect(schema.tables.length).toBeGreaterThanOrEqual(2);
 

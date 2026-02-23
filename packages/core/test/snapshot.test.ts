@@ -81,12 +81,12 @@ describe("snapshot / recover", () => {
     const rows = readQuery(currentDb(), "SELECT id, msg FROM logs");
     expect(rows).toEqual([{ id: 1, msg: "hello" }]);
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(secondCommit.commitId);
     expect(history[0]?.kind).toBe(secondCommit.kind);
     expect(history[0]?.createdAt).toBe(secondCommit.createdAt);
 
-    const verify = verifyDatabase(currentDb(), );
+    const verify = verifyDatabase(currentDb());
     expect(verify.ok).toBe(true);
     expect(verify.chainValid).toBe(true);
   });
@@ -212,7 +212,7 @@ describe("snapshot / recover", () => {
     const orderRows = readQuery(currentDb(), "SELECT id, item FROM orders");
     expect(orderRows).toEqual([{ id: 1, item: "book" }]);
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(replayed.commitId);
   });
 
@@ -330,7 +330,7 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -366,7 +366,7 @@ describe("snapshot / recover", () => {
     const rows = readQuery(currentDb(), "SELECT id, body FROM auto_replay ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "x" }]);
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(firstInsert.commitId);
   });
 
@@ -402,7 +402,7 @@ describe("snapshot / recover", () => {
 
     const tableRows = readQuery(currentDb(), "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='auto_schema'");
     expect(tableRows).toEqual([{ c: 0 }]);
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(dropped.commitId);
   });
 
@@ -455,7 +455,7 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -508,7 +508,7 @@ describe("snapshot / recover", () => {
     expect(() => verify.run("INSERT INTO self_fk_replay(id, parent_id, note) VALUES (4, 999, 'bad')")).toThrow();
     verify.close(false);
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -560,7 +560,7 @@ describe("snapshot / recover", () => {
     );
     expect(rows).toEqual([{ id: 1, payload_hex: "410042", payload_len: 3, tag: "b" }]);
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history[0]?.commitId).toBe(updated.commitId);
   });
 });

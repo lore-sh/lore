@@ -11,7 +11,6 @@ import { createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-
 describe("verifyDatabase", () => {
   testWithTmp("verify stores last_verified_ok", async () => {
     const { dir, dbPath } = createTestContext();
@@ -32,11 +31,11 @@ describe("verifyDatabase", () => {
     });
     await applyPlan(currentDb(), setup);
 
-    const quick = verifyDatabase(currentDb(), );
+    const quick = verifyDatabase(currentDb());
     expect(quick.ok).toBe(true);
     expect(quick.mode).toBe("quick");
 
-    const firstStatus = getStatus(currentDb(), );
+    const firstStatus = getStatus(currentDb());
     expect(firstStatus.lastVerifiedAt).not.toBeNull();
     expect(firstStatus.lastVerifiedOk).toBe(true);
 
@@ -48,7 +47,7 @@ describe("verifyDatabase", () => {
     expect(broken.ok).toBe(false);
     expect(broken.mode).toBe("full");
 
-    const secondStatus = getStatus(currentDb(), );
+    const secondStatus = getStatus(currentDb());
     expect(secondStatus.lastVerifiedOk).toBe(false);
   });
 });

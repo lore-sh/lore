@@ -31,7 +31,7 @@ describe("planCheck", () => {
 
     const tableRows = readQuery(currentDb(), "SELECT name FROM sqlite_master WHERE type='table' AND name='todos'");
     expect(tableRows).toEqual([]);
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history).toHaveLength(0);
   });
 

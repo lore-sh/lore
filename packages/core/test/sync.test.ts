@@ -36,13 +36,13 @@ describe("sync with Turso protocol", () => {
 
     await withDbPath(local.dbPath, async () => {
       try {
-        await pushToRemote(currentDb(), );
+        await pushToRemote(currentDb());
         throw new Error("push should fail when remote is not configured");
       } catch (error) {
         expect(CodedError.hasCode(error, "SYNC_NOT_CONFIGURED")).toBe(true);
       }
 
-      const status = getStatus(currentDb(), );
+      const status = getStatus(currentDb());
       expect(status.sync.state).toBe("offline");
       expect(status.sync.lastError).toBe("Remote is not configured");
     });
@@ -78,18 +78,18 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       const commit = await applyPlan(currentDb(), insertPlan);
-      const pushed = await pushToRemote(currentDb(), );
+      const pushed = await pushToRemote(currentDb());
       expect(pushed.pushed).toBe(2);
       return commit.commitId;
     });
 
     await withDbPath(b.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
-      const pulled = await pullFromRemote(currentDb(), );
+      const pulled = await pullFromRemote(currentDb());
       expect(pulled.pulled).toBe(2);
       const rows = readQuery(currentDb(), "SELECT id, title FROM tasks ORDER BY id");
       expect(rows).toEqual([{ id: 1, title: "buy milk" }]);
-      expect(getStatus(currentDb(), ).headCommit?.commitId).toBe(expectedHead);
+      expect(getStatus(currentDb()).headCommit?.commitId).toBe(expectedHead);
     });
   });
 
@@ -121,10 +121,10 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       const inserted = await applyPlan(currentDb(), insertPlan);
-      const pushed = await pushToRemote(currentDb(), );
+      const pushed = await pushToRemote(currentDb());
       expect(pushed.remoteHead).toBe(inserted.commitId);
 
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionHead).toBe(inserted.commitId);
       expect(remoteStatus.projectionLagCommits).toBe(0);
       expect(remoteStatus.projectionError).toBeNull();
@@ -176,11 +176,11 @@ describe("sync with Turso protocol", () => {
         remoteDb.close(false);
       }
 
-      const pushed = await pushToRemote(currentDb(), );
+      const pushed = await pushToRemote(currentDb());
       expect(pushed.pushed).toBe(2);
       expect(pushed.remoteHead).toBe(inserted.commitId);
 
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionHead).toBe(inserted.commitId);
       expect(remoteStatus.projectionError).toBeNull();
     });
@@ -238,10 +238,10 @@ describe("sync with Turso protocol", () => {
       await applyPlan(currentDb(), insertAPlan);
       const rebuilt = await applyPlan(currentDb(), rebuildPlan);
 
-      const pushed = await pushToRemote(currentDb(), );
+      const pushed = await pushToRemote(currentDb());
       expect(pushed.remoteHead).toBe(rebuilt.commitId);
 
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionHead).toBe(rebuilt.commitId);
       expect(remoteStatus.projectionLagCommits).toBe(0);
       expect(remoteStatus.projectionError).toBeNull();
@@ -284,8 +284,8 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       await applyPlan(currentDb(), insertPlan);
-      const first = await pushToRemote(currentDb(), );
-      const second = await pushToRemote(currentDb(), );
+      const first = await pushToRemote(currentDb());
+      const second = await pushToRemote(currentDb());
       expect(first.pushed).toBe(2);
       expect(second.pushed).toBe(0);
       expect(second.state).toBe("synced");
@@ -328,10 +328,10 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       const inserted = await applyPlan(currentDb(), insertPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
       const reverted = revertCommit(currentDb(), inserted.commitId);
       expect(reverted.ok).toBe(true);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -372,7 +372,7 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       const created = await applyPlan(currentDb(), createPlan);
       initialHead = created.commitId;
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -385,7 +385,7 @@ describe("sync with Turso protocol", () => {
     await withDbPath(local.dbPath, async () => {
       await applyPlan(currentDb(), insertPlan);
       try {
-        await pushToRemote(currentDb(), );
+        await pushToRemote(currentDb());
         throw new Error("push should fail when projection precondition is broken");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
@@ -446,7 +446,7 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       await applyPlan(currentDb(), insert1);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -459,7 +459,7 @@ describe("sync with Turso protocol", () => {
     await withDbPath(local.dbPath, async () => {
       await applyPlan(currentDb(), insert2);
       try {
-        await pushToRemote(currentDb(), );
+        await pushToRemote(currentDb());
         throw new Error("push should fail when projection drift exists");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
@@ -511,7 +511,7 @@ describe("sync with Turso protocol", () => {
       const c2 = await applyPlan(currentDb(), insertPlan);
       createCommitId = c1.commitId;
       insertCommitId = c2.commitId;
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const tamperedAfterRow = JSON.stringify({
@@ -534,7 +534,7 @@ describe("sync with Turso protocol", () => {
 
     await withDbPath(local.dbPath, async () => {
       try {
-        await pushToRemote(currentDb(), );
+        await pushToRemote(currentDb());
         throw new Error("push should fail when replay SQL runtime error occurs");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
@@ -585,7 +585,7 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       await applyPlan(currentDb(), insertPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -596,7 +596,7 @@ describe("sync with Turso protocol", () => {
     }
 
     await withDbPath(local.dbPath, async () => {
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionLagCommits).toBe(0);
       expect(remoteStatus.projectionError).not.toBeNull();
       expect(remoteStatus.projectionError?.includes("state_hash_after mismatch")).toBe(true);
@@ -640,7 +640,7 @@ describe("sync with Turso protocol", () => {
       const c3 = await applyPlan(currentDb(), insert2);
       rollbackHead = c2.commitId;
       projectionHead = c3.commitId;
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -651,7 +651,7 @@ describe("sync with Turso protocol", () => {
     }
 
     await withDbPath(local.dbPath, async () => {
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionHead).toBe(projectionHead);
       expect(remoteStatus.projectionLagCommits).toBe(0);
       expect(remoteStatus.projectionError).not.toBeNull();
@@ -696,7 +696,7 @@ describe("sync with Turso protocol", () => {
       const c3 = await applyPlan(currentDb(), insert2);
       rollbackHead = c2.commitId;
       canonicalHead = c3.commitId;
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -707,11 +707,11 @@ describe("sync with Turso protocol", () => {
     }
 
     await withDbPath(local.dbPath, async () => {
-      const pushed = await pushToRemote(currentDb(), );
+      const pushed = await pushToRemote(currentDb());
       expect(pushed.pushed).toBe(1);
       expect(pushed.remoteHead).toBe(canonicalHead);
 
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionHead).toBe(canonicalHead);
       expect(remoteStatus.projectionLagCommits).toBe(0);
       expect(remoteStatus.projectionError).toBeNull();
@@ -771,7 +771,7 @@ describe("sync with Turso protocol", () => {
       const c2 = await applyPlan(currentDb(), insert1);
       checkpointCommitId = c2.commitId;
       await applyPlan(currentDb(), insert2);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -789,8 +789,8 @@ describe("sync with Turso protocol", () => {
     await withDbPath(local.dbPath, async () => {
       const c4 = await applyPlan(currentDb(), insert3);
       finalHead = c4.commitId;
-      await pushToRemote(currentDb(), );
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      await pushToRemote(currentDb());
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionHead).toBe(finalHead);
       expect(remoteStatus.projectionLagCommits).toBe(0);
       expect(remoteStatus.projectionError).toBeNull();
@@ -839,7 +839,7 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       await applyPlan(currentDb(), insertPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -860,9 +860,9 @@ describe("sync with Turso protocol", () => {
     }
 
     await withDbPath(local.dbPath, async () => {
-      const pushed = await pushToRemote(currentDb(), );
+      const pushed = await pushToRemote(currentDb());
       expect(pushed.pushed).toBe(0);
-      const remoteStatus = await getRemoteStatus(currentDb(), );
+      const remoteStatus = await getRemoteStatus(currentDb());
       expect(remoteStatus.projectionLagCommits).toBe(0);
       expect(remoteStatus.projectionError).toBeNull();
     });
@@ -884,7 +884,7 @@ describe("sync with Turso protocol", () => {
 
     await withDbPath(local.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
-      const status = getStatus(currentDb(), );
+      const status = getStatus(currentDb());
       expect(status.sync.state).toBe("pending");
       expect(status.sync.pendingCommits).toBe(0);
     });
@@ -938,14 +938,14 @@ describe("sync with Turso protocol", () => {
     await withDbPath(source.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     await withDbPath(replica.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
-      const pulled = await pullFromRemote(currentDb(), );
+      const pulled = await pullFromRemote(currentDb());
       expect(pulled.state).toBe("synced");
-      const status = getStatus(currentDb(), );
+      const status = getStatus(currentDb());
       expect(status.sync.state).toBe("synced");
       expect(status.sync.pendingCommits).toBe(0);
     });
@@ -973,17 +973,17 @@ describe("sync with Turso protocol", () => {
     await withDbPath(source.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     await chmod(remote.dbPath, 0o444);
     try {
       await withDbPath(replica.dbPath, async () => {
         await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
-        const pull = await pullFromRemote(currentDb(), );
+        const pull = await pullFromRemote(currentDb());
         expect(pull.state).toBe("synced");
-        const remoteStatus = await getRemoteStatus(currentDb(), );
-        expect(remoteStatus.remoteHead?.commitId).toBe(getStatus(currentDb(), ).headCommit?.commitId ?? null);
+        const remoteStatus = await getRemoteStatus(currentDb());
+        expect(remoteStatus.remoteHead?.commitId).toBe(getStatus(currentDb()).headCommit?.commitId ?? null);
       });
     } finally {
       await chmod(remote.dbPath, 0o644);
@@ -1060,14 +1060,14 @@ describe("sync with Turso protocol", () => {
     await withDbPath(local.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteAUrl });
       await applyPlan(currentDb(), createPlan);
-      const pushed = await pushToRemote(currentDb(), );
+      const pushed = await pushToRemote(currentDb());
       expect(pushed.state).toBe("synced");
 
       await connectRemote(currentDb(), { platform: "libsql", url: remoteBUrl });
-      const pull = await pullFromRemote(currentDb(), );
+      const pull = await pullFromRemote(currentDb());
       expect(pull.pulled).toBe(0);
       expect(pull.state).toBe("pending");
-      const status = getStatus(currentDb(), );
+      const status = getStatus(currentDb());
       expect(status.sync.state).toBe("pending");
       expect(status.sync.pendingCommits).toBeGreaterThan(0);
     });
@@ -1095,7 +1095,7 @@ describe("sync with Turso protocol", () => {
     await withDbPath(source.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const remoteDb = new Database(remote.dbPath);
@@ -1108,7 +1108,7 @@ describe("sync with Turso protocol", () => {
     await withDbPath(replica.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       try {
-        await pullFromRemote(currentDb(), );
+        await pullFromRemote(currentDb());
         throw new Error("pull should fail on tampered remote payload");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
@@ -1116,7 +1116,7 @@ describe("sync with Turso protocol", () => {
           expect(error.code).toBe("SYNC_DIVERGED");
         }
       }
-      const status = getStatus(currentDb(), );
+      const status = getStatus(currentDb());
       expect(status.headCommit).toBeNull();
       expect(status.sync.state).toBe("conflict");
     });
@@ -1155,20 +1155,20 @@ describe("sync with Turso protocol", () => {
     await withDbPath(a.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
       await applyPlan(currentDb(), localPlan);
     });
 
     await withDbPath(b.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
-      await pullFromRemote(currentDb(), );
+      await pullFromRemote(currentDb());
       await applyPlan(currentDb(), remotePlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     await withDbPath(a.dbPath, async () => {
       try {
-        await pushToRemote(currentDb(), );
+        await pushToRemote(currentDb());
         throw new Error("push should fail with non-fast-forward");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
@@ -1212,20 +1212,20 @@ describe("sync with Turso protocol", () => {
     await withDbPath(a.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
       await applyPlan(currentDb(), localPlan);
     });
 
     await withDbPath(b.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
-      await pullFromRemote(currentDb(), );
+      await pullFromRemote(currentDb());
       await applyPlan(currentDb(), remotePlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     await withDbPath(a.dbPath, async () => {
       try {
-        await pullFromRemote(currentDb(), );
+        await pullFromRemote(currentDb());
         throw new Error("pull should fail on diverged history");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
@@ -1265,7 +1265,7 @@ describe("sync with Turso protocol", () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
       await applyPlan(currentDb(), insertPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     const cloned = await withDbPath(clone.dbPath, async () => {
@@ -1309,7 +1309,7 @@ describe("sync with Turso protocol", () => {
     await withDbPath(source.dbPath, async () => {
       await connectRemote(currentDb(), { platform: "libsql", url: remoteUrl });
       await applyPlan(currentDb(), createPlan);
-      await pushToRemote(currentDb(), );
+      await pushToRemote(currentDb());
     });
 
     await withDbPath(clone.dbPath, async () => {
@@ -1340,7 +1340,7 @@ describe("sync with Turso protocol", () => {
       });
 
       expect(readAuthToken("libsql")).toBeUndefined();
-      const status = await getRemoteStatus(currentDb(), );
+      const status = await getRemoteStatus(currentDb());
       expect(status.hasAuthToken).toBe(false);
     });
   });
@@ -1365,10 +1365,10 @@ describe("sync with Turso protocol", () => {
         platform: "turso",
         url: "libsql://not-existing-host.invalid",
       });
-      const sync = await autoSyncAfterApply(currentDb(), );
+      const sync = await autoSyncAfterApply(currentDb());
       expect(sync).not.toBeNull();
       expect(sync?.state).toBe("pending");
-      const status = getStatus(currentDb(), );
+      const status = getStatus(currentDb());
       expect(status.headCommit).not.toBeNull();
       expect(status.sync.state).toBe("pending");
       expect(getMetaValueOrThrow(currentDb(), LAST_SYNC_STATE_META_KEY)).toBe("pending");

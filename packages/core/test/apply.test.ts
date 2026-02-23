@@ -41,14 +41,14 @@ describe("applyPlan", () => {
     await applyPlan(currentDb(), createPlanPath);
     const insertCommit = await applyPlan(currentDb(), insertPlanPath);
 
-    const status = getStatus(currentDb(), );
+    const status = getStatus(currentDb());
     expect(status.tableCount).toBe(1);
     expect(status.headCommit?.commitId).toBe(insertCommit.commitId);
     expect(status.snapshotCount).toBe(0);
     expect(status.lastVerifiedAt).toBeNull();
     expect(status.lastVerifiedOk).toBeNull();
 
-    const history = getHistory(currentDb(), );
+    const history = getHistory(currentDb());
     expect(history).toHaveLength(2);
     expect(history[0]?.commitId).toBe(insertCommit.commitId);
     expect(history[0]?.parentIds).toHaveLength(1);
