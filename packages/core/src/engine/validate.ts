@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import { COLUMN_TYPE_PATTERN, IDENTIFIER_PATTERN, createScanner } from "./sql";
 import type { OperationPlan } from "../types";
 
@@ -143,10 +143,10 @@ export const operationPlanSchema = z
 
 function assertIdentifier(value: string, label: string): void {
   if (!IDENTIFIER_PATTERN.test(value)) {
-    throw new TossError("INVALID_OPERATION", `${label} must match ${IDENTIFIER_PATTERN.source}: ${value}`);
+    throw new CodedError("INVALID_OPERATION", `${label} must match ${IDENTIFIER_PATTERN.source}: ${value}`);
   }
   if (value.startsWith("_toss_") || value.startsWith("sqlite_")) {
-    throw new TossError("INVALID_OPERATION", `${label} cannot use reserved prefix: ${value}`);
+    throw new CodedError("INVALID_OPERATION", `${label} cannot use reserved prefix: ${value}`);
   }
 }
 
@@ -163,13 +163,13 @@ function validateColumn(
 ): void {
   assertIdentifier(column.name, `${operationLabel}.column`);
   if (!COLUMN_TYPE_PATTERN.test(column.type)) {
-    throw new TossError("INVALID_OPERATION", `${operationLabel}.column type is invalid: ${column.type}`);
+    throw new CodedError("INVALID_OPERATION", `${operationLabel}.column type is invalid: ${column.type}`);
   }
 }
 
 function assertColumnType(value: string, label: string): void {
   if (!COLUMN_TYPE_PATTERN.test(value)) {
-    throw new TossError("INVALID_OPERATION", `${label} is invalid: ${value}`);
+    throw new CodedError("INVALID_OPERATION", `${label} is invalid: ${value}`);
   }
 }
 
@@ -239,24 +239,24 @@ function analyzeSqlExpressionShape(sql: string): {
 function assertCheckExpression(value: string, label: string): void {
   const expression = value.trim();
   if (expression.length === 0) {
-    throw new TossError("INVALID_OPERATION", `${label} must not be empty`);
+    throw new CodedError("INVALID_OPERATION", `${label} must not be empty`);
   }
   if (expression.includes("\0")) {
-    throw new TossError("INVALID_OPERATION", `${label} must not contain NUL`);
+    throw new CodedError("INVALID_OPERATION", `${label} must not contain NUL`);
   }
   const scan = scanSqlControlTokens(expression);
   if (scan.hasCommentToken) {
-    throw new TossError("INVALID_OPERATION", `${label} must not contain SQL comments`);
+    throw new CodedError("INVALID_OPERATION", `${label} must not contain SQL comments`);
   }
   if (scan.hasSemicolon) {
-    throw new TossError("INVALID_OPERATION", `${label} must be a single SQL expression`);
+    throw new CodedError("INVALID_OPERATION", `${label} must be a single SQL expression`);
   }
   const shape = analyzeSqlExpressionShape(expression);
   if (shape.hasTopLevelComma) {
-    throw new TossError("INVALID_OPERATION", `${label} must not contain top-level commas`);
+    throw new CodedError("INVALID_OPERATION", `${label} must not contain top-level commas`);
   }
   if (shape.hasUnbalancedParen || shape.hasUnterminatedLiteral) {
-    throw new TossError("INVALID_OPERATION", `${label} must be a valid single SQL expression`);
+    throw new CodedError("INVALID_OPERATION", `${label} must be a valid single SQL expression`);
   }
 }
 
@@ -266,7 +266,7 @@ function assertPredicate(
 ): void {
   const keys = Object.keys(values);
   if (keys.length === 0) {
-    throw new TossError("INVALID_OPERATION", `${label} must not be empty`);
+    throw new CodedError("INVALID_OPERATION", `${label} must not be empty`);
   }
   for (const key of keys) {
     assertIdentifier(key, `${label} key`);
@@ -283,7 +283,7 @@ function semanticValidation(plan: OperationPlan): void {
       for (const column of operation.columns) {
         validateColumn(column, operation.type);
         if (seen.has(column.name)) {
-          throw new TossError("INVALID_OPERATION", `duplicate column name: ${column.name}`);
+          throw new CodedError("INVALID_OPERATION", `duplicate column name: ${column.name}`);
         }
         seen.add(column.name);
         if (column.primaryKey) {
@@ -291,10 +291,10 @@ function semanticValidation(plan: OperationPlan): void {
         }
       }
       if (primaryKeyCount > 1) {
-        throw new TossError("INVALID_OPERATION", "create_table cannot contain multiple primary keys");
+        throw new CodedError("INVALID_OPERATION", "create_table cannot contain multiple primary keys");
       }
       if (primaryKeyCount === 0) {
-        throw new TossError("INVALID_OPERATION", "create_table must define a PRIMARY KEY");
+        throw new CodedError("INVALID_OPERATION", "create_table must define a PRIMARY KEY");
       }
       continue;
     }
@@ -302,13 +302,13 @@ function semanticValidation(plan: OperationPlan): void {
     if (operation.type === "add_column") {
       validateColumn(operation.column, operation.type);
       if (operation.column.primaryKey || operation.column.unique) {
-        throw new TossError(
+        throw new CodedError(
           "INVALID_OPERATION",
           "add_column does not allow primaryKey/unique in MVP because SQLite ALTER restrictions vary",
         );
       }
       if (operation.column.notNull && !Object.hasOwn(operation.column, "default")) {
-        throw new TossError("INVALID_OPERATION", "add_column with NOT NULL requires default");
+        throw new CodedError("INVALID_OPERATION", "add_column with NOT NULL requires default");
       }
       continue;
     }
@@ -351,7 +351,7 @@ function semanticValidation(plan: OperationPlan): void {
     }
 
     if (operation.type === "restore_table") {
-      throw new TossError("INVALID_OPERATION", "restore_table is an internal operation and cannot be used in plans");
+      throw new CodedError("INVALID_OPERATION", "restore_table is an internal operation and cannot be used in plans");
     }
   }
 }
@@ -361,12 +361,12 @@ export function parseAndValidateOperationPlan(input: string): OperationPlan {
   try {
     parsed = JSON.parse(input);
   } catch (error) {
-    throw new TossError("INVALID_JSON", `Plan must be valid JSON: ${(error as Error).message}`);
+    throw new CodedError("INVALID_JSON", `Plan must be valid JSON: ${(error as Error).message}`);
   }
 
   const result = operationPlanSchema.safeParse(parsed);
   if (!result.success) {
-    throw new TossError("INVALID_PLAN", result.error.issues.map((issue) => issue.message).join("; "));
+    throw new CodedError("INVALID_PLAN", result.error.issues.map((issue) => issue.message).join("; "));
   }
 
   semanticValidation(result.data);

@@ -16,7 +16,7 @@ import {
   withInitializedDatabaseAsync,
 } from "./engine/db";
 import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
-import { TossError } from "./errors";
+import { CodedError } from "./error";
 import { deleteWalAndShm, deleteWithSidecars } from "./engine/files";
 import type { CommitReplayInput } from "./engine/log";
 import { loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
@@ -56,11 +56,11 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
     const head = engineDb.select({ commitId: RefTable.commitId }).from(RefTable).where(eq(RefTable.name, MAIN_REF_NAME)).limit(1).get();
     const commitId = head?.commitId;
     if (!commitId) {
-      throw new TossError("SNAPSHOT_FAILED", "Snapshot DB has no HEAD commit");
+      throw new CodedError("SNAPSHOT_FAILED", "Snapshot DB has no HEAD commit");
     }
     const commit = engineDb.select({ seq: CommitTable.seq }).from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
     if (!commit) {
-      throw new TossError("SNAPSHOT_FAILED", `Snapshot commit not found in _toss_commit: ${commitId}`);
+      throw new CodedError("SNAPSHOT_FAILED", `Snapshot commit not found in _toss_commit: ${commitId}`);
     }
     return { commitId, seq: commit.seq, rowCountHint: countRows(db) };
   } finally {
@@ -87,7 +87,7 @@ export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
 
   withInitializedDatabase(({ db: snapshotDb, dbPath: currentPath }) => {
     if (currentPath !== dbPath) {
-      throw new TossError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
+      throw new CodedError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
     }
     snapshotDb.run(`VACUUM INTO '${tmpSnapshotPath.replaceAll("'", "''")}'`);
   });
@@ -100,7 +100,7 @@ export async function maybeCreateSnapshot(commit: CommitEntry): Promise<void> {
 
   await withInitializedDatabaseAsync(async ({ db: writeDb, dbPath: currentPath }) => {
     if (currentPath !== dbPath) {
-      throw new TossError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
+      throw new CodedError("SNAPSHOT_FAILED", `Snapshot target moved: expected ${dbPath}, got ${currentPath}`);
     }
     const engineDb = createEngineDb(writeDb);
     engineDb
@@ -173,7 +173,7 @@ function resolveSnapshotForRecovery(commitId: string): { dbPath: string; snapsho
       .limit(1)
       .get();
     if (!snapshot) {
-      throw new TossError("NOT_FOUND", `Snapshot not found for commit: ${commitId}`);
+      throw new CodedError("NOT_FOUND", `Snapshot not found for commit: ${commitId}`);
     }
     return {
       dbPath,

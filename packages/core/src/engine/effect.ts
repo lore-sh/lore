@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson } from "./checksum";
 import { getRows, tableExists } from "./db";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
+import type { ErrorCode } from "../error";
 import { executeOperation } from "./execute";
 import {
   dependencyOrder,
@@ -18,14 +19,14 @@ import type { EncodedRow, RestoreTableOperation } from "../types";
 function insertEncodedRow(db: Database, table: string, row: EncodedRow): void {
   const columns = Object.keys(row).sort((a, b) => a.localeCompare(b));
   if (columns.length === 0) {
-    throw new TossError("REVERT_FAILED", `Cannot insert empty encoded row for ${table}`);
+    throw new CodedError("REVERT_FAILED", `Cannot insert empty encoded row for ${table}`);
   }
   const colSql = columns.map((column) => quoteIdentifier(column, { unsafe: true })).join(", ");
   const valuesSql = columns
     .map((column) => {
       const cell = row[column];
       if (!cell) {
-        throw new TossError("REVERT_FAILED", `Missing encoded cell for ${table}.${column}`);
+        throw new CodedError("REVERT_FAILED", `Missing encoded cell for ${table}.${column}`);
       }
       return cell.sqlLiteral;
     })
@@ -36,13 +37,13 @@ function insertEncodedRow(db: Database, table: string, row: EncodedRow): void {
 function updateEncodedRow(db: Database, table: string, pk: Record<string, string>, row: EncodedRow): void {
   const columns = Object.keys(row).sort((a, b) => a.localeCompare(b));
   if (columns.length === 0) {
-    throw new TossError("REVERT_FAILED", `Cannot update empty encoded row for ${table}`);
+    throw new CodedError("REVERT_FAILED", `Cannot update empty encoded row for ${table}`);
   }
   const setSql = columns
     .map((column) => {
       const cell = row[column];
       if (!cell) {
-        throw new TossError("REVERT_FAILED", `Missing encoded cell for ${table}.${column}`);
+        throw new CodedError("REVERT_FAILED", `Missing encoded cell for ${table}.${column}`);
       }
       return `${quoteIdentifier(column, { unsafe: true })} = ${cell.sqlLiteral}`;
     })
@@ -119,7 +120,7 @@ export function applyRowEffectsWithOptions(
     const currentHash = rowHash(current);
     const expectedHash = rowHash(expectedCurrent);
     if (currentHash !== expectedHash) {
-      throw new TossError(
+      throw new CodedError(
         "REVERT_FAILED",
         `Observed row mismatch during ${opLabel} on ${effect.tableName} (pk=${canonicalJson(effect.pk)})`,
       );
@@ -154,7 +155,7 @@ function applySystemRowEffectReconciled(
     return;
   }
   if (!exists) {
-    throw new TossError("REVERT_FAILED", `System table does not exist for reconciled effect: ${table}`);
+    throw new CodedError("REVERT_FAILED", `System table does not exist for reconciled effect: ${table}`);
   }
   const current = fetchObservedRowByPk(db, table, pk);
   if (!current) {
@@ -292,14 +293,14 @@ export function applyUserRowAndSchemaEffects(
 
     const blocked = pendingRows[0]!;
     if (!tableExists(db, blocked.tableName)) {
-      throw new TossError(
+      throw new CodedError(
         "REVERT_FAILED",
         `Observed row effect blocked because target table does not exist: ${blocked.tableName}`,
       );
     }
     const missingRefs = missingReferencedTables(db, blocked.tableName);
     if (missingRefs.length > 0) {
-      throw new TossError(
+      throw new CodedError(
         "REVERT_FAILED",
         `Observed row effect blocked by missing referenced table(s): ${blocked.tableName} -> ${missingRefs.join(", ")}`,
       );
@@ -320,7 +321,7 @@ export function applySchemaEffects(db: Database, effects: SchemaEffect[], direct
   }
 }
 
-export function assertNoForeignKeyViolations(db: Database, errorCode: string, context: string): void {
+export function assertNoForeignKeyViolations(db: Database, errorCode: ErrorCode, context: string): void {
   const rows = getRows<{
     table: string;
     rowid: number;
@@ -332,7 +333,7 @@ export function assertNoForeignKeyViolations(db: Database, errorCode: string, co
   }
 
   const first = rows[0]!;
-  throw new TossError(
+  throw new CodedError(
     errorCode,
     `${context}: foreign_key_check failed at ${first.table} rowid=${first.rowid} parent=${first.parent} fk=${first.fkid}`,
   );

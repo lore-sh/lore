@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { createEngineDb, getClientPath, getSqlite, hasClient, initClient, withClient } from "./client";
 import { MetaTable, RefTable } from "./schema.sql";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import { resolveHomeDir } from "./files";
 
 export const DEFAULT_DB_DIR = ".toss";
@@ -59,8 +59,8 @@ export function resolveDbPath(pathFromArg?: string): string {
   return resolve(candidate);
 }
 
-function notInitializedError(dbPath: string): TossError {
-  return new TossError("NOT_INITIALIZED", `Database is not initialized: ${dbPath}. Run \`toss init --force-new\`.`);
+function notInitializedError(dbPath: string): CodedError {
+  return new CodedError("NOT_INITIALIZED", `Database is not initialized: ${dbPath}`);
 }
 
 function ensureDatabaseDirectory(dbPath: string): void {
@@ -120,7 +120,7 @@ export async function withInitializedDatabaseAsync<T>(
 
 export function initializeStorage(): void {
   if (!existsSync(ENGINE_MIGRATIONS_DIR)) {
-    throw new TossError("CONFIG_ERROR", `Engine migrations directory not found: ${ENGINE_MIGRATIONS_DIR}`);
+    throw new CodedError("CONFIG", `Engine migrations directory not found: ${ENGINE_MIGRATIONS_DIR}`);
   }
   withClient((db) => {
     migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { getSchema, initDatabase, isTossError } from "../src";
+import { getSchema, initDatabase, CodedError } from "../src";
 import { schemaHash } from "../src/engine/inspect";
 import { createTestContext, withTmpDirCleanup } from "./helpers";
 
@@ -110,8 +110,8 @@ describe("getSchema", () => {
       getSchema({ table: "missing_table" });
       throw new Error("getSchema should throw for missing table");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
         expect(error.code).toBe("NOT_FOUND");
       }
     }

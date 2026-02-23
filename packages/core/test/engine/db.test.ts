@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { listUserTables, resolveDbPath, withInitializedDatabase } from "../../src/engine/db";
-import { isTossError } from "../../src/errors";
+import { CodedError } from "../../src/error";
 import { initDatabase } from "../../src";
 import { createTestContext, withTmpDirCleanup } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
 describe("db path resolution", () => {
-  test("resolveDbPath returns CONFIG_ERROR when no home env is available", () => {
+  test("resolveDbPath returns CONFIG when no home env is available", () => {
     const env = {
       HOME: process.env.HOME,
       USERPROFILE: process.env.USERPROFILE,
@@ -21,9 +21,9 @@ describe("db path resolution", () => {
         resolveDbPath();
         throw new Error("resolveDbPath should fail without HOME/USERPROFILE");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
-          expect(error.code).toBe("CONFIG_ERROR");
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
+          expect(error.code).toBe("CONFIG");
         }
       }
     } finally {

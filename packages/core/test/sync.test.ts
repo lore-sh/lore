@@ -10,7 +10,7 @@ import {
   getRemoteStatus,
   getStatus,
   initDatabase,
-  isTossError,
+  CodedError,
   pullFromRemote,
   pushToRemote,
   readAuthToken,
@@ -30,6 +30,24 @@ function remoteUrlFor(path: string): string {
 }
 
 describe("sync with Turso protocol", () => {
+  testWithTmp("push without remote config returns SYNC_NOT_CONFIGURED", async () => {
+    const local = createTestContext();
+    await initDatabase({ dbPath: local.dbPath });
+
+    await withDbPath(local.dbPath, async () => {
+      try {
+        await pushToRemote();
+        throw new Error("push should fail when remote is not configured");
+      } catch (error) {
+        expect(CodedError.hasCode(error, "SYNC_NOT_CONFIGURED")).toBe(true);
+      }
+
+      const status = getStatus();
+      expect(status.sync.state).toBe("offline");
+      expect(status.sync.lastError).toBe("Remote is not configured");
+    });
+  });
+
   testWithTmp("A apply -> push and B pull reaches same state", async () => {
     const a = createTestContext();
     const b = createTestContext();
@@ -370,8 +388,8 @@ describe("sync with Turso protocol", () => {
         await pushToRemote();
         throw new Error("push should fail when projection precondition is broken");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
           expect(error.code).toBe("SYNC_DIVERGED");
         }
       }
@@ -444,8 +462,8 @@ describe("sync with Turso protocol", () => {
         await pushToRemote();
         throw new Error("push should fail when projection drift exists");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
           expect(error.code).toBe("SYNC_DIVERGED");
           expect(error.message.includes("state_hash_after mismatch")).toBe(true);
         }
@@ -519,8 +537,8 @@ describe("sync with Turso protocol", () => {
         await pushToRemote();
         throw new Error("push should fail when replay SQL runtime error occurs");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
           expect(error.code).toBe("SYNC_DIVERGED");
         }
       }
@@ -886,9 +904,9 @@ describe("sync with Turso protocol", () => {
         });
         throw new Error("connect should fail for unsupported platform");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
-          expect(error.code).toBe("CONFIG_ERROR");
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
+          expect(error.code).toBe("CONFIG");
         }
       }
       expect(getSyncConfig()).toBeNull();
@@ -1006,9 +1024,9 @@ describe("sync with Turso protocol", () => {
         });
         throw new Error("clone should fail when destination db already exists");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
-          expect(error.code).toBe("CONFIG_ERROR");
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
+          expect(error.code).toBe("CONFIG");
         }
       }
     });
@@ -1092,8 +1110,8 @@ describe("sync with Turso protocol", () => {
         await pullFromRemote();
         throw new Error("pull should fail on tampered remote payload");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
           expect(error.code).toBe("SYNC_DIVERGED");
         }
       }
@@ -1152,8 +1170,8 @@ describe("sync with Turso protocol", () => {
         await pushToRemote();
         throw new Error("push should fail with non-fast-forward");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
           expect(error.code).toBe("SYNC_NON_FAST_FORWARD");
         }
       }
@@ -1209,8 +1227,8 @@ describe("sync with Turso protocol", () => {
         await pullFromRemote();
         throw new Error("pull should fail on diverged history");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
           expect(error.code).toBe("SYNC_DIVERGED");
         }
       }

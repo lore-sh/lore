@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { isTossError } from "@toss/core";
+import { CodedError } from "@toss/core";
+import type { ErrorCode } from "@toss/core";
 import { runInit, runClean } from "./commands/init";
 import { runRemote, runPush, runPull, runSync, runClone } from "./commands/remote";
 import { runSchema, runPlan, runApply, runRead } from "./commands/data";
@@ -7,6 +8,11 @@ import { runStatus, runHistory, runRevert, runVerify, runRecover } from "./comma
 import { runStudio } from "./commands/studio";
 
 type CommandHandler = (args: string[]) => void | Promise<void>;
+
+const CLI_HINTS: Partial<Record<ErrorCode, string>> = {
+  SYNC_NOT_CONFIGURED: "Run `toss remote connect` to configure remote.",
+  NOT_INITIALIZED: "Run `toss init` to initialize the database.",
+};
 
 export function usage(): string {
   return [
@@ -83,8 +89,10 @@ export async function runCli(args: string[]): Promise<void> {
 }
 
 export function formatError(error: unknown): string {
-  if (isTossError(error)) {
-    return `Error [${error.code}]: ${error.message}`;
+  if (CodedError.is(error)) {
+    const base = `Error [${error.code}]: ${error.message}`;
+    const hint = CLI_HINTS[error.code];
+    return hint ? `${base}\n  ${hint}` : base;
   }
   const message = error instanceof Error ? error.message : String(error);
   return `Error: ${message}`;

@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 
 export const IDENTIFIER_PATTERN = /^(?:[_$]|\p{ID_Start})(?:[_$]|\p{ID_Continue})*$/u;
 export const COLUMN_TYPE_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(\s*\(\s*\d+\s*(,\s*\d+\s*)?\))?$/;
 
 export function quoteIdentifier(value: string, options: { unsafe?: boolean } = {}): string {
   if (!options.unsafe && !IDENTIFIER_PATTERN.test(value)) {
-    throw new TossError("INVALID_IDENTIFIER", `Invalid identifier: ${value}`);
+    throw new CodedError("INVALID_IDENTIFIER", `Invalid identifier: ${value}`);
   }
   return `"${value.replaceAll('"', '""')}"`;
 }
@@ -321,7 +321,7 @@ function stripStringLiterals(sql: string): string {
 export function validateReadSql(inputSql: string): string {
   const parsed = sqlInputSchema.safeParse(inputSql);
   if (!parsed.success) {
-    throw new TossError("INVALID_SQL", parsed.error.issues.map((issue) => issue.message).join("; "));
+    throw new CodedError("INVALID_SQL", parsed.error.issues.map((issue) => issue.message).join("; "));
   }
 
   let sql = parsed.data.trim();
@@ -331,18 +331,18 @@ export function validateReadSql(inputSql: string): string {
 
   const stripped = stripStringLiterals(sql);
   if (stripped.includes(";")) {
-    throw new TossError("INVALID_SQL", "Multiple SQL statements are not allowed");
+    throw new CodedError("INVALID_SQL", "Multiple SQL statements are not allowed");
   }
 
   const upper = stripped.trim().toUpperCase();
   if (!(upper.startsWith("SELECT") || upper.startsWith("WITH"))) {
-    throw new TossError("INVALID_SQL", "Only SELECT / WITH ... SELECT queries are allowed");
+    throw new CodedError("INVALID_SQL", "Only SELECT / WITH ... SELECT queries are allowed");
   }
 
   for (const keyword of FORBIDDEN_KEYWORDS) {
     const regex = new RegExp(`\\b${keyword}\\b`, "i");
     if (regex.test(stripped)) {
-      throw new TossError("INVALID_SQL", `Forbidden keyword in read-only query: ${keyword}`);
+      throw new CodedError("INVALID_SQL", `Forbidden keyword in read-only query: ${keyword}`);
     }
   }
 

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 
 export function isEnoent(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
@@ -8,7 +8,7 @@ export function isEnoent(error: unknown): boolean {
 export function resolveHomeDir(): string {
   const home = process.env.HOME ?? process.env.USERPROFILE;
   if (!home) {
-    throw new TossError("CONFIG_ERROR", "HOME (or USERPROFILE) is required to resolve the home directory.");
+    throw new CodedError("CONFIG", "HOME (or USERPROFILE) is required to resolve the home directory.");
   }
   return resolve(home);
 }

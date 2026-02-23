@@ -14,7 +14,8 @@ import {
   ReflogTable,
   RefTable,
 } from "./schema.sql";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
+import type { ErrorCode } from "../error";
 import type { CommitEntry, CommitKind, Operation } from "../types";
 
 export interface CommitWriteInput {
@@ -183,13 +184,13 @@ export function appendCommitFromObservedChange(
 export function appendCommitExact(
   db: Database,
   input: CommitReplayInput,
-  options: { errorCode?: string } = {},
+  options: { errorCode?: ErrorCode } = {},
 ): CommitEntry {
   const errorCode = options.errorCode ?? "RECOVER_FAILED";
   const commitId = input.commitId;
   const expected = computeCommitId(input);
   if (expected !== commitId) {
-    throw new TossError(errorCode, `Commit payload mismatch for replayed commit ${commitId}`);
+    throw new CodedError(errorCode, `Commit payload mismatch for replayed commit ${commitId}`);
   }
 
   const engineDb = createEngineDb(db);
@@ -278,7 +279,7 @@ export function appendCommitExact(
 
   const row = engineDb.select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
   if (!row) {
-    throw new TossError("INTERNAL", `Inserted commit not found: ${commitId}`);
+    throw new CodedError("INTERNAL", `Inserted commit not found: ${commitId}`);
   }
   return decodeCommit(db, row);
 }

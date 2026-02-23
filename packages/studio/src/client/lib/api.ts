@@ -53,13 +53,48 @@ function isStudioApiError(value: unknown): value is StudioApiError {
   return typeof value.code === "string" && typeof value.message === "string";
 }
 
-function toErrorFromPayload(payload: unknown, status: number): Error {
+interface StudioProblemPayload {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  instance: string;
+  code: string;
+}
+
+function isStudioProblemPayload(value: unknown): value is StudioProblemPayload {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.type === "string" &&
+    typeof value.title === "string" &&
+    typeof value.status === "number" &&
+    typeof value.detail === "string" &&
+    typeof value.instance === "string" &&
+    typeof value.code === "string"
+  );
+}
+
+export function toErrorFromPayload(payload: unknown, status: number): Error {
   if (isStudioApiError(payload)) {
     const error = new Error(payload.message);
     Object.assign(error, {
       code: payload.code,
       details: payload.details,
       status,
+    });
+    return error;
+  }
+
+  if (isStudioProblemPayload(payload)) {
+    const error = new Error(payload.detail);
+    Object.assign(error, {
+      code: payload.code,
+      status: payload.status,
+      type: payload.type,
+      title: payload.title,
+      instance: payload.instance,
     });
     return error;
   }

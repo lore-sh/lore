@@ -1,5 +1,5 @@
 import { withInitializedDatabase, getRow } from "./engine/db";
-import { TossError } from "./errors";
+import { CodedError } from "./error";
 import { describeSchema, schemaHashFromDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
 import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
 
@@ -25,7 +25,7 @@ function selectTables(tables: SchemaTableDescriptor[], tableName?: string | unde
   }
   const selected = tables.filter((table) => sqliteIdentifierEquals(table.table, tableName));
   if (selected.length === 0) {
-    throw new TossError("NOT_FOUND", `Table not found: ${tableName}`);
+    throw new CodedError("NOT_FOUND", `Table not found: ${tableName}`);
   }
   return selected;
 }

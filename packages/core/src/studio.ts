@@ -10,7 +10,7 @@ import {
   listUserTables,
   withInitializedDatabase,
 } from "./engine/db";
-import { TossError } from "./errors";
+import { CodedError } from "./error";
 import { getCommitById, getRowEffectsByCommitId, getSchemaEffectsByCommitId } from "./engine/log";
 import { describeSchema, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
 import { normalizeRowObject } from "./engine/rows";
@@ -138,7 +138,7 @@ function resolveTableName(tableNames: string[], requestedTable: string): string 
   if (matched) {
     return matched;
   }
-  throw new TossError("NOT_FOUND", `Table not found: ${requestedTable}`);
+  throw new CodedError("NOT_FOUND", `Table not found: ${requestedTable}`);
 }
 
 function normalizePageSize(input: number | undefined): number {
@@ -197,7 +197,7 @@ function findTableFromSchema(descriptor: SchemaDescriptor, tableName: string): S
   if (matched) {
     return matched;
   }
-  throw new TossError("NOT_FOUND", `Table not found: ${tableName}`);
+  throw new CodedError("NOT_FOUND", `Table not found: ${tableName}`);
 }
 
 function primaryKeyColumnNames(table: SchemaTableDescriptor): string[] {
@@ -234,7 +234,7 @@ function tieBreakerTerms(table: SchemaTableDescriptor): OrderTerm[] {
 
   if (terms.length === 0) {
     if (visibleColumns.length === 0) {
-      throw new TossError("INTERNAL", `Table has no visible columns for ordering: ${table.table}`);
+      throw new CodedError("INTERNAL", `Table has no visible columns for ordering: ${table.table}`);
     }
     for (const column of visibleColumns) {
       terms.push({
@@ -331,7 +331,7 @@ export function readStudioTable(options: ReadStudioTableOptions): StudioTableDat
     const rawFilters = options.filters ?? {};
     for (const [column, rawValue] of Object.entries(rawFilters)) {
       if (!columnNames.has(column)) {
-        throw new TossError("INVALID_OPERATION", `Filter column not found: ${column}`);
+        throw new CodedError("INVALID_OPERATION", `Filter column not found: ${column}`);
       }
       const value = rawValue.trim();
       if (value.length === 0) {
@@ -344,7 +344,7 @@ export function readStudioTable(options: ReadStudioTableOptions): StudioTableDat
 
     const sortBy = options.sortBy?.trim();
     if (sortBy && !columnNames.has(sortBy)) {
-      throw new TossError("INVALID_OPERATION", `Sort column not found: ${sortBy}`);
+      throw new CodedError("INVALID_OPERATION", `Sort column not found: ${sortBy}`);
     }
 
     const whereSql = whereParts.length === 0 ? "" : ` WHERE ${whereParts.join(" AND ")}`;
@@ -552,7 +552,7 @@ export function listStudioTableHistory(
   return withInitializedDatabase(({ db }) => {
     const rawTableName = table.trim();
     if (rawTableName.length === 0) {
-      throw new TossError("INVALID_OPERATION", "Table name is required");
+      throw new CodedError("INVALID_OPERATION", "Table name is required");
     }
     const tableName = resolveTableName(listUserTables(db), rawTableName);
     const max = normalizePageSize(options.limit);
@@ -591,7 +591,7 @@ export function getStudioCommitDetail(commitId: string): StudioCommitDetail {
   return withInitializedDatabase(({ db }) => {
     const commit = getCommitById(db, commitId);
     if (!commit) {
-      throw new TossError("NOT_FOUND", `Commit not found: ${commitId}`);
+      throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
     }
     return {
       commit,

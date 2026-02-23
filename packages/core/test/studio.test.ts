@@ -6,7 +6,7 @@ import {
   getStudioCommitDetail,
   getStudioSchema,
   initDatabase,
-  isTossError,
+  CodedError,
   listStudioHistory,
   listStudioTableHistory,
   listStudioTables,
@@ -473,8 +473,8 @@ describe("studio api", () => {
       listStudioTableHistory("missing_table", { limit: 10, page: 1 });
       throw new Error("listStudioTableHistory should fail for unknown tables");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
         expect(error.code).toBe("NOT_FOUND");
       }
     }
@@ -544,8 +544,8 @@ describe("studio api", () => {
       readStudioTable({ table: "expenses", filters: { unknown: "1" } });
       throw new Error("readStudioTable should fail for unknown filter columns");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
         expect(error.code).toBe("INVALID_OPERATION");
       }
     }

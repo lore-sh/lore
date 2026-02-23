@@ -1,5 +1,5 @@
 import { runInSavepoint, runInTransaction, withInitializedDatabase, withInitializedDatabaseAsync } from "./engine/db";
-import { isTossError } from "./errors";
+import { CodedError } from "./error";
 import { executeOperation } from "./engine/execute";
 import { appendCommitFromObservedChange } from "./engine/log";
 import { captureObservedState, diffObservedState } from "./engine/diff";
@@ -100,7 +100,7 @@ const EMPTY_SUMMARY: PlanCheckSummary = {
 };
 
 function issueFromError(error: unknown): PlanCheckIssue {
-  if (isTossError(error)) {
+  if (CodedError.is(error)) {
     return { code: error.code, message: error.message };
   }
   if (error instanceof Error) {

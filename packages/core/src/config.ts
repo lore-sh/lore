@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { TossError } from "./errors";
+import { CodedError } from "./error";
 import { resolveHomeDir } from "./engine/files";
 import type { RemotePlatform } from "./types";
 
@@ -47,12 +47,12 @@ function readJsonFile(path: string): unknown | null {
   }
   const text = readFileSync(path, "utf8");
   if (text.trim().length === 0) {
-    throw new TossError("CONFIG_ERROR", `Config file is empty: ${path}`);
+    throw new CodedError("CONFIG", `Config file is empty: ${path}`);
   }
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new TossError("CONFIG_ERROR", `Config file is not valid JSON: ${path}`);
+    throw new CodedError("CONFIG", `Config file is not valid JSON: ${path}`);
   }
 }
 
@@ -67,11 +67,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function parseNonEmptyString(value: unknown, fieldPath: string): string {
   if (typeof value !== "string") {
-    throw new TossError("CONFIG_ERROR", `${fieldPath} must be a string`);
+    throw new CodedError("CONFIG", `${fieldPath} must be a string`);
   }
   const normalized = value.trim();
   if (normalized.length === 0) {
-    throw new TossError("CONFIG_ERROR", `${fieldPath} must not be empty`);
+    throw new CodedError("CONFIG", `${fieldPath} must not be empty`);
   }
   return normalized;
 }
@@ -80,12 +80,12 @@ export function parseRemotePlatform(value: unknown, fieldPath = "platform"): Rem
   if (value === "turso" || value === "libsql") {
     return value;
   }
-  throw new TossError("CONFIG_ERROR", `${fieldPath} must be one of: turso, libsql`);
+  throw new CodedError("CONFIG", `${fieldPath} must be one of: turso, libsql`);
 }
 
 function parseRemoteConfigFromUnknown(value: unknown): RemoteConfig | null {
   if (!isRecord(value)) {
-    throw new TossError("CONFIG_ERROR", "config.json root must be an object");
+    throw new CodedError("CONFIG", "config.json root must be an object");
   }
   const parsed = value as ConfigFile;
   if (!parsed.remote) {
@@ -107,14 +107,14 @@ function parseToken(value: unknown, fieldPath: string): string | undefined {
 
 function parseCredentialsFromUnknown(value: unknown): CredentialsFile {
   if (!isRecord(value)) {
-    throw new TossError("CONFIG_ERROR", "credentials.json root must be an object");
+    throw new CodedError("CONFIG", "credentials.json root must be an object");
   }
   const parsed = value as CredentialsFile;
   if (parsed.turso !== undefined && !isRecord(parsed.turso)) {
-    throw new TossError("CONFIG_ERROR", "credentials.turso must be an object");
+    throw new CodedError("CONFIG", "credentials.turso must be an object");
   }
   if (parsed.libsql !== undefined && !isRecord(parsed.libsql)) {
-    throw new TossError("CONFIG_ERROR", "credentials.libsql must be an object");
+    throw new CodedError("CONFIG", "credentials.libsql must be an object");
   }
   return parsed;
 }

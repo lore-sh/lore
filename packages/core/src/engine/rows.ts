@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { getRow, getRows } from "./db";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import { assertTableHasPrimaryKey } from "./inspect";
 import { quoteIdentifier } from "./sql";
 import type { JsonObject, JsonPrimitive } from "../types";
@@ -33,7 +33,7 @@ export function whereClauseFromRecord(
 ): { clause: string; bindings: JsonPrimitive[] } {
   const keys = Object.keys(values);
   if (keys.length === 0) {
-    throw new TossError("INVALID_OPERATION", "where must not be empty");
+    throw new CodedError("INVALID_OPERATION", "where must not be empty");
   }
 
   const terms: string[] = [];
@@ -41,7 +41,7 @@ export function whereClauseFromRecord(
   for (const key of keys) {
     const value = values[key];
     if (value === undefined) {
-      throw new TossError("INVALID_OPERATION", `where value missing for key: ${key}`);
+      throw new CodedError("INVALID_OPERATION", `where value missing for key: ${key}`);
     }
     const quoted = quoteIdentifier(key);
     if (value === null) {
@@ -76,12 +76,12 @@ export function pkFromRow(db: Database, table: string, row: Record<string, unkno
   for (const column of pkCols) {
     const value = row[column];
     if (value === undefined) {
-      throw new TossError("INVALID_OPERATION", `PK column missing in row: ${table}.${column}`);
+      throw new CodedError("INVALID_OPERATION", `PK column missing in row: ${table}.${column}`);
     }
     if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       pk[column] = value;
     } else {
-      throw new TossError("INVALID_OPERATION", `Unsupported PK value type in ${table}.${column}`);
+      throw new CodedError("INVALID_OPERATION", `Unsupported PK value type in ${table}.${column}`);
     }
   }
   return pk;

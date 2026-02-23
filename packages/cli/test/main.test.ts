@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { getCommandHandler, runCli } from "../src/main";
+import { CodedError } from "@toss/core";
+import { formatError, getCommandHandler, runCli } from "../src/main";
 
 async function expectUnknownCommand(command: string): Promise<void> {
   try {
@@ -21,5 +22,20 @@ describe("main command dispatch", () => {
 
     await expectUnknownCommand("toString");
     await expectUnknownCommand("hasOwnProperty");
+  });
+
+  test("formatError adds actionable hints for known error codes", () => {
+    const message = formatError(new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured"));
+    expect(message).toContain("Error [SYNC_NOT_CONFIGURED]: Remote is not configured");
+    expect(message).toContain("toss remote connect");
+  });
+
+  test("formatError does not add remote hint for generic CONFIG errors", () => {
+    const message = formatError(new CodedError("CONFIG", "Config file is not valid JSON"));
+    expect(message).toBe("Error [CONFIG]: Config file is not valid JSON");
+  });
+
+  test("formatError falls back to generic error output", () => {
+    expect(formatError(new Error("boom"))).toBe("Error: boom");
   });
 });

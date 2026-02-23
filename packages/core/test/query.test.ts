@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { initDatabase, isTossError, readQuery } from "../src";
+import { initDatabase, CodedError, readQuery } from "../src";
 import { createTestContext, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -33,7 +33,7 @@ describe("readQuery", () => {
     try {
       readQuery("DELETE FROM users");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
+      expect(CodedError.is(error)).toBe(true);
     }
   });
 });

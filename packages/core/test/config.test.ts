@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import {
-  isTossError,
+  CodedError,
   readAuthToken,
   readRemoteConfig,
   resolveConfigPath,
@@ -40,9 +40,9 @@ describe("config", () => {
         });
         throw new Error("writeRemoteConfig should reject unsupported platform");
       } catch (error) {
-        expect(isTossError(error)).toBe(true);
-        if (isTossError(error)) {
-          expect(error.code).toBe("CONFIG_ERROR");
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
+          expect(error.code).toBe("CONFIG");
         }
       }
       expect(readRemoteConfig()).toBeNull();

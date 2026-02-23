@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { applyPlan, initDatabase, isTossError, planCheck, readQuery } from "../../src";
+import { applyPlan, initDatabase, CodedError, planCheck, readQuery } from "../../src";
 import { createTestContext, writePlanFile, withTmpDirCleanup } from "../helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -880,8 +880,8 @@ describe("check operations", () => {
       await applyPlan(dropMissing);
       throw new Error("applyPlan should fail for missing CHECK expression");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
         expect(error.code).toBe("INVALID_OPERATION");
         expect(error.message).toContain("CHECK constraint not found");
       }

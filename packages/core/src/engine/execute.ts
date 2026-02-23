@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { getRow, getRows, runInSavepoint, tableExists } from "./db";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import { whereClauseFromRecord } from "./rows";
 import { COLUMN_TYPE_PATTERN, quoteIdentifier } from "./sql";
 import {
@@ -43,7 +43,7 @@ function serializeLiteral(value: string | number | boolean | null): string {
 function normalizeColumnType(value: string): string {
   const normalized = value.trim().toUpperCase();
   if (!COLUMN_TYPE_PATTERN.test(normalized)) {
-    throw new TossError("INVALID_OPERATION", `Invalid column type: ${value}`);
+    throw new CodedError("INVALID_OPERATION", `Invalid column type: ${value}`);
   }
   return normalized;
 }
@@ -53,13 +53,13 @@ function buildColumnSql(column: ColumnDefinition, forAddColumn = false): string 
 
   if (column.primaryKey) {
     if (forAddColumn) {
-      throw new TossError("UNSUPPORTED_OPERATION", "add_column does not support primaryKey");
+      throw new CodedError("UNSUPPORTED", "add_column does not support primaryKey");
     }
     tokens.push("PRIMARY KEY");
   }
   if (column.unique) {
     if (forAddColumn) {
-      throw new TossError("UNSUPPORTED_OPERATION", "add_column does not support unique");
+      throw new CodedError("UNSUPPORTED", "add_column does not support unique");
     }
     tokens.push("UNIQUE");
   }
@@ -83,7 +83,7 @@ function executeAddColumn(db: Database, operation: AddColumnOperation): void {
   if (operation.column.default?.kind === "sql") {
     const row = getRow<{ found: number }>(db, `SELECT 1 AS found FROM ${quoteIdentifier(operation.table)} LIMIT 1`);
     if (row) {
-      throw new TossError(
+      throw new CodedError(
         "INVALID_OPERATION",
         "add_column with SQL default is only allowed on empty tables; use staged table rebuild for non-empty tables",
       );
@@ -96,7 +96,7 @@ function executeAddColumn(db: Database, operation: AddColumnOperation): void {
 function executeInsert(db: Database, operation: InsertOperation): void {
   const keys = Object.keys(operation.values);
   if (keys.length === 0) {
-    throw new TossError("INVALID_OPERATION", "insert values must not be empty");
+    throw new CodedError("INVALID_OPERATION", "insert values must not be empty");
   }
 
   const columns = keys.map((key) => quoteIdentifier(key)).join(", ");
@@ -104,7 +104,7 @@ function executeInsert(db: Database, operation: InsertOperation): void {
   const values = keys.map((key) => {
     const value = operation.values[key];
     if (value === undefined) {
-      throw new TossError("INVALID_OPERATION", `insert value is missing for key: ${key}`);
+      throw new CodedError("INVALID_OPERATION", `insert value is missing for key: ${key}`);
     }
     return value;
   });
@@ -115,7 +115,7 @@ function executeInsert(db: Database, operation: InsertOperation): void {
 function executeUpdate(db: Database, operation: UpdateOperation): void {
   const valueKeys = Object.keys(operation.values);
   if (valueKeys.length === 0) {
-    throw new TossError("INVALID_OPERATION", "update values must not be empty");
+    throw new CodedError("INVALID_OPERATION", "update values must not be empty");
   }
 
   const setParts: string[] = [];
@@ -123,7 +123,7 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
   for (const key of valueKeys) {
     const value = operation.values[key];
     if (value === undefined) {
-      throw new TossError("INVALID_OPERATION", `update value is missing for key: ${key}`);
+      throw new CodedError("INVALID_OPERATION", `update value is missing for key: ${key}`);
     }
     setParts.push(`${quoteIdentifier(key)} = ?`);
     setBindings.push(value);
@@ -171,7 +171,7 @@ function resolveMutableTableState(db: Database, table: string): MutableTableStat
   const requestedTableName = quoteIdentifier(table);
   const tableInfo = getRows<TableInfoRow>(db, `PRAGMA table_info(${requestedTableName})`);
   if (tableInfo.length === 0) {
-    throw new TossError("INVALID_OPERATION", `Table does not exist: ${table}`);
+    throw new CodedError("INVALID_OPERATION", `Table does not exist: ${table}`);
   }
 
   const tableDdlRow = getRow<{ name: string; sql: string | null }>(
@@ -180,7 +180,7 @@ function resolveMutableTableState(db: Database, table: string): MutableTableStat
     table,
   );
   if (!tableDdlRow?.sql) {
-    throw new TossError("INVALID_OPERATION", `Table DDL is not available: ${table}`);
+    throw new CodedError("INVALID_OPERATION", `Table DDL is not available: ${table}`);
   }
 
   const secondaryObjects = getRows<SecondaryObjectRow>(
@@ -270,7 +270,7 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
     value === "null" || value === "integer" || value === "real" || value === "text" || value === "blob";
   const rowForRestore = (value: unknown): Record<string, unknown> => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new TossError("INVALID_OPERATION", "restore_table row must be an object");
+      throw new CodedError("INVALID_OPERATION", "restore_table row must be an object");
     }
     return value as Record<string, unknown>;
   };
@@ -280,14 +280,14 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
       return serializeLiteral(value);
     }
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new TossError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
+      throw new CodedError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
     }
     const storageClass = "storageClass" in value ? value.storageClass : undefined;
     const sqlLiteral = "sqlLiteral" in value ? value.sqlLiteral : undefined;
     if (isSqlStorageClass(storageClass) && typeof sqlLiteral === "string") {
       return sqlLiteral;
     }
-    throw new TossError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
+    throw new CodedError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
   };
 
   runInSavepoint(db, "toss_restore_table", () => {
@@ -298,7 +298,7 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
       const firstRow = rowForRestore(first);
       const columns = Object.keys(firstRow).sort((a, b) => a.localeCompare(b));
       if (columns.length === 0) {
-        throw new TossError("INVALID_OPERATION", "restore_table row must include at least one column");
+        throw new CodedError("INVALID_OPERATION", "restore_table row must include at least one column");
       }
       const expected = new Set(columns);
       const columnSql = columns.map((column) => quoteIdentifier(column)).join(", ");
@@ -306,7 +306,7 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
         const row = rowForRestore(rawRow);
         const rowColumns = Object.keys(row);
         if (rowColumns.length !== columns.length || rowColumns.some((column) => !expected.has(column))) {
-          throw new TossError("INVALID_OPERATION", "restore_table row column set does not match snapshot");
+          throw new CodedError("INVALID_OPERATION", "restore_table row column set does not match snapshot");
         }
         const valuesSql = columns.map((column) => literalForRestoreCell(row[column])).join(", ");
         db.run(`INSERT INTO ${quotedTmp} (${columnSql}) VALUES (${valuesSql})`);
@@ -328,7 +328,7 @@ function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperatio
 
   const target = state.tableInfo.find((column) => column.name === operation.column);
   if (!target) {
-    throw new TossError("INVALID_OPERATION", `Column does not exist: ${operation.table}.${operation.column}`);
+    throw new CodedError("INVALID_OPERATION", `Column does not exist: ${operation.table}.${operation.column}`);
   }
 
   const rewrittenDdl = rewriteColumnTypeInCreateTable(state.tableDdlSql, operation.column, newType);
@@ -384,7 +384,7 @@ export function executeOperation(db: Database, operation: Operation): void {
       executeRestoreTable(db, operation);
       return;
     default:
-      throw new TossError("UNSUPPORTED_OPERATION", `Unsupported operation type: ${(operation as Operation).type}`);
+      throw new CodedError("UNSUPPORTED", `Unsupported operation type: ${(operation as Operation).type}`);
   }
 }
 

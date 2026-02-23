@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables, tableExists } from "./db";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import { primaryKeyColumns, tableDDL, tableInfo } from "./inspect";
 import { quoteIdentifier } from "./sql";
 import type { EncodedCell, EncodedRow, SqlStorageClass, TableSecondaryObject } from "../types";
@@ -56,13 +56,13 @@ function pkKey(pk: Record<string, string>): string {
 export function toPkWhereClause(pk: Record<string, string>): string {
   const keys = Object.keys(pk).sort((a, b) => a.localeCompare(b));
   if (keys.length === 0) {
-    throw new TossError("REVERT_FAILED", "PK predicate must not be empty");
+    throw new CodedError("REVERT_FAILED", "PK predicate must not be empty");
   }
   const parts: string[] = [];
   for (const key of keys) {
     const literal = pk[key];
     if (!literal) {
-      throw new TossError("REVERT_FAILED", `Missing PK literal for ${key}`);
+      throw new CodedError("REVERT_FAILED", `Missing PK literal for ${key}`);
     }
     const quoted = quoteIdentifier(key, { unsafe: true });
     parts.push(literal.toUpperCase() === "NULL" ? `${quoted} IS NULL` : `${quoted} = ${literal}`);
@@ -87,24 +87,24 @@ function encodeRowFromResult(
     const hexValue = row[hexAlias];
     const typeValue = row[typeAlias];
     if (!isSqlStorageClass(typeValue)) {
-      throw new TossError("APPLY_FAILED", `Unsupported sqlite storage class for ${column}: ${String(typeValue)}`);
+      throw new CodedError("APPLY_FAILED", `Unsupported sqlite storage class for ${column}: ${String(typeValue)}`);
     }
     let sqlLiteral: string;
     if (typeValue === "null") {
       sqlLiteral = "NULL";
     } else if (typeValue === "text") {
       if (typeof hexValue !== "string") {
-        throw new TossError("APPLY_FAILED", `Failed to encode text bytes for ${column}`);
+        throw new CodedError("APPLY_FAILED", `Failed to encode text bytes for ${column}`);
       }
       sqlLiteral = `CAST(X'${hexValue}' AS TEXT)`;
     } else if (typeValue === "blob") {
       if (typeof hexValue !== "string") {
-        throw new TossError("APPLY_FAILED", `Failed to encode blob bytes for ${column}`);
+        throw new CodedError("APPLY_FAILED", `Failed to encode blob bytes for ${column}`);
       }
       sqlLiteral = `X'${hexValue}'`;
     } else {
       if (typeof quoteValue !== "string") {
-        throw new TossError("APPLY_FAILED", `Failed to encode numeric literal for ${column}`);
+        throw new CodedError("APPLY_FAILED", `Failed to encode numeric literal for ${column}`);
       }
       sqlLiteral = quoteValue;
     }
@@ -120,7 +120,7 @@ function encodeRowFromResult(
 function tableColumns(db: Database, table: string): string[] {
   const info = tableInfo(db, table);
   if (info.length === 0) {
-    throw new TossError("APPLY_FAILED", `Unable to inspect table columns: ${table}`);
+    throw new CodedError("APPLY_FAILED", `Unable to inspect table columns: ${table}`);
   }
   return info.map((column) => column.name);
 }
@@ -166,7 +166,7 @@ function keyColumnsForObservedTable(db: Database, table: string): string[] {
   if (isSystemSequenceTable(table)) {
     return ["name"];
   }
-  throw new TossError("TABLE_WITHOUT_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
+  throw new CodedError("NO_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
 }
 
 function captureTableState(db: Database, table: string): CapturedTableState {
@@ -174,7 +174,7 @@ function captureTableState(db: Database, table: string): CapturedTableState {
 
   const ddlSql = tableDDL(db, table) ?? (isSystemSequenceTable(table) ? "CREATE TABLE sqlite_sequence(name,seq)" : null);
   if (!ddlSql) {
-    throw new TossError("APPLY_FAILED", `Unable to read CREATE TABLE SQL for ${table}`);
+    throw new CodedError("APPLY_FAILED", `Unable to read CREATE TABLE SQL for ${table}`);
   }
 
   const secondaryObjects = getRows<{ type: "index" | "trigger"; name: string; sql: string }>(
@@ -207,11 +207,11 @@ function captureTableState(db: Database, table: string): CapturedTableState {
     for (const pkColumn of keyColumns) {
       const cell = row[pkColumn];
       if (!cell) {
-        throw new TossError("APPLY_FAILED", `PK column missing in encoded row: ${table}.${pkColumn}`);
+        throw new CodedError("APPLY_FAILED", `PK column missing in encoded row: ${table}.${pkColumn}`);
       }
       if (cell.sqlLiteral.toUpperCase() === "NULL") {
-        throw new TossError(
-          "NULL_PRIMARY_KEY_VALUE",
+        throw new CodedError(
+          "APPLY_FAILED",
           `Tracked table ${table} has NULL primary key value at column ${pkColumn}; nullable PK values are not supported.`,
         );
       }
@@ -219,8 +219,8 @@ function captureTableState(db: Database, table: string): CapturedTableState {
     }
     const key = pkKey(pk);
     if (rowsByPk.has(key)) {
-      throw new TossError(
-        "AMBIGUOUS_PRIMARY_KEY",
+      throw new CodedError(
+        "APPLY_FAILED",
         `Tracked table ${table} has duplicate primary-key identity in observed capture: ${canonicalJson(pk)}`,
       );
     }
@@ -423,12 +423,12 @@ export function fetchObservedRowByPk(db: Database, table: string, pk: Record<str
     if (isSystemSideEffectTable(table)) {
       return null;
     }
-    throw new TossError("REVERT_FAILED", `Table does not exist while reading observed row: ${table}`);
+    throw new CodedError("REVERT_FAILED", `Table does not exist while reading observed row: ${table}`);
   }
   const columns = tableColumns(db, table);
   const keyColumns = Object.keys(pk).sort((a, b) => a.localeCompare(b));
   if (keyColumns.length === 0) {
-    throw new TossError("REVERT_FAILED", `Cannot fetch row without key columns: ${table}`);
+    throw new CodedError("REVERT_FAILED", `Cannot fetch row without key columns: ${table}`);
   }
   const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
   const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);

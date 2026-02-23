@@ -1,4 +1,4 @@
-import { isTossError } from "@toss/core";
+import { CodedError, toHttpProblem } from "@toss/core";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { join } from "node:path";
@@ -11,23 +11,6 @@ export interface StudioApiError {
   code: string;
   message: string;
   details?: unknown;
-}
-
-function statusFromTossCode(code: string): number {
-  switch (code) {
-    case "NOT_FOUND":
-      return 404;
-    case "NOT_INITIALIZED":
-    case "CONFIG_ERROR":
-    case "INVALID_OPERATION":
-    case "INVALID_IDENTIFIER":
-    case "REVERT_UNSUPPORTED":
-      return 400;
-    case "ALREADY_REVERTED":
-      return 409;
-    default:
-      return 500;
-  }
 }
 
 function toAssetPath(path: string): string {
@@ -57,6 +40,18 @@ function jsonError(code: string, message: string, status: number, details?: unkn
       status,
       headers: {
         "content-type": "application/json; charset=utf-8",
+      },
+    },
+  );
+}
+
+function jsonProblem(problem: ReturnType<typeof toHttpProblem>): Response {
+  return new Response(
+    JSON.stringify(problem),
+    {
+      status: problem.status,
+      headers: {
+        "content-type": "application/problem+json; charset=utf-8",
       },
     },
   );
@@ -114,9 +109,9 @@ export function createStudioApp() {
       return c.text("Studio client bundle not found. Run `bun run --cwd packages/studio build:client` first.", 500);
     });
 
-  app.onError((error) => {
-    if (isTossError(error)) {
-      return jsonError(error.code, error.message, statusFromTossCode(error.code));
+  app.onError((error, c) => {
+    if (CodedError.is(error)) {
+      return jsonProblem(toHttpProblem(error, c.req.path));
     }
 
     if (error instanceof HTTPException) {

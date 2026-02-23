@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { sha256Hex } from "./checksum";
 import { getRow, getRows, listUserTables } from "./db";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
 import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable } from "./ddl";
 import type { JsonObject, JsonPrimitive } from "../types";
@@ -165,7 +165,7 @@ export function primaryKeyColumns(db: Database, table: string): string[] {
 export function assertTableHasPrimaryKey(db: Database, table: string): string[] {
   const pkCols = primaryKeyColumns(db, table);
   if (pkCols.length === 0) {
-    throw new TossError("TABLE_WITHOUT_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
+    throw new CodedError("NO_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
   }
   return pkCols;
 }

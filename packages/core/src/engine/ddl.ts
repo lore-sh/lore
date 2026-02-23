@@ -1,4 +1,4 @@
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import { createScanner, findMatchingParen, isWordBoundary, normalizeSql, quoteIdentifier, splitTopLevelCommaList } from "./sql";
 
 function skipWhitespace(sql: string, start: number): number {
@@ -30,7 +30,7 @@ function readKeyword(sql: string, start: number): { value: string; end: number }
 function expectKeyword(sql: string, start: number, expected: string): number {
   const kw = readKeyword(sql, start);
   if (!kw || kw.value !== expected) {
-    throw new TossError("INVALID_OPERATION", `Expected ${expected} in CREATE TABLE`);
+    throw new CodedError("INVALID_OPERATION", `Expected ${expected} in CREATE TABLE`);
   }
   return kw.end;
 }
@@ -56,7 +56,7 @@ function readEscapedQuotedIdentifier(
     name += cur;
     i += 1;
   }
-  throw new TossError("INVALID_OPERATION", `Malformed ${label} identifier in CREATE TABLE`);
+  throw new CodedError("INVALID_OPERATION", `Malformed ${label} identifier in CREATE TABLE`);
 }
 
 const ID_START = /^(?:[_$]|\p{ID_Start})$/u;
@@ -80,7 +80,7 @@ function parseIdentifierToken(sql: string, start: number): { name: string; end: 
   if (ch === "[") {
     const end = sql.indexOf("]", start + 1);
     if (end < 0) {
-      throw new TossError("INVALID_OPERATION", "Malformed bracket identifier in CREATE TABLE");
+      throw new CodedError("INVALID_OPERATION", "Malformed bracket identifier in CREATE TABLE");
     }
     return { name: sql.slice(start + 1, end), end: end + 1, quoted: true };
   }
@@ -116,7 +116,7 @@ function parseIdentifierToken(sql: string, start: number): { name: string; end: 
 function readIdentifierToken(sql: string, start: number): { name: string; end: number } {
   const parsed = parseIdentifierToken(sql, start);
   if (!parsed) {
-    throw new TossError("INVALID_OPERATION", "Malformed identifier in CREATE TABLE");
+    throw new CodedError("INVALID_OPERATION", "Malformed identifier in CREATE TABLE");
   }
   return { name: parsed.name, end: parsed.end };
 }
@@ -137,7 +137,7 @@ function skipLeadingTrivia(sql: string, start: number): number {
     if (ch === "/" && next === "*") {
       const end = sql.indexOf("*/", i + 2);
       if (end < 0) {
-        throw new TossError("INVALID_OPERATION", "Malformed block comment in CREATE TABLE");
+        throw new CodedError("INVALID_OPERATION", "Malformed block comment in CREATE TABLE");
       }
       i = end + 2;
       continue;
@@ -295,7 +295,7 @@ function findCreateTablePayloadRange(ddlSql: string): { start: number; end: numb
     scanner.advance();
   }
 
-  throw new TossError("INVALID_OPERATION", "Malformed CREATE TABLE statement: column list not found");
+  throw new CodedError("INVALID_OPERATION", "Malformed CREATE TABLE statement: column list not found");
 }
 
 function findConstraintStart(segment: string, from: number): number {
@@ -395,7 +395,7 @@ export function rewriteColumnTypeInCreateTable(ddlSql: string, column: string, n
   });
 
   if (!rewritten) {
-    throw new TossError("INVALID_OPERATION", `Column does not exist in CREATE TABLE SQL: ${column}`);
+    throw new CodedError("INVALID_OPERATION", `Column does not exist in CREATE TABLE SQL: ${column}`);
   }
 
   return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;
@@ -448,7 +448,7 @@ export function rewriteAddCheckInCreateTable(ddlSql: string, expression: string)
   for (const segment of segments) {
     const existing = extractTableCheckExpression(segment);
     if (existing && existing === normalizedExpression) {
-      throw new TossError("INVALID_OPERATION", "Equivalent CHECK constraint already exists");
+      throw new CodedError("INVALID_OPERATION", "Equivalent CHECK constraint already exists");
     }
   }
 
@@ -473,7 +473,7 @@ export function rewriteDropCheckInCreateTable(ddlSql: string, expression: string
   });
 
   if (removed === 0) {
-    throw new TossError("INVALID_OPERATION", "CHECK constraint not found");
+    throw new CodedError("INVALID_OPERATION", "CHECK constraint not found");
   }
 
   return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;

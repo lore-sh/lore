@@ -5,7 +5,7 @@ import {
   getHistory,
   getStatus,
   initDatabase,
-  isTossError,
+  CodedError,
   readQuery,
 } from "../src";
 import { executeOperation } from "../src/engine/execute";
@@ -72,9 +72,9 @@ describe("applyPlan", () => {
       await applyPlan(insertPlan);
       throw new Error("applyPlan should fail for table without PK");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
-        expect(error.code).toBe("TABLE_WITHOUT_PRIMARY_KEY");
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
+        expect(error.code).toBe("NO_PRIMARY_KEY");
       }
     }
   });
@@ -104,9 +104,9 @@ describe("applyPlan", () => {
       await applyPlan(plan);
       throw new Error("applyPlan should fail when NULL PK values exist in tracked table");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
-        expect(error.code).toBe("NULL_PRIMARY_KEY_VALUE");
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
+        expect(error.code).toBe("APPLY_FAILED");
       }
     }
   });
@@ -217,8 +217,8 @@ describe("applyPlan", () => {
       throw new Error("executeOperation should fail for malformed restore row");
     } catch (error) {
       expect(error).not.toBeInstanceOf(TypeError);
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
         expect(error.code).toBe("INVALID_OPERATION");
         expect(error.message).toContain("restore_table row contains unsupported encoded value");
       }

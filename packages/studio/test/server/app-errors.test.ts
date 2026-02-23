@@ -41,17 +41,25 @@ describe("studio api error mapping", () => {
     expect(body).toContain('"code":"NOT_INITIALIZED"');
   });
 
-  test("returns NOT_FOUND as 404 for missing table", async () => {
+  test("returns NOT_FOUND as 404 for coded table lookup errors", async () => {
     const dbPath = createTempPath("studio-api-not-found-");
-    const { status, body } = await withDbPath(dbPath, async () => {
+    const { status, body, contentType } = await withDbPath(dbPath, async () => {
       await initDatabase({ dbPath });
       const app = createStudioApp();
-      const response = await app.request("/api/tables/missing");
-      return { status: response.status, body: await response.text() };
+      const response = await app.request("/api/tables/missing/history?limit=10&page=1");
+      return {
+        status: response.status,
+        body: await response.text(),
+        contentType: response.headers.get("content-type"),
+      };
     });
 
     expect(status).toBe(404);
+    expect(contentType).toContain("application/problem+json");
     expect(body).toContain('"code":"NOT_FOUND"');
+    expect(body).toContain('"status":404');
+    expect(body).toContain('"title":"NOT_FOUND"');
+    expect(body).toContain('"instance":"/api/tables/missing/history"');
   });
 
   test("removes legacy /api/schema endpoint", async () => {

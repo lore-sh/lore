@@ -4,7 +4,7 @@ import {
   applyPlan,
   getHistory,
   initDatabase,
-  isTossError,
+  CodedError,
   maybeCreateSnapshot,
   readQuery,
   recoverFromSnapshot,
@@ -127,8 +127,8 @@ describe("snapshot / recover", () => {
       await recoverFromSnapshot(base.commitId);
       throw new Error("recoverFromSnapshot should fail due to tampered replay metadata");
     } catch (error) {
-      expect(isTossError(error)).toBe(true);
-      if (isTossError(error)) {
+      expect(CodedError.is(error)).toBe(true);
+      if (CodedError.is(error)) {
         expect(error.code).toBe("RECOVER_FAILED");
       }
     }

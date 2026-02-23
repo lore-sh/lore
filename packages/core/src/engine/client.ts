@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { resolve } from "node:path";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
 import * as schema from "./schema.sql";
 
 export function createEngineDb(sqlite: Database) {
@@ -48,8 +48,8 @@ export function initClient(dbPath: string, options: { recreate?: boolean } = {})
     return client;
   }
   if (client && !options.recreate) {
-    throw new TossError(
-      "CONFIG_ERROR",
+    throw new CodedError(
+      "CONFIG",
       `Database client already initialized for ${configuredPath}. Refusing to switch to ${path}.`,
     );
   }
@@ -61,7 +61,7 @@ export function initClient(dbPath: string, options: { recreate?: boolean } = {})
 
 export function getClient(): EngineClient {
   if (!client) {
-    throw new TossError("CONFIG_ERROR", "Database client is not initialized. Call initClient(dbPath) first.");
+    throw new CodedError("CONFIG", "Database client is not initialized. Call initClient(dbPath) first.");
   }
   return client;
 }

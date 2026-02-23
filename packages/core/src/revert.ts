@@ -9,7 +9,7 @@ import {
 } from "./engine/db";
 import { createEngineDb } from "./engine/client";
 import { CommitTable } from "./engine/schema.sql";
-import { TossError, isTossError } from "./errors";
+import { CodedError } from "./error";
 import {
   appendCommitFromObservedChange,
   getCommitById,
@@ -201,7 +201,7 @@ function preflightInverseApply(
     );
     return [];
   } catch (error) {
-    if (isTossError(error) && error.code === "REVERT_FAILED") {
+    if (CodedError.hasCode(error, "REVERT_FAILED")) {
       return [{ kind: "schema", table: "(unknown)", reason: error.message }];
     }
     const conflict = sqliteConstraintConflict(error);
@@ -217,10 +217,10 @@ export function revertCommit(commitId: string): RevertResult {
     return runInTransactionWithDeferredForeignKeys(db, () => {
       const targetCommit = getCommitById(db, commitId);
       if (!targetCommit) {
-        throw new TossError("NOT_FOUND", `Commit not found: ${commitId}`);
+        throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
       }
       if (!targetCommit.revertible) {
-        throw new TossError("REVERT_UNSUPPORTED", `Commit ${commitId} has no inverse metadata`);
+        throw new CodedError("NOT_REVERTIBLE", `Commit ${commitId} has no inverse metadata`);
       }
 
       const already = createEngineDb(db)
@@ -230,7 +230,7 @@ export function revertCommit(commitId: string): RevertResult {
         .limit(1)
         .get();
       if (already) {
-        throw new TossError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
+        throw new CodedError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
       }
 
       const targetRows = getRowEffectsByCommitId(db, commitId);

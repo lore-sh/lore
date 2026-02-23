@@ -15,7 +15,7 @@ import {
 } from "./engine/db";
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import { getClientPath } from "./engine/client";
-import { TossError } from "./errors";
+import { CodedError } from "./error";
 import { getHeadCommit, getHeadCommitId, getCommitById } from "./engine/log";
 import { initDatabase } from "./init";
 import { findCommitSeq, getCommitReplayInput, loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
@@ -130,7 +130,7 @@ async function runPush(action: SyncResult["action"]): Promise<SyncResult> {
     const config = readSyncConfig();
     if (!config) {
       writeSyncState(db, "offline", "Remote is not configured");
-      throw new TossError("CONFIG_ERROR", "Remote is not configured. Run `toss remote connect`.");
+      throw new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured");
     }
 
     const client = openRemoteClient(config);
@@ -143,7 +143,7 @@ async function runPush(action: SyncResult["action"]): Promise<SyncResult> {
       if (remoteHeadBefore.commitId && !getCommitById(db, remoteHeadBefore.commitId)) {
         const message = `Remote HEAD ${remoteHeadBefore.commitId} is unknown locally. Pull before push.`;
         writeSyncState(db, "conflict", message);
-        throw new TossError("SYNC_NON_FAST_FORWARD", message);
+        throw new CodedError("SYNC_NON_FAST_FORWARD", message);
       }
 
       const fromSeq = remoteHeadBefore.commitId ? (findCommitSeq(db, remoteHeadBefore.commitId) ?? 0) : 0;
@@ -165,7 +165,7 @@ async function runPush(action: SyncResult["action"]): Promise<SyncResult> {
       return buildSyncResult(action, state, pushed, 0, localHeadAfter, remoteHeadAfter.commitId);
     } catch (error) {
       const mapped = classifySyncBoundaryError(error);
-      if (mapped.code === "SYNC_NON_FAST_FORWARD" || mapped.code === "SYNC_DIVERGED") {
+      if (CodedError.hasCode(mapped, "SYNC_NON_FAST_FORWARD") || CodedError.hasCode(mapped, "SYNC_DIVERGED")) {
         writeSyncState(db, "conflict", mapped.message);
       } else {
         writeSyncState(db, "pending", mapped.message);
@@ -182,7 +182,7 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
     const config = readSyncConfig();
     if (!config) {
       writeSyncState(db, "offline", "Remote is not configured");
-      throw new TossError("CONFIG_ERROR", "Remote is not configured. Run `toss remote connect`.");
+      throw new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured");
     }
 
     const client = openRemoteClient(config);
@@ -212,7 +212,7 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
         } else if (remoteHead.commitId !== null) {
           const message = `Local HEAD ${localHead} is not present on remote, and remote HEAD ${remoteHead.commitId} is not present locally.`;
           writeSyncState(db, "conflict", message);
-          throw new TossError("SYNC_DIVERGED", message);
+          throw new CodedError("SYNC_DIVERGED", message);
         }
       }
 
@@ -240,7 +240,7 @@ async function runPull(action: SyncResult["action"]): Promise<SyncResult> {
       return buildSyncResult(action, state, 0, pulled, localHeadAfter, remoteHeadAfter.commitId);
     } catch (error) {
       const mapped = classifySyncBoundaryError(error);
-      if (mapped.code === "SYNC_DIVERGED") {
+      if (CodedError.hasCode(mapped, "SYNC_DIVERGED")) {
         writeSyncState(db, "conflict", mapped.message);
       } else {
         writeSyncState(db, "pending", mapped.message);
@@ -259,7 +259,7 @@ function syncConfigFromInputs(options: {
   const platform = parseRemotePlatform(options.platform);
   const trimmedUrl = options.url.trim();
   if (trimmedUrl.length === 0) {
-    throw new TossError("CONFIG_ERROR", "Remote URL must not be empty");
+    throw new CodedError("CONFIG", "Remote URL must not be empty");
   }
   return {
     platform,
@@ -343,13 +343,13 @@ export async function autoSyncAfterApply(): Promise<SyncResult | null> {
     } catch (error) {
       const mapped = classifySyncBoundaryError(error);
       const localHead = getHeadCommitId(db);
-      const isConflict = mapped.code === "SYNC_NON_FAST_FORWARD" || mapped.code === "SYNC_DIVERGED";
+      const isConflict = CodedError.hasCode(mapped, "SYNC_NON_FAST_FORWARD") || CodedError.hasCode(mapped, "SYNC_DIVERGED");
       const state: SyncState = isConflict ? "conflict" : "pending";
       writeSyncState(db, state, mapped.message);
       return buildSyncResult("auto_sync", state, 0, 0, localHead, null, {
         conflict: isConflict
           ? {
-              kind: mapped.code === "SYNC_DIVERGED" ? "diverged" : "non_fast_forward",
+              kind: CodedError.hasCode(mapped, "SYNC_DIVERGED") ? "diverged" : "non_fast_forward",
               message: mapped.message,
               localHead,
               remoteHead: null,
@@ -431,7 +431,7 @@ export async function cloneFromRemote(options: {
   const targetDbPath = getClientPath() ?? resolveDbPath();
   const forceNew = options.forceNew ?? false;
   if (!forceNew && existsSync(targetDbPath)) {
-    throw new TossError("CONFIG_ERROR", `Clone target already exists: ${targetDbPath}. Use --force-new to replace it.`);
+    throw new CodedError("CONFIG", `Clone target already exists: ${targetDbPath}`);
   }
   const initialized = await initDatabase({ dbPath: targetDbPath, forceNew });
   await connectRemote({

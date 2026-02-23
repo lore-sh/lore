@@ -7,7 +7,8 @@ import {
   assertNoForeignKeyViolations,
 } from "./effect";
 import { schemaHash, stateHash } from "./inspect";
-import { TossError } from "../errors";
+import { CodedError } from "../error";
+import type { ErrorCode } from "../error";
 import { asc, eq, gt } from "drizzle-orm";
 import { createEngineDb } from "./client";
 import { CommitTable } from "./schema.sql";
@@ -15,7 +16,7 @@ import { CommitTable } from "./schema.sql";
 export function getCommitReplayInput(db: Database, commitId: string): CommitReplayInput {
   const commit = getCommitById(db, commitId);
   if (!commit) {
-    throw new TossError("NOT_FOUND", `Commit not found: ${commitId}`);
+    throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
   }
   const { parentCount: _, ...base } = commit;
   return {
@@ -48,12 +49,12 @@ export function findCommitSeq(db: Database, commitId: string): number | null {
 export function replayCommitExactly(
   db: Database,
   replay: CommitReplayInput,
-  options: { errorCode?: string } = {},
+  options: { errorCode?: ErrorCode } = {},
 ): void {
   const errorCode = options.errorCode ?? "RECOVER_FAILED";
   const beforeSchemaHash = schemaHash(db);
   if (beforeSchemaHash !== replay.schemaHashBefore) {
-    throw new TossError(
+    throw new CodedError(
       errorCode,
       `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.schemaHashBefore}, got ${beforeSchemaHash}`,
     );
@@ -61,7 +62,7 @@ export function replayCommitExactly(
 
   const computedPlanHash = sha256Hex(replay.operations);
   if (computedPlanHash !== replay.planHash) {
-    throw new TossError(
+    throw new CodedError(
       errorCode,
       `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.planHash}, got ${computedPlanHash}`,
     );
@@ -80,7 +81,7 @@ export function replayCommitExactly(
 
   const afterSchemaHash = schemaHash(db);
   if (afterSchemaHash !== replay.schemaHashAfter) {
-    throw new TossError(
+    throw new CodedError(
       errorCode,
       `schema_hash_after mismatch for replay ${replay.commitId}: expected ${replay.schemaHashAfter}, got ${afterSchemaHash}`,
     );
@@ -88,7 +89,7 @@ export function replayCommitExactly(
 
   const afterStateHash = stateHash(db);
   if (afterStateHash !== replay.stateHashAfter) {
-    throw new TossError(
+    throw new CodedError(
       errorCode,
       `state_hash_after mismatch for replay ${replay.commitId}: expected ${replay.stateHashAfter}, got ${afterStateHash}`,
     );

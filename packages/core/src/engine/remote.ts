@@ -19,7 +19,7 @@ import {
   normalizeMetaString,
 } from "./db";
 import { readAuthToken } from "../config";
-import { TossError, isTossError } from "../errors";
+import { CodedError } from "../error";
 import { canonicalJson, sha256Hex } from "./checksum";
 import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable, rewriteCreateTableName } from "./ddl";
 import { schemaHashFromDescriptor } from "./inspect";
@@ -59,7 +59,7 @@ type ReplayDirection = "forward" | "inverse";
 
 function parseRemoteRow(row: Row): Record<string, unknown> {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
-    throw new TossError("SYNC_DIVERGED", "Remote row payload is invalid");
+    throw new CodedError("SYNC_DIVERGED", "Remote row payload is invalid");
   }
   return row as Record<string, unknown>;
 }
@@ -91,7 +91,7 @@ function parseRowValue(row: Row, key: string): unknown {
 
 function parseString(value: unknown, label: string): string {
   if (typeof value !== "string") {
-    throw new TossError("SYNC_DIVERGED", `Remote ${label} is invalid`);
+    throw new CodedError("SYNC_DIVERGED", `Remote ${label} is invalid`);
   }
   return value;
 }
@@ -110,7 +110,7 @@ function parseStringLike(value: unknown, label: string): string {
   if (typeof value === "number" || typeof value === "bigint" || typeof value === "boolean") {
     return String(value);
   }
-  throw new TossError("SYNC_DIVERGED", `Remote ${label} is invalid`);
+  throw new CodedError("SYNC_DIVERGED", `Remote ${label} is invalid`);
 }
 
 function parseNullableStringLike(value: unknown, label: string): string | null {
@@ -123,7 +123,7 @@ function parseNullableStringLike(value: unknown, label: string): string | null {
 function parseInteger(value: unknown, label: string): number {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new TossError("SYNC_DIVERGED", `Remote ${label} is not a finite number`);
+      throw new CodedError("SYNC_DIVERGED", `Remote ${label} is not a finite number`);
     }
     return value;
   }
@@ -133,25 +133,25 @@ function parseInteger(value: unknown, label: string): number {
   if (typeof value === "string") {
     const parsed = Number.parseInt(value, 10);
     if (Number.isNaN(parsed)) {
-      throw new TossError("SYNC_DIVERGED", `Remote ${label} is not an integer`);
+      throw new CodedError("SYNC_DIVERGED", `Remote ${label} is not an integer`);
     }
     return parsed;
   }
-  throw new TossError("SYNC_DIVERGED", `Remote ${label} is invalid`);
+  throw new CodedError("SYNC_DIVERGED", `Remote ${label} is invalid`);
 }
 
 function parseCommitKind(value: string): "apply" | "revert" {
   if (value === "apply" || value === "revert") {
     return value;
   }
-  throw new TossError("SYNC_DIVERGED", `Remote commit kind is invalid: ${value}`);
+  throw new CodedError("SYNC_DIVERGED", `Remote commit kind is invalid: ${value}`);
 }
 
 function parseOpKind(value: string): "insert" | "update" | "delete" {
   if (value === "insert" || value === "update" || value === "delete") {
     return value;
   }
-  throw new TossError("SYNC_DIVERGED", `Remote row effect kind is invalid: ${value}`);
+  throw new CodedError("SYNC_DIVERGED", `Remote row effect kind is invalid: ${value}`);
 }
 
 function parseJson<T>(value: unknown, label: string): T {
@@ -159,7 +159,7 @@ function parseJson<T>(value: unknown, label: string): T {
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new TossError("SYNC_DIVERGED", `Remote ${label} JSON is invalid`);
+    throw new CodedError("SYNC_DIVERGED", `Remote ${label} JSON is invalid`);
   }
 }
 
@@ -167,7 +167,7 @@ function parseSqlStorageClass(value: unknown, label: string): EncodedCell["stora
   if (value === "null" || value === "integer" || value === "real" || value === "text" || value === "blob") {
     return value;
   }
-  throw new TossError("SYNC_DIVERGED", `Remote ${label} storage class is invalid`);
+  throw new CodedError("SYNC_DIVERGED", `Remote ${label} storage class is invalid`);
 }
 
 function rowHash(row: EncodedRow | null): string | null {
@@ -181,23 +181,19 @@ function isSystemSideEffectTable(tableName: string): boolean {
   return tableName === SQLITE_SEQUENCE_TABLE;
 }
 
-function projectionFailure(message: string): TossError {
-  return new TossError("SYNC_DIVERGED", `Remote projection failed: ${message}`);
+function projectionFailure(message: string): CodedError {
+  return new CodedError("SYNC_DIVERGED", `Remote projection failed: ${message}`);
 }
 
 function projectionErrorMessage(error: unknown): string | null {
-  if (
-    isTossError(error) &&
-    error.code === "SYNC_DIVERGED" &&
-    error.message.startsWith("Remote projection failed:")
-  ) {
+  if (CodedError.hasCode(error, "SYNC_DIVERGED") && error.message.startsWith("Remote projection failed:")) {
     return error.message;
   }
   return null;
 }
 
 function describeError(error: unknown): string {
-  if (isTossError(error)) {
+  if (CodedError.is(error)) {
     return `${error.code}: ${error.message}`;
   }
   if (error instanceof Error) {
@@ -206,10 +202,9 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-function toProjectionError(error: unknown, context?: string): TossError {
-  const existing = projectionErrorMessage(error);
-  if (existing) {
-    return error as TossError;
+function toProjectionError(error: unknown, context?: string): CodedError {
+  if (CodedError.hasCode(error, "SYNC_DIVERGED") && error.message.startsWith("Remote projection failed:")) {
+    return error;
   }
   const message = context ? `${context}: ${describeError(error)}` : describeError(error);
   return projectionFailure(message);
@@ -223,18 +218,18 @@ async function runProjectionStep<T>(run: () => Promise<T>, context: string): Pro
   }
 }
 
-export function classifySyncBoundaryError(error: unknown): TossError {
-  if (isTossError(error)) {
+export function classifySyncBoundaryError(error: unknown): CodedError {
+  if (CodedError.is(error)) {
     return error;
   }
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
     if (message.includes("unauthorized") || message.includes("401") || message.includes("auth")) {
-      return new TossError("SYNC_AUTH_FAILED", error.message);
+      return new CodedError("SYNC_AUTH_FAILED", error.message, { cause: error });
     }
-    return new TossError("SYNC_REMOTE_UNREACHABLE", error.message);
+    return new CodedError("SYNC_UNREACHABLE", error.message, { cause: error });
   }
-  return new TossError("SYNC_REMOTE_UNREACHABLE", String(error));
+  return new CodedError("SYNC_UNREACHABLE", String(error));
 }
 
 export function normalizeToken(token: string | null | undefined): string | undefined {
@@ -288,8 +283,8 @@ export async function detectRemoteReadState(client: Client): Promise<RemoteReadS
   }
   const missing = REMOTE_REQUIRED_READ_TABLES.filter((tableName) => !existing.has(tableName));
   if (missing.length > 0) {
-    throw new TossError(
-      "CONFIG_ERROR",
+    throw new CodedError(
+      "CONFIG",
       `Remote database has an incomplete toss schema (missing: ${missing.join(", ")}). Recreate remote schema with write access.`,
     );
   }
@@ -1333,7 +1328,7 @@ export async function materializeRemoteToHead(client: Client): Promise<void> {
     await tx.commit();
   } catch (error) {
     const shouldWrapProjectionError =
-      projectionErrorMessage(error) !== null || (isTossError(error) && error.code === "SYNC_DIVERGED");
+      projectionErrorMessage(error) !== null || CodedError.hasCode(error, "SYNC_DIVERGED");
     const projectionError = shouldWrapProjectionError ? toProjectionError(error, "materialize to head") : null;
     try {
       await tx.rollback();
@@ -1510,7 +1505,7 @@ export async function pushReplayCommitWithCas(
 
     const currentHead = await fetchRemoteHead(tx);
     if (currentHead.commitId !== expectedRemoteHead) {
-      throw new TossError(
+      throw new CodedError(
         "SYNC_NON_FAST_FORWARD",
         `Remote HEAD changed during push. expected=${expectedRemoteHead ?? "null"} actual=${currentHead.commitId ?? "null"}`,
       );
@@ -1531,7 +1526,7 @@ export async function pushReplayCommitWithCas(
       args: [replay.commitId, replay.createdAt, MAIN_REF_NAME, expectedRemoteHead, expectedRemoteHead],
     });
     if (update.rowsAffected !== 1) {
-      throw new TossError(
+      throw new CodedError(
         "SYNC_NON_FAST_FORWARD",
         `Remote HEAD changed during push CAS update. expected=${expectedRemoteHead ?? "null"}`,
       );
@@ -1574,7 +1569,7 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
   });
   const commitRow = rowsFrom(commitResult)[0];
   if (!commitRow) {
-    throw new TossError("SYNC_DIVERGED", `Remote commit not found during pull: ${commitId}`);
+    throw new CodedError("SYNC_DIVERGED", `Remote commit not found during pull: ${commitId}`);
   }
 
   const parentsResult = await executor.execute({
