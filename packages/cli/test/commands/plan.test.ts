@@ -3,7 +3,7 @@ import { initDb, openDb, type Database } from "@toss/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseSchemaArgs, parseSinglePlanRef, runPlan } from "../../src/commands/data";
+import { parsePlanArgs, runPlan } from "../../src/commands/plan";
 
 async function withTempDb<T>(dir: string, run: (db: Database) => Promise<T>): Promise<T> {
   const dbPath = join(dir, "toss.db");
@@ -16,32 +16,19 @@ async function withTempDb<T>(dir: string, run: (db: Database) => Promise<T>): Pr
   }
 }
 
-describe("data command", () => {
-  test("parseSinglePlanRef requires exactly one argument", () => {
-    expect(() => parseSinglePlanRef("plan", [])).toThrow("plan requires <file|->");
-    expect(() => parseSinglePlanRef("plan", ["a", "b"])).toThrow("plan accepts exactly one");
+describe("plan command", () => {
+  test("parsePlanArgs requires exactly one argument", () => {
+    expect(() => parsePlanArgs([])).toThrow();
+    expect(() => parsePlanArgs(["a", "b"])).toThrow();
   });
 
-  test("parseSinglePlanRef rejects option arguments", () => {
-    expect(() => parseSinglePlanRef("apply", ["--verbose"])).toThrow("apply does not accept option arguments");
+  test("parsePlanArgs rejects option arguments", () => {
+    expect(() => parsePlanArgs(["--verbose"])).toThrow("Unknown option '--verbose'");
   });
 
-  test("parseSinglePlanRef returns the plan ref", () => {
-    expect(parseSinglePlanRef("plan", ["schema.sql"])).toBe("schema.sql");
-    expect(parseSinglePlanRef("apply", ["-"])).toBe("-");
-  });
-
-  test("parseSchemaArgs accepts zero or one argument", () => {
-    expect(parseSchemaArgs([])).toEqual({ table: undefined });
-    expect(parseSchemaArgs(["users"])).toEqual({ table: "users" });
-  });
-
-  test("parseSchemaArgs rejects multiple arguments", () => {
-    expect(() => parseSchemaArgs(["a", "b"])).toThrow("schema accepts at most one");
-  });
-
-  test("parseSchemaArgs rejects option arguments", () => {
-    expect(() => parseSchemaArgs(["--verbose"])).toThrow("schema does not accept argument");
+  test("parsePlanArgs returns the plan ref", () => {
+    expect(parsePlanArgs(["schema.sql"])).toBe("schema.sql");
+    expect(parsePlanArgs(["-"])).toBe("-");
   });
 
   test("runPlan prints JSON check result when plan file is missing", async () => {
@@ -60,7 +47,7 @@ describe("data command", () => {
         }) as typeof process.exit,
       });
       await withTempDb(dir, async (db) => {
-        await expect(runPlan(db, [join(dir, "missing-plan.json")])).rejects.toThrow("EXIT:1");
+        await expect(runPlan(db, join(dir, "missing-plan.json"))).rejects.toThrow("EXIT:1");
       });
       const result = JSON.parse(logs[0] ?? "{}");
       expect(result.ok).toBe(false);
@@ -93,7 +80,7 @@ describe("data command", () => {
         }) as typeof process.exit,
       });
       await withTempDb(dir, async (db) => {
-        await expect(runPlan(db, [invalidPath])).rejects.toThrow("EXIT:1");
+        await expect(runPlan(db, invalidPath)).rejects.toThrow("EXIT:1");
       });
       const result = JSON.parse(logs[0] ?? "{}");
       expect(result.ok).toBe(false);

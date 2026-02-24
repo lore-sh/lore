@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@toss/core": "workspace:*",
-    "@toss/studio": "workspace:*"
+    "@toss/studio": "workspace:*",
+    "zod": "^3.25.76"
   }
 }

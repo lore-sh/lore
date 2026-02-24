@@ -1,0 +1,32 @@
+import { query, type Database } from "@toss/core";
+import { parseArgs } from "node:util";
+import { z } from "zod";
+import { printTable, toJson } from "../format";
+
+export const ReadArgsSchema = z.object({ sql: z.string().min(1), json: z.boolean() });
+
+export function parseReadArgs(args: string[]): z.infer<typeof ReadArgsSchema> {
+  const parsed = parseArgs({
+    strict: true,
+    args,
+    allowPositionals: false,
+    options: {
+      sql: { type: "string" },
+      json: { type: "boolean" },
+    },
+  });
+  return ReadArgsSchema.parse({
+    sql: parsed.values.sql,
+    json: parsed.values.json ?? false,
+  });
+}
+
+export function runRead(db: Database, args: z.infer<typeof ReadArgsSchema>): void {
+  const { sql, json } = args;
+  const rows = query(db, sql);
+  if (json) {
+    console.log(toJson(rows));
+    return;
+  }
+  console.log(printTable(rows));
+}

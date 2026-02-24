@@ -1,7 +1,9 @@
 import { relative, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
+import { parseArgs } from "node:util";
 import type { SkillPlatform } from "@toss/core";
 import { initDb } from "@toss/core";
+import { z } from "zod";
 import { cleanSkills, generateSkills } from "../skills";
 import type { GeneratedPlatform } from "../skills";
 import { promptConfirm } from "../prompts/confirm";
@@ -30,14 +32,22 @@ const PLATFORM_ALIASES: Record<string, SkillPlatform> = {
   openclaw: "openclaw",
 };
 
-export interface ParsedInitArgs {
-  noSkills: boolean;
-  forceNew: boolean;
-  yes: boolean;
-  noHeartbeat: boolean;
-  json: boolean;
-  platforms: SkillPlatform[] | null;
-}
+const SkillPlatformSchema = z.enum(["claude", "cursor", "codex", "opencode", "openclaw"]);
+const SkillPlatformListSchema = z.array(SkillPlatformSchema).min(1);
+export const ParsedInitArgsSchema = z.object({
+  noSkills: z.boolean(),
+  forceNew: z.boolean(),
+  yes: z.boolean(),
+  noHeartbeat: z.boolean(),
+  json: z.boolean(),
+  platforms: SkillPlatformListSchema.nullable(),
+});
+export const ParsedCleanArgsSchema = z.object({
+  yes: z.boolean(),
+  json: z.boolean(),
+});
+
+export type ParsedInitArgs = z.infer<typeof ParsedInitArgsSchema>;
 
 export interface ResolvedInitSelection {
   interactive: boolean;
@@ -184,61 +194,32 @@ export function parsePlatformList(value: string): SkillPlatform[] {
     }
   }
 
-  if (result.length === 0) {
-    throw new Error("at least one platform is required");
-  }
-
-  return result;
+  return SkillPlatformListSchema.parse(result);
 }
 
 export function parseInitArgs(args: string[]): ParsedInitArgs {
-  let noSkills = false;
-  let forceNew = false;
-  let yes = false;
-  let noHeartbeat = false;
-  let json = false;
-  let platforms: SkillPlatform[] | null = null;
-
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i] ?? "";
-    if (arg === "--no-skills") {
-      noSkills = true;
-      continue;
-    }
-    if (arg === "--force-new") {
-      forceNew = true;
-      continue;
-    }
-    if (arg === "--yes") {
-      yes = true;
-      continue;
-    }
-    if (arg === "--no-heartbeat") {
-      noHeartbeat = true;
-      continue;
-    }
-    if (arg === "--json") {
-      json = true;
-      continue;
-    }
-    if (arg === "--platforms") {
-      const value = args[i + 1];
-      if (!value) {
-        throw new Error("init requires a value for --platforms");
-      }
-      platforms = parsePlatformList(value);
-      i += 1;
-      continue;
-    }
-    if (arg.startsWith("--platforms=")) {
-      const value = arg.slice("--platforms=".length);
-      platforms = parsePlatformList(value);
-      continue;
-    }
-    throw new Error(`init does not accept argument: ${arg}`);
-  }
-
-  return { noSkills, forceNew, yes, noHeartbeat, json, platforms };
+  const parsed = parseArgs({
+    strict: true,
+    args,
+    allowPositionals: false,
+    options: {
+      "no-skills": { type: "boolean" },
+      "force-new": { type: "boolean" },
+      yes: { type: "boolean" },
+      "no-heartbeat": { type: "boolean" },
+      json: { type: "boolean" },
+      platforms: { type: "string" },
+    },
+  });
+  const platforms = parsed.values.platforms === undefined ? null : parsePlatformList(parsed.values.platforms);
+  return ParsedInitArgsSchema.parse({
+    noSkills: parsed.values["no-skills"] ?? false,
+    forceNew: parsed.values["force-new"] ?? false,
+    yes: parsed.values.yes ?? false,
+    noHeartbeat: parsed.values["no-heartbeat"] ?? false,
+    json: parsed.values.json ?? false,
+    platforms,
+  });
 }
 
 export function resolveInitSelection(parsed: ParsedInitArgs, isTty: boolean): ResolvedInitSelection {
@@ -281,21 +262,20 @@ export function promptHeartbeat(): Promise<boolean> {
   });
 }
 
-export function parseCleanArgs(args: string[]): { yes: boolean; json: boolean } {
-  let yes = false;
-  let json = false;
-  for (const arg of args) {
-    if (arg === "--yes") {
-      yes = true;
-      continue;
-    }
-    if (arg === "--json") {
-      json = true;
-      continue;
-    }
-    throw new Error(`clean does not accept argument: ${arg}`);
-  }
-  return { yes, json };
+export function parseCleanArgs(args: string[]): z.infer<typeof ParsedCleanArgsSchema> {
+  const parsed = parseArgs({
+    strict: true,
+    args,
+    allowPositionals: false,
+    options: {
+      yes: { type: "boolean" },
+      json: { type: "boolean" },
+    },
+  });
+  return ParsedCleanArgsSchema.parse({
+    yes: parsed.values.yes ?? false,
+    json: parsed.values.json ?? false,
+  });
 }
 
 async function confirmClean(): Promise<boolean> {
@@ -318,8 +298,7 @@ async function confirmClean(): Promise<boolean> {
   }
 }
 
-export async function runInit(args: string[]): Promise<void> {
-  const parsed = parseInitArgs(args);
+export async function runInit(parsed: ParsedInitArgs): Promise<void> {
   const isInteractiveTty = canUseInteractivePrompt(stdin.isTTY === true, stdout.isTTY === true);
   const resolved = resolveInitSelection(parsed, isInteractiveTty);
   const skillPlatforms = resolved.interactive ? await promptPlatformSelection() : resolved.platforms;
@@ -355,8 +334,7 @@ export async function runInit(args: string[]): Promise<void> {
   );
 }
 
-export async function runClean(args: string[]): Promise<void> {
-  const parsed = parseCleanArgs(args);
+export async function runClean(parsed: z.infer<typeof ParsedCleanArgsSchema>): Promise<void> {
   const isInteractiveTty = canUseInteractivePrompt(stdin.isTTY === true, stdout.isTTY === true);
   if (!isInteractiveTty && !parsed.yes) {
     throw new Error("clean requires --yes in non-interactive mode.");

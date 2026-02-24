@@ -11,6 +11,6 @@ describe("studio command", () => {
   });
 
   test("parseStudioArgs rejects unknown arguments", () => {
-    expect(() => parseStudioArgs(["--unknown"])).toThrow("studio does not accept argument: --unknown");
+    expect(() => parseStudioArgs(["--unknown"])).toThrow("Unknown option '--unknown'");
   });
 });

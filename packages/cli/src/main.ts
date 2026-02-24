@@ -1,49 +1,28 @@
 #!/usr/bin/env bun
 import { CodedError, openDb, type ErrorCode, type Database } from "@toss/core";
-import { runInit, runClean } from "./commands/init";
-import {
-  runRemote,
-  runPush,
-  runPull,
-  runSync,
-  runClone,
-  validatePullArgs,
-  validatePushArgs,
-  validateRemoteArgs,
-  validateSyncArgs,
-} from "./commands/remote";
-import {
-  runSchema,
-  runPlan,
-  runApply,
-  runRead,
-  validateApplyArgs,
-  validatePlanArgs,
-  validateReadArgs,
-  validateSchemaArgs,
-} from "./commands/data";
-import {
-  runStatus,
-  runHistory,
-  runRevert,
-  runVerify,
-  runRecover,
-  validateHistoryArgs,
-  validateRecoverArgs,
-  validateRevertArgs,
-  validateStatusArgs,
-  validateVerifyArgs,
-} from "./commands/local";
-import { runStudio } from "./commands/studio";
+import { parseInitArgs, parseCleanArgs, runInit, runClean } from "./commands/init";
+import { parseRemoteArgs, runRemote } from "./commands/remote";
+import { parsePushArgs, runPush } from "./commands/push";
+import { parsePullArgs, runPull } from "./commands/pull";
+import { parseSyncArgs, runSync } from "./commands/sync";
+import { parseCloneArgs, runClone } from "./commands/clone";
+import { parseSchemaArgs, runSchema } from "./commands/schema";
+import { parsePlanArgs, runPlan } from "./commands/plan";
+import { parseApplyArgs, runApply } from "./commands/apply";
+import { parseReadArgs, runRead } from "./commands/read";
+import { parseStatusArgs, runStatus } from "./commands/status";
+import { parseHistoryArgs, runHistory } from "./commands/history";
+import { parseRevertArgs, runRevert } from "./commands/revert";
+import { parseVerifyArgs, runVerify } from "./commands/verify";
+import { parseRecoverArgs, runRecover } from "./commands/recover";
+import { parseStudioArgs, runStudio } from "./commands/studio";
 
-type DbCommandHandler = (db: Database, args: string[]) => void | Promise<void>;
-type CommandHandler = (args: string[]) => void | Promise<void>;
-type ArgsValidator = (args: string[]) => void;
+type DbCommandExecutor = (db: Database) => void | Promise<void>;
+type CommandExecutor = () => void | Promise<void>;
 type CommandDefinition = {
   requiresDb: boolean;
-  dbHandler?: DbCommandHandler | undefined;
-  handler?: CommandHandler | undefined;
-  validateArgs?: ArgsValidator | undefined;
+  prepareDb?: ((args: string[]) => DbCommandExecutor) | undefined;
+  prepare?: ((args: string[]) => CommandExecutor) | undefined;
 };
 
 const CLI_HINTS: Partial<Record<ErrorCode, string>> = {
@@ -89,23 +68,23 @@ export function usage(): string {
 }
 
 const commands = new Map<string, CommandDefinition>([
-  ["init", { requiresDb: false, handler: runInit }],
-  ["clean", { requiresDb: false, handler: runClean }],
-  ["schema", { requiresDb: true, dbHandler: runSchema, validateArgs: validateSchemaArgs }],
-  ["plan", { requiresDb: true, dbHandler: runPlan, validateArgs: validatePlanArgs }],
-  ["apply", { requiresDb: true, dbHandler: runApply, validateArgs: validateApplyArgs }],
-  ["read", { requiresDb: true, dbHandler: runRead, validateArgs: validateReadArgs }],
-  ["status", { requiresDb: true, dbHandler: runStatus, validateArgs: validateStatusArgs }],
-  ["history", { requiresDb: true, dbHandler: runHistory, validateArgs: validateHistoryArgs }],
-  ["revert", { requiresDb: true, dbHandler: runRevert, validateArgs: validateRevertArgs }],
-  ["verify", { requiresDb: true, dbHandler: runVerify, validateArgs: validateVerifyArgs }],
-  ["recover", { requiresDb: false, handler: runRecover, validateArgs: validateRecoverArgs }],
-  ["remote", { requiresDb: true, dbHandler: runRemote, validateArgs: validateRemoteArgs }],
-  ["push", { requiresDb: true, dbHandler: runPush, validateArgs: validatePushArgs }],
-  ["pull", { requiresDb: true, dbHandler: runPull, validateArgs: validatePullArgs }],
-  ["sync", { requiresDb: true, dbHandler: runSync, validateArgs: validateSyncArgs }],
-  ["clone", { requiresDb: false, handler: runClone }],
-  ["studio", { requiresDb: false, handler: runStudio }],
+  ["init", { requiresDb: false, prepare: (args) => { const parsed = parseInitArgs(args); return () => runInit(parsed); } }],
+  ["clean", { requiresDb: false, prepare: (args) => { const parsed = parseCleanArgs(args); return () => runClean(parsed); } }],
+  ["schema", { requiresDb: true, prepareDb: (args) => { const parsed = parseSchemaArgs(args); return (db) => runSchema(db, parsed); } }],
+  ["plan", { requiresDb: true, prepareDb: (args) => { const parsed = parsePlanArgs(args); return (db) => runPlan(db, parsed); } }],
+  ["apply", { requiresDb: true, prepareDb: (args) => { const parsed = parseApplyArgs(args); return (db) => runApply(db, parsed); } }],
+  ["read", { requiresDb: true, prepareDb: (args) => { const parsed = parseReadArgs(args); return (db) => runRead(db, parsed); } }],
+  ["status", { requiresDb: true, prepareDb: (args) => { const parsed = parseStatusArgs(args); return (db) => runStatus(db, parsed); } }],
+  ["history", { requiresDb: true, prepareDb: (args) => { const parsed = parseHistoryArgs(args); return (db) => runHistory(db, parsed); } }],
+  ["revert", { requiresDb: true, prepareDb: (args) => { const parsed = parseRevertArgs(args); return (db) => runRevert(db, parsed); } }],
+  ["verify", { requiresDb: true, prepareDb: (args) => { const parsed = parseVerifyArgs(args); return (db) => runVerify(db, parsed); } }],
+  ["recover", { requiresDb: false, prepare: (args) => { const parsed = parseRecoverArgs(args); return () => runRecover(parsed); } }],
+  ["remote", { requiresDb: true, prepareDb: (args) => { const parsed = parseRemoteArgs(args); return (db) => runRemote(db, parsed); } }],
+  ["push", { requiresDb: true, prepareDb: (args) => { parsePushArgs(args); return (db) => runPush(db); } }],
+  ["pull", { requiresDb: true, prepareDb: (args) => { parsePullArgs(args); return (db) => runPull(db); } }],
+  ["sync", { requiresDb: true, prepareDb: (args) => { parseSyncArgs(args); return (db) => runSync(db); } }],
+  ["clone", { requiresDb: false, prepare: (args) => { const parsed = parseCloneArgs(args); return () => runClone(parsed); } }],
+  ["studio", { requiresDb: false, prepare: (args) => { const parsed = parseStudioArgs(args); return () => runStudio(parsed); } }],
 ]);
 
 export function getCommandHandler(command: string): CommandDefinition | null {
@@ -123,19 +102,20 @@ export async function runCli(args: string[]): Promise<void> {
     throw new Error(`Unknown command: ${command}`);
   }
   const commandArgs = args.slice(1);
-  handler.validateArgs?.(commandArgs);
   if (!handler.requiresDb) {
-    if (!handler.handler) {
+    if (!handler.prepare) {
       throw new Error(`Missing handler for command: ${command}`);
     }
-    return handler.handler(commandArgs);
+    const execute = handler.prepare(commandArgs);
+    return execute();
   }
-  if (!handler.dbHandler) {
+  if (!handler.prepareDb) {
     throw new Error(`Missing database handler for command: ${command}`);
   }
+  const executeDb = handler.prepareDb(commandArgs);
   const db = openDb();
   try {
-    return await handler.dbHandler(db, commandArgs);
+    return await executeDb(db);
   } finally {
     db.$client.close(false);
   }

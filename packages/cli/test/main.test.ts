@@ -51,7 +51,7 @@ describe("main command dispatch", () => {
     process.env.HOME = home;
     process.env.USERPROFILE = home;
     try {
-      await expect(runCli(["status", "--unknown"])).rejects.toThrow("status does not accept argument: --unknown");
+      await expect(runCli(["status", "--unknown"])).rejects.toThrow("Unknown option '--unknown'");
       await expect(runCli(["remote"])).rejects.toThrow("remote requires subcommand: connect | status");
     } finally {
       if (snapshot.HOME === undefined) {

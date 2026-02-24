@@ -109,7 +109,7 @@ describe("init command", () => {
   });
 
   test("parseCleanArgs rejects unknown arguments", () => {
-    expect(() => parseCleanArgs(["--unknown"])).toThrow("clean does not accept argument: --unknown");
+    expect(() => parseCleanArgs(["--unknown"])).toThrow("Unknown option '--unknown'");
   });
 
   test("parseCleanArgs accepts --yes and --json", () => {
