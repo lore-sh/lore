@@ -1,7 +1,8 @@
 import { runInSavepoint, type Database } from "./db";
 import { appendCommitObserved } from "./commit";
-import { captureObservedState, diffObservedState, schemaHash } from "./effect";
+import { captureObservedState, diffObservedState } from "./effect";
 import { CodedError } from "./error";
+import { schemaHash } from "./inspect";
 import { executeOperation, type Operation, type OperationPlan } from "./operation";
 import type { Commit } from "./schema";
 

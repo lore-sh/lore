@@ -20,9 +20,9 @@ import {
 } from "./db";
 import { readAuthToken } from "./config";
 import { CodedError } from "./error";
-import { canonicalJson, sha256Hex } from "./sql";
+import { canonicalJson, sha256Hex } from "./hash";
+import { schemaHashFromDescriptor } from "./inspect";
 import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable, rewriteCreateTableName } from "./sql";
-import { schemaHashFromDescriptor } from "./effect";
 import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
 import type { CommitReplayInput } from "./commit";
 import type { EncodedCell, EncodedRow } from "./schema";

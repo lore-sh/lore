@@ -10,6 +10,10 @@ export interface JsonObject {
 
 export type SqlStorageClass = "null" | "integer" | "real" | "text" | "blob";
 
+export function isSqlStorageClass(value: unknown): value is SqlStorageClass {
+  return value === "null" || value === "integer" || value === "real" || value === "text" || value === "blob";
+}
+
 export interface EncodedCell {
   storageClass: SqlStorageClass;
   sqlLiteral: string;

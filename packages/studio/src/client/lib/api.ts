@@ -7,7 +7,7 @@ import type {
   RevertResult,
   SchemaTable,
   Status,
-  Table,
+  TableOverview,
   TablePage,
 } from "@toss/core";
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
@@ -39,7 +39,7 @@ export type TableData = Omit<TablePage, "rows"> & {
 export interface TablesPayload {
   dbPath: string;
   generatedAt: string;
-  tables: Table[];
+  tables: TableOverview[];
 }
 
 export interface CommitDetailPayload {

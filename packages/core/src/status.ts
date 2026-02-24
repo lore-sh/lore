@@ -7,14 +7,13 @@ import {
   type Database,
 } from "./db";
 import {
-  estimateCommitSizeBytes,
-  estimateHistorySizeBytes,
   getCommitCount,
   getHeadCommit,
 } from "./commit";
+import { estimateCommitSizeBytes, estimateHistorySizeBytes } from "./history";
+import { countRows } from "./inspect";
 import { SnapshotTable, type CommitKind } from "./schema";
 import { syncStatus, type SyncStatus } from "./sync";
-import { countTableRows } from "./table";
 
 export interface StorageEstimate {
   commitCount: number;
@@ -48,7 +47,7 @@ export interface Status {
 export function status(db: Database): Status {
   const tables = listUserTables(db).map((table) => ({
     name: table,
-    count: countTableRows(db, table),
+    count: countRows(db, table),
   }));
 
   const head = getHeadCommit(db);

@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import type { Table } from "@toss/core";
+import type { TableOverview } from "@toss/core";
 import { formatRelativeTime } from "../lib/time";
 
 interface TableRowProps {
-  table: Table;
+  table: TableOverview;
 }
 
 export function TableRow({ table }: TableRowProps) {

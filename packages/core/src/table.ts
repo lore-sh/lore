@@ -1,18 +1,22 @@
 import { COMMIT_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, listUserTables, type Database } from "./db";
 import {
   describeSchema,
+  countRows,
+  isVisibleColumn,
+  normalizePage,
+  normalizePageSize,
+  normalizeRow,
   schemaHashFromDescriptor,
   type SchemaForeignKeyDescriptor,
   type SchemaIndexDescriptor,
   type SchemaTableDescriptor,
   type SchemaTriggerDescriptor,
-  normalizeRowObject,
-} from "./effect";
+} from "./inspect";
 import { CodedError } from "./error";
 import type { JsonObject } from "./schema";
 import { asciiCaseFold, quoteIdentifier } from "./sql";
 
-export interface Table {
+export interface TableOverview {
   name: string;
   rowCount: number;
   columnCount: number;
@@ -81,7 +85,7 @@ export interface SchemaTable {
   rowCount: number;
 }
 
-export interface Schema {
+export interface DbSchema {
   dbPath: string;
   generatedAt: string;
   schemaHash: string;
@@ -91,17 +95,6 @@ export interface Schema {
 interface OrderTerm {
   key: string;
   sql: string;
-}
-
-const MAX_PAGE_SIZE = 500;
-const DEFAULT_PAGE_SIZE = 50;
-
-export function countTableRows(db: Database, tableName: string): number {
-  return db.$client.query<{ c: number }, []>(`SELECT COUNT(*) AS c FROM ${quoteIdentifier(tableName, { unsafe: true })}`).get()?.c ?? 0;
-}
-
-export function isVisibleColumn(hidden: number): boolean {
-  return hidden === 0 || hidden === 2 || hidden === 3;
 }
 
 function visibleColumnNames(table: SchemaTableDescriptor): string[] {
@@ -127,20 +120,6 @@ export function resolveTableName(db: Database, requestedTable: string): string {
   }
 
   throw new CodedError("NOT_FOUND", `Table not found: ${requestedTable}`);
-}
-
-export function normalizePageSize(input: number | undefined): number {
-  if (typeof input !== "number" || !Number.isFinite(input) || input < 1) {
-    return DEFAULT_PAGE_SIZE;
-  }
-  return Math.min(MAX_PAGE_SIZE, Math.floor(input));
-}
-
-export function normalizePage(input: number | undefined): number {
-  if (typeof input !== "number" || !Number.isFinite(input) || input < 1) {
-    return 1;
-  }
-  return Math.floor(input);
 }
 
 function escapeLikePattern(value: string): string {
@@ -200,7 +179,7 @@ function mapSchemaTable(db: Database, table: SchemaTableDescriptor): SchemaTable
     indexes: table.indexes,
     checks: table.checks,
     triggers: table.triggers,
-    rowCount: countTableRows(db, table.table),
+    rowCount: countRows(db, table.table),
   };
 }
 
@@ -274,7 +253,7 @@ function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, s
   return ` ORDER BY ${terms.join(", ")}`;
 }
 
-export function schema(db: Database, options: SchemaOptions = {}): Schema {
+export function schema(db: Database, options: SchemaOptions = {}): DbSchema {
   const descriptor = describeSchema(db);
   const selectedTable = options.table ? resolveTableName(db, options.table) : null;
   const tables = descriptor.tables
@@ -289,7 +268,7 @@ export function schema(db: Database, options: SchemaOptions = {}): Schema {
   };
 }
 
-export function tableOverview(db: Database): Table[] {
+export function tableOverview(db: Database): TableOverview[] {
   const tableNames = listUserTables(db);
   return tableNames.map((name) => {
     const column = db.$client
@@ -313,7 +292,7 @@ export function tableOverview(db: Database): Table[] {
       .get(name, name);
     return {
       name,
-      rowCount: countTableRows(db, name),
+      rowCount: countRows(db, name),
       columnCount: column?.c ?? 0,
       lastUpdatedAt: updated?.created_at ?? null,
     };
@@ -381,6 +360,6 @@ export function queryTable(db: Database, options: TableQueryOptions): TablePage 
     sortDir,
     filters,
     columns,
-    rows: rows.map((row) => normalizeRowObject(row)),
+    rows: rows.map((row) => normalizeRow(row)),
   };
 }

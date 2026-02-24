@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import type { CommitSummary, Table } from "@toss/core";
+import type { CommitSummary, TableOverview } from "@toss/core";
 import { CommitEntry } from "../components/commit-entry";
 import { TableRow } from "../components/table-row";
 import { formatBytes, formatRelativeTime } from "../lib/time";
@@ -38,7 +38,7 @@ function ActivitySection({ history }: { history: CommitSummary[] }) {
   );
 }
 
-function TablesSection({ tables }: { tables: Table[] }) {
+function TablesSection({ tables }: { tables: TableOverview[] }) {
   return (
     <section id="tables" className="ui-surface">
       <header className="ui-section-head">

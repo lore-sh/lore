@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { normalizePage, normalizePageSize, normalizeRow, whereClause } from "../src/inspect";
 import { computeSchemaHash, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -75,5 +76,48 @@ describe("schemaHash", () => {
     `]);
 
     expect(hashA).not.toBe(hashB);
+  });
+});
+
+describe("inspect helpers", () => {
+  test("normalizeRow serializes non-finite/bytes/object values", () => {
+    const normalized = normalizeRow({
+      amount: Infinity,
+      blob: new Uint8Array([0, 255]),
+      extra: { nested: true },
+      title: "ok",
+      enabled: true,
+      nullable: null,
+    });
+    expect(normalized).toEqual({
+      amount: null,
+      blob: "AP8=",
+      extra: '{"nested":true}',
+      title: "ok",
+      enabled: true,
+      nullable: null,
+    });
+  });
+
+  test("whereClause builds SQL with bindings and IS NULL predicates", () => {
+    const { clause, bindings } = whereClause({ id: 1, deletedAt: null });
+    expect(clause).toContain('"id" = ?');
+    expect(clause).toContain('"deletedAt" IS NULL');
+    expect(bindings).toEqual([1]);
+  });
+
+  test("whereClause rejects empty predicate", () => {
+    expect(() => whereClause({})).toThrow(/where must not be empty/i);
+  });
+
+  test("normalizePageSize/normalizePage clamp invalid values", () => {
+    expect(normalizePageSize(undefined)).toBe(50);
+    expect(normalizePageSize(0)).toBe(50);
+    expect(normalizePageSize(9999)).toBe(500);
+    expect(normalizePageSize(12.7)).toBe(12);
+
+    expect(normalizePage(undefined)).toBe(1);
+    expect(normalizePage(0)).toBe(1);
+    expect(normalizePage(3.8)).toBe(3);
   });
 });

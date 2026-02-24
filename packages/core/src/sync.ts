@@ -40,7 +40,7 @@ import {
   remoteCommitSeq,
   remoteHasCommit,
 } from "./remote";
-import { canonicalJson } from "./sql";
+import { canonicalJson } from "./hash";
 
 export type RemotePlatform = "turso" | "libsql";
 

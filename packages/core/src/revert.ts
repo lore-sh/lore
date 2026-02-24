@@ -1,5 +1,5 @@
 import { and, asc, eq, gt } from "drizzle-orm";
-import { canonicalJson } from "./sql";
+import { canonicalJson } from "./hash";
 import {
   runInSavepoint,
   runInDeferredTransaction,
@@ -9,7 +9,6 @@ import {
 import {
   appendCommitObserved,
   type CommitRowEffect,
-  type CommitSchemaEffect,
   getCommitById,
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
@@ -18,15 +17,16 @@ import { CommitTable } from "./schema";
 import { CodedError } from "./error";
 import type { Commit } from "./schema";
 import {
+  type SchemaEffect,
   captureObservedState,
-  fetchObservedRowByPk,
-  isSystemSideEffectTable,
+  getObservedRowByPk,
+  isSystemTable,
   rowHash,
   applyRowEffectsWithOptions,
   applyUserRowAndSchemaEffects,
   assertNoForeignKeyViolations,
-  schemaHash,
 } from "./effect";
+import { schemaHash } from "./inspect";
 
 export interface RevertConflict {
   kind: "row" | "schema";
@@ -49,8 +49,8 @@ export interface RevertConflicts {
 export type RevertResult = RevertSuccess | RevertConflicts;
 
 export function detectSchemaConflicts(
-  schemaEffects: CommitSchemaEffect[],
-  laterSchemaEffects: CommitSchemaEffect[],
+  schemaEffects: SchemaEffect[],
+  laterSchemaEffects: SchemaEffect[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
   for (const effect of schemaEffects) {
@@ -67,7 +67,7 @@ export function detectSchemaConflicts(
 }
 
 export function detectSchemaRowConflicts(
-  schemaEffects: CommitSchemaEffect[],
+  schemaEffects: SchemaEffect[],
   laterRowEffects: CommitRowEffect[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
@@ -96,7 +96,7 @@ export function detectRowConflict(
     if (!tableExists(db, effect.tableName)) {
       if (!missingTables.has(effect.tableName)) {
         conflicts.push({
-          kind: isSystemSideEffectTable(effect.tableName) ? "row" : "schema",
+          kind: isSystemTable(effect.tableName) ? "row" : "schema",
           table: effect.tableName,
           reason: `Current table is missing (${effect.tableName}); later schema changes prevent row-level revert.`,
         });
@@ -104,7 +104,7 @@ export function detectRowConflict(
       }
       continue;
     }
-    const currentRow = fetchObservedRowByPk(db, effect.tableName, effect.pk);
+    const currentRow = getObservedRowByPk(db, effect.tableName, effect.pk);
     const currentHash = rowHash(currentRow);
 
     if (effect.opKind === "update" && currentHash !== effect.afterHash) {
@@ -145,7 +145,7 @@ export function detectRowConflict(
   return conflicts;
 }
 
-export function fetchLaterEffects(db: Database, seq: number): { rows: CommitRowEffect[]; schemas: CommitSchemaEffect[] } {
+export function getLaterEffects(db: Database, seq: number): { rows: CommitRowEffect[]; schemas: SchemaEffect[] } {
   const laterCommits = db
     .select({ commitId: CommitTable.commitId })
     .from(CommitTable)
@@ -153,7 +153,7 @@ export function fetchLaterEffects(db: Database, seq: number): { rows: CommitRowE
     .orderBy(asc(CommitTable.seq))
     .all();
   const rows: CommitRowEffect[] = [];
-  const schemas: CommitSchemaEffect[] = [];
+  const schemas: SchemaEffect[] = [];
   for (const commit of laterCommits) {
     rows.push(...getRowEffectsByCommitId(db, commit.commitId));
     schemas.push(...getSchemaEffectsByCommitId(db, commit.commitId));
@@ -195,7 +195,7 @@ function sqliteConstraintConflict(error: unknown): RevertConflict | null {
 function preflightInverseApply(
   db: Database,
   targetRows: CommitRowEffect[],
-  targetSchemas: CommitSchemaEffect[],
+  targetSchemas: SchemaEffect[],
 ): RevertConflict[] {
   try {
     runInSavepoint(
@@ -250,7 +250,7 @@ export function revert(db: Database, commitId: string): RevertResult {
 
     const targetRows = getRowEffectsByCommitId(db, commitId);
     const targetSchemas = getSchemaEffectsByCommitId(db, commitId);
-    const later = fetchLaterEffects(db, targetCommit.seq);
+    const later = getLaterEffects(db, targetCommit.seq);
     const conflicts = [
       ...detectRowConflict(db, targetRows, later.rows),
       ...detectSchemaConflicts(targetSchemas, later.schemas),

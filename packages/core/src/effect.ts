@@ -1,414 +1,10 @@
 import { listUserTables, tableExists, type Database } from "./db";
 import { CodedError, type ErrorCode } from "./error";
-import {
-  canonicalJson,
-  extractCheckConstraints,
-  normalizeSqlNullable,
-  parseColumnDefinitionsFromCreateTable,
-  pragmaLiteral,
-  quoteIdentifier,
-  sha256Hex,
-} from "./sql";
-import type {
-  EncodedCell,
-  EncodedRow,
-  JsonObject,
-  JsonPrimitive,
-  SqlStorageClass,
-  TableSecondaryObject,
-} from "./schema";
+import { canonicalJson, sha256Hex } from "./hash";
+import { primaryKeyColumns, tableDDL, tableInfo } from "./inspect";
 import { executeOperation, type RestoreTableOperation } from "./operation";
-
-export interface TableInfoRow {
-  cid: number;
-  name: string;
-  type: string;
-  notnull: number;
-  dflt_value: string | null;
-  pk: number;
-}
-
-interface TableListRow {
-  schema: string;
-  name: string;
-  type: string;
-  ncol: number;
-  wr: number;
-  strict: number;
-}
-
-interface TableXInfoRow {
-  cid: number;
-  name: string;
-  type: string;
-  notnull: number;
-  dflt_value: string | null;
-  pk: number;
-  hidden: number;
-}
-
-interface ForeignKeyRow {
-  id: number;
-  seq: number;
-  table: string;
-  from: string;
-  to: string | null;
-  on_update: string;
-  on_delete: string;
-  match: string;
-}
-
-interface IndexListRow {
-  seq: number;
-  name: string;
-  unique: number;
-  origin: "c" | "u" | "pk";
-  partial: number;
-}
-
-interface IndexXInfoRow {
-  seqno: number;
-  cid: number;
-  name: string | null;
-  desc: number;
-  coll: string | null;
-  key: number;
-}
-
-export interface SchemaColumnDescriptor {
-  definitionSql: string | null;
-  cid: number;
-  name: string;
-  type: string;
-  notnull: number;
-  dfltValue: string | null;
-  pk: number;
-  hidden: number;
-}
-
-export interface SchemaForeignKeyDescriptor {
-  id: number;
-  refTable: string;
-  onUpdate: string;
-  onDelete: string;
-  match: string;
-  mappings: Array<{ seq: number; from: string; to: string | null }>;
-}
-
-export interface SchemaIndexDescriptor {
-  name: string;
-  unique: boolean;
-  origin: "c" | "u" | "pk";
-  partial: boolean;
-  sql: string | null;
-  columns: Array<{
-    seqno: number;
-    cid: number;
-    name: string | null;
-    desc: number;
-    coll: string | null;
-    key: number;
-  }>;
-}
-
-export interface SchemaTriggerDescriptor {
-  name: string;
-  sql: string | null;
-}
-
-export interface SchemaTableDescriptor {
-  tableSql: string | null;
-  table: string;
-  options: {
-    withoutRowid: boolean;
-    strict: boolean;
-  };
-  columns: SchemaColumnDescriptor[];
-  foreignKeys: SchemaForeignKeyDescriptor[];
-  indexes: SchemaIndexDescriptor[];
-  checks: string[];
-  triggers: SchemaTriggerDescriptor[];
-}
-
-export interface SchemaDescriptor {
-  tables: SchemaTableDescriptor[];
-}
-
-export function schemaHashFromDescriptor(descriptor: SchemaDescriptor): string {
-  return sha256Hex(descriptor.tables);
-}
-
-function serializeStateValue(value: JsonPrimitive): JsonPrimitive {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      return null;
-    }
-    return value;
-  }
-  return value;
-}
-
-function normalizeStateRow(row: Record<string, unknown>): JsonObject {
-  const output: JsonObject = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      output[key] = serializeStateValue(value);
-      continue;
-    }
-    if (value instanceof Uint8Array) {
-      output[key] = Buffer.from(value).toString("base64");
-      continue;
-    }
-    output[key] = JSON.stringify(value);
-  }
-  return output;
-}
-
-export function tableInfo(db: Database, table: string): TableInfoRow[] {
-  return db.$client.query<TableInfoRow, []>(`PRAGMA table_info(${quoteIdentifier(table, { unsafe: true })})`).all();
-}
-
-export function primaryKeyColumns(db: Database, table: string): string[] {
-  return tableInfo(db, table)
-    .filter((column) => column.pk > 0)
-    .sort((a, b) => a.pk - b.pk)
-    .map((column) => column.name);
-}
-
-export function assertTableHasPrimaryKey(db: Database, table: string): string[] {
-  const pkCols = primaryKeyColumns(db, table);
-  if (pkCols.length === 0) {
-    throw new CodedError("NO_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
-  }
-  return pkCols;
-}
-
-export function tableDDL(db: Database, table: string): string | null {
-  const row = db.$client
-    .query<{ sql: string | null }, [string]>(
-      "SELECT sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
-    )
-    .get(table);
-  return row?.sql ?? null;
-}
-
-export function describeSchema(db: Database): SchemaDescriptor {
-  const tableNames = listUserTables(db);
-  const tableList = db.$client.query<TableListRow, []>("PRAGMA table_list").all();
-  const tableOpts = new Map(
-    tableList
-      .filter((row) => row.schema === "main" && row.type === "table")
-      .map((row) => [row.name, { withoutRowid: row.wr === 1, strict: row.strict === 1 }] as const),
-  );
-
-  const tables = tableNames.map((table) => {
-    const tableDdl = tableDDL(db, table);
-    const columnDefs = parseColumnDefinitionsFromCreateTable(tableDdl);
-    const checks = extractCheckConstraints(tableDdl);
-    return {
-      tableSql: normalizeSqlNullable(tableDdl),
-      table,
-      options: tableOpts.get(table) ?? { withoutRowid: false, strict: false },
-      columns: db.$client.query<TableXInfoRow, []>(`PRAGMA table_xinfo(${pragmaLiteral(table)})`).all()
-        .map((column) => ({
-          definitionSql: columnDefs.get(column.name.toLowerCase()) ?? null,
-          cid: column.cid,
-          name: column.name,
-          type: column.type.trim().toUpperCase(),
-          notnull: column.notnull,
-          dfltValue: column.dflt_value,
-          pk: column.pk,
-          hidden: column.hidden,
-        }))
-        .sort((a, b) => a.cid - b.cid),
-      foreignKeys: (() => {
-        const rows = db.$client.query<ForeignKeyRow, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`).all();
-        const byId = new Map<
-          number,
-          {
-            id: number;
-            refTable: string;
-            onUpdate: string;
-            onDelete: string;
-            match: string;
-            mappings: Array<{ seq: number; from: string; to: string | null }>;
-          }
-        >();
-        for (const row of rows) {
-          const existing = byId.get(row.id);
-          if (!existing) {
-            byId.set(row.id, {
-              id: row.id,
-              refTable: row.table,
-              onUpdate: row.on_update,
-              onDelete: row.on_delete,
-              match: row.match,
-              mappings: [{ seq: row.seq, from: row.from, to: row.to }],
-            });
-            continue;
-          }
-          existing.mappings.push({ seq: row.seq, from: row.from, to: row.to });
-        }
-        return Array.from(byId.values())
-          .map((fk) => ({
-            ...fk,
-            mappings: fk.mappings.sort((a, b) => a.seq - b.seq),
-          }))
-          .sort((a, b) => a.id - b.id);
-      })(),
-      indexes: db.$client.query<IndexListRow, []>(`PRAGMA index_list(${pragmaLiteral(table)})`).all()
-        .map((index) => {
-          const indexSqlRow = db.$client
-            .query<{ sql: string | null }, [string]>("SELECT sql FROM sqlite_master WHERE type='index' AND name=? LIMIT 1")
-            .get(index.name);
-          const indexColumns = db.$client.query<IndexXInfoRow, []>(`PRAGMA index_xinfo(${pragmaLiteral(index.name)})`).all()
-            .map((entry) => ({
-              seqno: entry.seqno,
-              cid: entry.cid,
-              name: entry.name,
-              desc: entry.desc,
-              coll: entry.coll,
-              key: entry.key,
-            }))
-            .sort((a, b) => a.seqno - b.seqno);
-          return {
-            name: index.name,
-            unique: index.unique === 1,
-            origin: index.origin,
-            partial: index.partial === 1,
-            sql: normalizeSqlNullable(indexSqlRow?.sql ?? null),
-            columns: indexColumns,
-          };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name)),
-      checks,
-      triggers: (
-        db.$client
-          .query<{ name: string; sql: string | null }, [string]>(
-            "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? ORDER BY name ASC",
-          )
-          .all(table)
-      ).map((trigger) => ({
-        name: trigger.name,
-        sql: normalizeSqlNullable(trigger.sql),
-      })),
-    };
-  });
-  return { tables };
-}
-
-export function schemaHash(db: Database): string {
-  return schemaHashFromDescriptor(describeSchema(db));
-}
-
-export function stateHash(db: Database): string {
-  const tables = listUserTables(db);
-  const state: Record<string, JsonObject[]> = {};
-  for (const table of tables) {
-    const pkColumns = assertTableHasPrimaryKey(db, table);
-    const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
-    const rows = db.$client.query<Record<string, unknown>, []>(
-      `SELECT * FROM ${quoteIdentifier(table, { unsafe: true })} ORDER BY ${orderBy}`,
-    ).all();
-    state[table] = rows.map((row) => normalizeStateRow(row));
-  }
-  return sha256Hex(state);
-}
-
-
-export function serializeValue(value: JsonPrimitive): JsonPrimitive {
-  if (typeof value === "number" && !Number.isFinite(value)) {
-    return null;
-  }
-  return value;
-}
-
-export function normalizeRowObject(row: Record<string, unknown>): JsonObject {
-  const output: JsonObject = {};
-  for (const [key, value] of Object.entries(row)) {
-    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      output[key] = serializeValue(value);
-      continue;
-    }
-    if (value instanceof Uint8Array) {
-      output[key] = Buffer.from(value).toString("base64");
-      continue;
-    }
-    output[key] = JSON.stringify(value);
-  }
-  return output;
-}
-
-export function whereClauseFromRecord(
-  values: Record<string, JsonPrimitive>,
-): { clause: string; bindings: JsonPrimitive[] } {
-  const keys = Object.keys(values);
-  if (keys.length === 0) {
-    throw new CodedError("INVALID_OPERATION", "where must not be empty");
-  }
-
-  const terms: string[] = [];
-  const bindings: JsonPrimitive[] = [];
-  for (const key of keys) {
-    const value = values[key];
-    if (value === undefined) {
-      throw new CodedError("INVALID_OPERATION", `where value missing for key: ${key}`);
-    }
-    const quoted = quoteIdentifier(key);
-    if (value === null) {
-      terms.push(`${quoted} IS NULL`);
-      continue;
-    }
-    terms.push(`${quoted} = ?`);
-    bindings.push(serializeValue(value));
-  }
-  return { clause: terms.join(" AND "), bindings };
-}
-
-export function fetchRowsByWhere(
-  db: Database,
-  table: string,
-  where: Record<string, JsonPrimitive>,
-): Array<Record<string, unknown>> {
-  const { clause, bindings } = whereClauseFromRecord(where);
-  const sql = `SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause}`;
-  return db.$client.query<Record<string, unknown>, JsonPrimitive[]>(sql).all(...bindings);
-}
-
-export function fetchAllRows(db: Database, table: string): JsonObject[] {
-  const rows = db.$client.query<Record<string, unknown>, []>(`SELECT * FROM ${quoteIdentifier(table)} ORDER BY rowid ASC`).all();
-  return rows.map(normalizeRowObject);
-}
-
-export function pkFromRow(db: Database, table: string, row: Record<string, unknown>): Record<string, JsonPrimitive> {
-  const pkCols = assertTableHasPrimaryKey(db, table);
-
-  const pk: Record<string, JsonPrimitive> = {};
-  for (const column of pkCols) {
-    const value = row[column];
-    if (value === undefined) {
-      throw new CodedError("INVALID_OPERATION", `PK column missing in row: ${table}.${column}`);
-    }
-    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      pk[column] = value;
-    } else {
-      throw new CodedError("INVALID_OPERATION", `Unsupported PK value type in ${table}.${column}`);
-    }
-  }
-  return pk;
-}
-
-export function fetchRowByPk(
-  db: Database,
-  table: string,
-  pk: Record<string, JsonPrimitive>,
-): Record<string, unknown> | null {
-  const { clause, bindings } = whereClauseFromRecord(pk);
-  return db.$client
-    .query<Record<string, unknown>, JsonPrimitive[]>(`SELECT * FROM ${quoteIdentifier(table)} WHERE ${clause} LIMIT 1`)
-    .get(...bindings);
-}
-
+import { isSqlStorageClass, type EncodedCell, type EncodedRow, type TableSecondaryObject } from "./schema";
+import { quoteIdentifier } from "./sql";
 
 export interface RowEffect {
   tableName: string;
@@ -447,10 +43,6 @@ interface CapturedTableState {
 
 export interface CapturedObservedState {
   tables: Map<string, CapturedTableState>;
-}
-
-function isSqlStorageClass(value: unknown): value is SqlStorageClass {
-  return value === "null" || value === "integer" || value === "real" || value === "text" || value === "blob";
 }
 
 function pkKey(pk: Record<string, string>): string {
@@ -546,12 +138,8 @@ function buildRowSelectSql(table: string, columns: string[], pkColumns: string[]
   return `SELECT ${parts.join(", ")} FROM ${quoteIdentifier(table, { unsafe: true })}${whereSql} ORDER BY ${orderBy}`;
 }
 
-function isSystemSequenceTable(table: string): boolean {
+export function isSystemTable(table: string): boolean {
   return table === "sqlite_sequence";
-}
-
-export function isSystemSideEffectTable(table: string): boolean {
-  return isSystemSequenceTable(table);
 }
 
 function observedTableNames(db: Database): string[] {
@@ -567,7 +155,7 @@ function keyColumnsForObservedTable(db: Database, table: string): string[] {
   if (pkColumns.length > 0) {
     return pkColumns;
   }
-  if (isSystemSequenceTable(table)) {
+  if (isSystemTable(table)) {
     return ["name"];
   }
   throw new CodedError("NO_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
@@ -576,7 +164,7 @@ function keyColumnsForObservedTable(db: Database, table: string): string[] {
 function captureTableState(db: Database, table: string): CapturedTableState {
   const keyColumns = keyColumnsForObservedTable(db, table);
 
-  const ddlSql = tableDDL(db, table) ?? (isSystemSequenceTable(table) ? "CREATE TABLE sqlite_sequence(name,seq)" : null);
+  const ddlSql = tableDDL(db, table) ?? (isSystemTable(table) ? "CREATE TABLE sqlite_sequence(name,seq)" : null);
   if (!ddlSql) {
     throw new CodedError("APPLY_FAILED", `Unable to read CREATE TABLE SQL for ${table}`);
   }
@@ -689,7 +277,7 @@ export function diffObservedState(
     const afterTable = after.tables.get(tableName);
     const hasSchemaChange = schemaChanged(beforeTable, afterTable);
 
-    if (hasSchemaChange && !isSystemSequenceTable(tableName)) {
+    if (hasSchemaChange && !isSystemTable(tableName)) {
       schemaEffects.push({
         tableName,
         beforeTable: beforeTable ? beforeTable.snapshot : null,
@@ -776,8 +364,8 @@ export function dependencyOrder(
   mode: "parent-first" | "child-first",
 ): string[] {
   const compareTableNames = (a: string, b: string): number => {
-    const aSystem = isSystemSideEffectTable(a);
-    const bSystem = isSystemSideEffectTable(b);
+    const aSystem = isSystemTable(a);
+    const bSystem = isSystemTable(b);
     if (aSystem !== bSystem) {
       return aSystem ? -1 : 1;
     }
@@ -823,9 +411,9 @@ export function rowHash(row: EncodedRow | null): string | null {
   return sha256Hex(row);
 }
 
-export function fetchObservedRowByPk(db: Database, table: string, pk: Record<string, string>): EncodedRow | null {
+export function getObservedRowByPk(db: Database, table: string, pk: Record<string, string>): EncodedRow | null {
   if (!tableExists(db, table)) {
-    if (isSystemSideEffectTable(table)) {
+    if (isSystemTable(table)) {
       return null;
     }
     throw new CodedError("REVERT_FAILED", `Table does not exist while reading observed row: ${table}`);
@@ -937,18 +525,18 @@ export function applyRowEffectsWithOptions(
   const includeUserEffects = options.includeUserEffects ?? true;
   const systemPolicy = options.systemPolicy ?? "strict";
   const filtered = effects.filter((effect) =>
-    isSystemSideEffectTable(effect.tableName) ? includeSystemEffects : includeUserEffects,
+    isSystemTable(effect.tableName) ? includeSystemEffects : includeUserEffects,
   );
   const droppedTriggers = options.disableTableTriggers ? dropTriggersForTables(db, filtered) : null;
   const ordered = direction === "forward" ? filtered : filtered.toReversed();
   for (const effect of ordered) {
     const { expectedCurrent, target, opLabel } = effectRowMode(effect, direction);
-    const isSystem = isSystemSideEffectTable(effect.tableName);
+    const isSystem = isSystemTable(effect.tableName);
     if (isSystem && systemPolicy === "reconcile") {
       applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);
       continue;
     }
-    const current = fetchObservedRowByPk(db, effect.tableName, effect.pk);
+    const current = getObservedRowByPk(db, effect.tableName, effect.pk);
     const currentHash = rowHash(current);
     const expectedHash = rowHash(expectedCurrent);
     if (currentHash !== expectedHash) {
@@ -989,7 +577,7 @@ function applySystemRowEffectReconciled(
   if (!exists) {
     throw new CodedError("REVERT_FAILED", `System table does not exist for reconciled effect: ${table}`);
   }
-  const current = fetchObservedRowByPk(db, table, pk);
+  const current = getObservedRowByPk(db, table, pk);
   if (!current) {
     insertEncodedRow(db, table, target);
     return;
@@ -1075,7 +663,7 @@ function orderSchemaEffectsForReplay(effects: SchemaEffect[], direction: "forwar
 }
 
 function canApplyUserRowEffectNow(db: Database, effect: RowEffect): boolean {
-  if (isSystemSideEffectTable(effect.tableName)) {
+  if (isSystemTable(effect.tableName)) {
     return false;
   }
   if (!tableExists(db, effect.tableName)) {
@@ -1094,7 +682,7 @@ export function applyUserRowAndSchemaEffects(
   },
 ): void {
   const pendingRows = (direction === "forward" ? rowEffects : rowEffects.toReversed()).filter(
-    (effect) => !isSystemSideEffectTable(effect.tableName),
+    (effect) => !isSystemTable(effect.tableName),
   );
   const orderedSchemas = orderSchemaEffectsForReplay(schemaEffects, direction);
   let schemaIndex = 0;

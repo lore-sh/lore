@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { runInSavepoint, tableExists, type Database } from "./db";
 import { CodedError } from "./error";
-import { type TableInfoRow, whereClauseFromRecord } from "./effect";
+import { type TableInfoRow, whereClause } from "./inspect";
 import {
   COLUMN_TYPE_PATTERN,
   IDENTIFIER_PATTERN,
@@ -12,7 +12,7 @@ import {
   rewriteCreateTableName,
   rewriteDropCheckInCreateTable,
 } from "./sql";
-import type { ColumnDefinition, EncodedCell, EncodedRow, JsonPrimitive, TableSecondaryObject } from "./schema";
+import { isSqlStorageClass, type ColumnDefinition, type EncodedRow, type JsonPrimitive, type TableSecondaryObject } from "./schema";
 
 export interface CreateTableOperation {
   type: "create_table";
@@ -203,7 +203,7 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
     setBindings.push(value);
   }
 
-  const where = whereClauseFromRecord(operation.where);
+  const where = whereClause(operation.where);
   db.$client.query(`UPDATE ${quoteIdentifier(operation.table)} SET ${setParts.join(", ")} WHERE ${where.clause}`).run(
     ...setBindings,
     ...where.bindings,
@@ -211,7 +211,7 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
 }
 
 function executeDelete(db: Database, operation: DeleteOperation): void {
-  const where = whereClauseFromRecord(operation.where);
+  const where = whereClause(operation.where);
   db.$client.query(`DELETE FROM ${quoteIdentifier(operation.table)} WHERE ${where.clause}`).run(...where.bindings);
 }
 
@@ -338,8 +338,6 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
   const tmpTable = `__toss_restore_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTmp = quoteIdentifier(tmpTable);
   const quotedTable = quoteIdentifier(operation.table);
-  const isSqlStorageClass = (value: unknown): value is EncodedCell["storageClass"] =>
-    value === "null" || value === "integer" || value === "real" || value === "text" || value === "blob";
   const rowForRestore = (value: unknown): Record<string, unknown> => {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new CodedError("INVALID_OPERATION", "restore_table row must be an object");
