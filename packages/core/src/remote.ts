@@ -2,31 +2,37 @@ import { createClient, type Client, type InArgs, type ResultSet, type Row, type 
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate as migrateLibsql } from "drizzle-orm/libsql/migrator";
 import { basename, resolve } from "node:path";
+import type { CommitReplayInput } from "./commit";
+import { readAuthToken } from "./config";
 import {
   COMMIT_PARENT_TABLE,
   COMMIT_TABLE,
-  ROW_EFFECT_TABLE,
-  SCHEMA_EFFECT_TABLE,
-  META_TABLE,
   LAST_MATERIALIZED_AT_META_KEY,
   LAST_MATERIALIZED_COMMIT_META_KEY,
   LAST_MATERIALIZED_ERROR_META_KEY,
   MAIN_REF_NAME,
+  META_TABLE,
   OP_TABLE,
   PRESERVED_META_DEFAULTS,
   REF_TABLE,
   RESETTABLE_META_DEFAULTS,
+  ROW_EFFECT_TABLE,
+  SCHEMA_EFFECT_TABLE,
   normalizeMetaString,
 } from "./db";
-import { readAuthToken } from "./config";
 import { CodedError } from "./error";
 import { canonicalJson, sha256Hex } from "./hash";
 import { schemaHashFromDescriptor } from "./inspect";
-import { extractCheckConstraints, parseColumnDefinitionsFromCreateTable, rewriteCreateTableName } from "./sql";
-import { normalizeSqlNullable, pragmaLiteral, quoteIdentifier } from "./sql";
-import type { CommitReplayInput } from "./commit";
-import type { EncodedCell, EncodedRow } from "./schema";
 import type { Operation } from "./operation";
+import type { EncodedCell, EncodedRow } from "./schema";
+import {
+  extractCheckConstraints,
+  normalizeSqlNullable,
+  parseColumnDefinitionsFromCreateTable,
+  pragmaLiteral,
+  quoteIdentifier,
+  rewriteCreateTableName,
+} from "./sql";
 import type { RemoteHead, SyncConfig } from "./sync";
 
 const ENGINE_MIGRATION_DIR = resolve(import.meta.dir, "../migration");

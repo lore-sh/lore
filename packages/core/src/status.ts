@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { getCommitCount, getHeadCommit } from "./commit";
 import {
   LAST_VERIFIED_AT_META_KEY,
   LAST_VERIFIED_OK_META_KEY,
@@ -6,10 +7,6 @@ import {
   listUserTables,
   type Database,
 } from "./db";
-import {
-  getCommitCount,
-  getHeadCommit,
-} from "./commit";
 import { estimateCommitSizeBytes, estimateHistorySizeBytes } from "./history";
 import { countRows } from "./inspect";
 import { SnapshotTable, type CommitKind } from "./schema";

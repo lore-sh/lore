@@ -1,11 +1,4 @@
 import { and, asc, eq, gt } from "drizzle-orm";
-import { canonicalJson } from "./hash";
-import {
-  runInSavepoint,
-  runInDeferredTransaction,
-  tableExists,
-  type Database,
-} from "./db";
 import {
   appendCommitObserved,
   type CommitRowEffect,
@@ -13,20 +6,26 @@ import {
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
 } from "./commit";
-import { CommitTable } from "./schema";
-import { CodedError } from "./error";
-import type { Commit } from "./schema";
 import {
-  type SchemaEffect,
+  runInDeferredTransaction,
+  runInSavepoint,
+  tableExists,
+  type Database,
+} from "./db";
+import {
+  applyRowEffectsWithOptions,
+  applyUserRowAndSchemaEffects,
+  assertNoForeignKeyViolations,
   captureObservedState,
   getObservedRowByPk,
   isSystemTable,
   rowHash,
-  applyRowEffectsWithOptions,
-  applyUserRowAndSchemaEffects,
-  assertNoForeignKeyViolations,
+  type SchemaEffect,
 } from "./effect";
+import { CodedError } from "./error";
+import { canonicalJson } from "./hash";
 import { schemaHash } from "./inspect";
+import { type Commit, CommitTable } from "./schema";
 
 export interface RevertConflict {
   kind: "row" | "schema";

@@ -1,7 +1,8 @@
 import { COMMIT_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, listUserTables, type Database } from "./db";
+import { CodedError } from "./error";
 import {
-  describeSchema,
   countRows,
+  describeSchema,
   isVisibleColumn,
   normalizePage,
   normalizePageSize,
@@ -12,7 +13,6 @@ import {
   type SchemaTableDescriptor,
   type SchemaTriggerDescriptor,
 } from "./inspect";
-import { CodedError } from "./error";
 import type { JsonObject } from "./schema";
 import { asciiCaseFold, quoteIdentifier } from "./sql";
 
@@ -95,10 +95,6 @@ export interface DbSchema {
 interface OrderTerm {
   key: string;
   sql: string;
-}
-
-function visibleColumnNames(table: SchemaTableDescriptor): string[] {
-  return table.columns.filter((column) => isVisibleColumn(column.hidden)).map((column) => column.name);
 }
 
 export function resolveTableName(db: Database, requestedTable: string): string {
@@ -201,7 +197,7 @@ function primaryKeyColumnNames(table: SchemaTableDescriptor): string[] {
 function tieBreakerTerms(table: SchemaTableDescriptor): OrderTerm[] {
   const terms: OrderTerm[] = [];
   const primaryKeyColumns = primaryKeyColumnNames(table);
-  const visibleColumns = visibleColumnNames(table);
+  const visibleColumns = table.columns.filter((c) => isVisibleColumn(c.hidden)).map((c) => c.name);
 
   if (primaryKeyColumns.length > 0) {
     for (const column of primaryKeyColumns) {

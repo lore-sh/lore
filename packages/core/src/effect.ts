@@ -435,7 +435,6 @@ export function getObservedRowByPk(db: Database, table: string, pk: Record<strin
   return encodeRowFromResult(row, columns, quoteAliases, hexAliases, typeAliases);
 }
 
-
 function insertEncodedRow(db: Database, table: string, row: EncodedRow): void {
   const columns = Object.keys(row).sort((a, b) => a.localeCompare(b));
   if (columns.length === 0) {

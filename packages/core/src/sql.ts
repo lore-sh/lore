@@ -349,7 +349,6 @@ export function validateReadSql(inputSql: string): string {
   return sql;
 }
 
-
 function skipWhitespace(sql: string, start: number): number {
   let i = start;
   while (i < sql.length && /\s/.test(sql[i]!)) {

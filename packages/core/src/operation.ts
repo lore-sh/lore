@@ -2,6 +2,7 @@ import { z } from "zod";
 import { runInSavepoint, tableExists, type Database } from "./db";
 import { CodedError } from "./error";
 import { type TableInfoRow, whereClause } from "./inspect";
+import { isSqlStorageClass, type ColumnDefinition, type EncodedRow, type JsonPrimitive, type TableSecondaryObject } from "./schema";
 import {
   COLUMN_TYPE_PATTERN,
   IDENTIFIER_PATTERN,
@@ -12,7 +13,6 @@ import {
   rewriteCreateTableName,
   rewriteDropCheckInCreateTable,
 } from "./sql";
-import { isSqlStorageClass, type ColumnDefinition, type EncodedRow, type JsonPrimitive, type TableSecondaryObject } from "./schema";
 
 export interface CreateTableOperation {
   type: "create_table";
@@ -461,7 +461,6 @@ export function executeOperation(db: Database, operation: Operation): void {
 export function executeReadSql(db: Database, sql: string): Record<string, unknown>[] {
   return db.$client.query<Record<string, unknown>, []>(sql).all();
 }
-
 
 const scalarValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const columnDefaultSchema = z.discriminatedUnion("kind", [

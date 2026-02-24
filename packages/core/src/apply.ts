@@ -1,5 +1,5 @@
-import { runInSavepoint, type Database } from "./db";
 import { appendCommitObserved } from "./commit";
+import { runInSavepoint, type Database } from "./db";
 import { captureObservedState, diffObservedState } from "./effect";
 import { CodedError } from "./error";
 import { schemaHash } from "./inspect";
@@ -105,30 +105,38 @@ function uniqueSorted(values: string[]): string[] {
 }
 
 function summarizeOperations(operations: Operation[]): Omit<CheckSummary, "predicted"> {
-  const touchedTables = uniqueSorted(operations.map((op) => op.table));
-  const schemaOps = operations.filter((op) => SCHEMA_OPERATION_TYPES.has(op.type)).length;
-  const destructiveOps = operations.filter((op) => DESTRUCTIVE_OPERATION_TYPES.has(op.type)).length;
+  let schemaOps = 0;
+  let destructiveOps = 0;
+  const tableSet = new Set<string>();
+  for (const op of operations) {
+    tableSet.add(op.table);
+    if (SCHEMA_OPERATION_TYPES.has(op.type)) schemaOps += 1;
+    if (DESTRUCTIVE_OPERATION_TYPES.has(op.type)) destructiveOps += 1;
+  }
   return {
     operations: operations.length,
     schemaOperations: schemaOps,
     dataOperations: operations.length - schemaOps,
     destructiveOperations: destructiveOps,
-    touchedTables,
+    touchedTables: Array.from(tableSet).sort((a, b) => a.localeCompare(b)),
   };
 }
 
 function destructiveWarnings(operations: Operation[]): CheckIssue[] {
-  return operations.flatMap((op, i) =>
-    DESTRUCTIVE_OPERATION_TYPES.has(op.type)
-      ? [{
-          code: "DESTRUCTIVE_OPERATION",
-          message: `Operation ${i} (${op.type}) changes or removes existing data/schema.`,
-          operationIndex: i,
-          operationType: op.type,
-          table: op.table,
-        }]
-      : [],
-  );
+  const warnings: CheckIssue[] = [];
+  for (let i = 0; i < operations.length; i++) {
+    const op = operations[i]!;
+    if (DESTRUCTIVE_OPERATION_TYPES.has(op.type)) {
+      warnings.push({
+        code: "DESTRUCTIVE_OPERATION",
+        message: `Operation ${i} (${op.type}) changes or removes existing data/schema.`,
+        operationIndex: i,
+        operationType: op.type,
+        table: op.table,
+      });
+    }
+  }
+  return warnings;
 }
 
 interface DryRunResult {

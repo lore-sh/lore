@@ -1,21 +1,5 @@
 import { existsSync } from "node:fs";
 import {
-  LAST_PULLED_COMMIT_META_KEY,
-  LAST_PUSHED_COMMIT_META_KEY,
-  LAST_SYNC_ERROR_META_KEY,
-  LAST_SYNC_STATE_META_KEY,
-  getMetaValue,
-  normalizeMetaString,
-  openDb,
-  resolveDbPath,
-  runInDeferredTransaction,
-  setMetaValue,
-  type Database,
-  initDb,
-} from "./db";
-import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
-import { CodedError } from "./error";
-import {
   findCommitSeq,
   getCommitById,
   getCommitReplayInput,
@@ -24,14 +8,31 @@ import {
   loadCommitReplayInputs,
   replayCommitExactly,
 } from "./commit";
+import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
+import {
+  LAST_PULLED_COMMIT_META_KEY,
+  LAST_PUSHED_COMMIT_META_KEY,
+  LAST_SYNC_ERROR_META_KEY,
+  LAST_SYNC_STATE_META_KEY,
+  getMetaValue,
+  initDb,
+  normalizeMetaString,
+  openDb,
+  resolveDbPath,
+  runInDeferredTransaction,
+  setMetaValue,
+  type Database,
+} from "./db";
+import { CodedError } from "./error";
+import { canonicalJson } from "./hash";
 import {
   authTokenForPlatform,
   classifySyncBoundaryError,
   detectRemoteReadState,
   ensureRemoteInitialized,
   fetchRemoteHead,
-  fetchRemoteProjectionStatus,
   fetchRemoteInputsAfterSeq,
+  fetchRemoteProjectionStatus,
   materializeRemoteToHead,
   normalizeToken,
   openRemoteClient,
@@ -40,7 +41,6 @@ import {
   remoteCommitSeq,
   remoteHasCommit,
 } from "./remote";
-import { canonicalJson } from "./hash";
 
 export type RemotePlatform = "turso" | "libsql";
 

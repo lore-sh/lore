@@ -51,51 +51,40 @@ function toCommitSummary(
     createdAt: number;
   },
 ): CommitSummary {
-  const parents = db
+  const parentIds = db
     .select({ parentCommitId: CommitParentTable.parentCommitId })
     .from(CommitParentTable)
     .where(eq(CommitParentTable.commitId, row.commitId))
     .orderBy(asc(CommitParentTable.ord))
-    .all();
-  const rowTables = db
+    .all()
+    .map((entry) => entry.parentCommitId);
+  const rowEffects = db
     .select({ tableName: RowEffectTable.tableName })
     .from(RowEffectTable)
     .where(eq(RowEffectTable.commitId, row.commitId))
-    .all()
-    .map((entry) => entry.tableName);
-  const schemaTables = db
+    .all();
+  const schemaEffects = db
     .select({ tableName: SchemaEffectTable.tableName })
     .from(SchemaEffectTable)
     .where(eq(SchemaEffectTable.commitId, row.commitId))
-    .all()
-    .map((entry) => entry.tableName);
+    .all();
   const operationCount = db
     .select({ c: sql<number>`count(*)` })
     .from(OpTable)
     .where(eq(OpTable.commitId, row.commitId))
     .get()?.c ?? 0;
-  const rowEffectCount = db
-    .select({ c: sql<number>`count(*)` })
-    .from(RowEffectTable)
-    .where(eq(RowEffectTable.commitId, row.commitId))
-    .get()?.c ?? 0;
-  const schemaEffectCount = db
-    .select({ c: sql<number>`count(*)` })
-    .from(SchemaEffectTable)
-    .where(eq(SchemaEffectTable.commitId, row.commitId))
-    .get()?.c ?? 0;
+
+  const tableSet = new Set<string>();
+  for (const entry of rowEffects) tableSet.add(entry.tableName);
+  for (const entry of schemaEffects) tableSet.add(entry.tableName);
 
   return {
-    commitId: row.commitId,
-    seq: row.seq,
-    kind: row.kind,
-    message: row.message,
-    createdAt: row.createdAt,
-    parentIds: parents.map(({ parentCommitId }) => parentCommitId),
+    ...row,
+    parentIds,
     operationCount,
-    rowEffectCount,
-    schemaEffectCount,
-    affectedTables: Array.from(new Set([...rowTables, ...schemaTables])).sort((a, b) => a.localeCompare(b)),
+    rowEffectCount: rowEffects.length,
+    schemaEffectCount: schemaEffects.length,
+    affectedTables: Array.from(tableSet).sort((a, b) => a.localeCompare(b)),
   };
 }
 
