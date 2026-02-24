@@ -1,34 +1,32 @@
 import { and, asc, eq, gt } from "drizzle-orm";
-import type { Commit } from "./history";
-import { canonicalJson } from "./engine/checksum";
+import { canonicalJson } from "./sql";
 import {
   runInSavepoint,
   runInDeferredTransaction,
   tableExists,
   type Database,
-} from "./engine/db";
-import { CommitTable } from "./engine/schema.sql";
-import { CodedError } from "./error";
+} from "./db";
 import {
   appendCommitObserved,
+  type CommitRowEffect,
+  type CommitSchemaEffect,
   getCommitById,
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
-  type StoredRowEffect,
-  type StoredSchemaEffect,
-} from "./engine/log";
+} from "./commit";
+import { CommitTable } from "./schema";
+import { CodedError } from "./error";
+import type { Commit } from "./schema";
 import {
   captureObservedState,
   fetchObservedRowByPk,
   isSystemSideEffectTable,
   rowHash,
-} from "./engine/diff";
-import {
   applyRowEffectsWithOptions,
   applyUserRowAndSchemaEffects,
   assertNoForeignKeyViolations,
-} from "./engine/effect";
-import { schemaHash } from "./engine/inspect";
+  schemaHash,
+} from "./effect";
 
 export interface RevertConflict {
   kind: "row" | "schema";
@@ -51,8 +49,8 @@ export interface RevertConflicts {
 export type RevertResult = RevertSuccess | RevertConflicts;
 
 export function detectSchemaConflicts(
-  schemaEffects: StoredSchemaEffect[],
-  laterSchemaEffects: StoredSchemaEffect[],
+  schemaEffects: CommitSchemaEffect[],
+  laterSchemaEffects: CommitSchemaEffect[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
   for (const effect of schemaEffects) {
@@ -69,8 +67,8 @@ export function detectSchemaConflicts(
 }
 
 export function detectSchemaRowConflicts(
-  schemaEffects: StoredSchemaEffect[],
-  laterRowEffects: StoredRowEffect[],
+  schemaEffects: CommitSchemaEffect[],
+  laterRowEffects: CommitRowEffect[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
   for (const effect of schemaEffects) {
@@ -89,8 +87,8 @@ export function detectSchemaRowConflicts(
 
 export function detectRowConflict(
   db: Database,
-  targetRowEffects: StoredRowEffect[],
-  laterRowEffects: StoredRowEffect[],
+  targetRowEffects: CommitRowEffect[],
+  laterRowEffects: CommitRowEffect[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
   const missingTables = new Set<string>();
@@ -147,15 +145,15 @@ export function detectRowConflict(
   return conflicts;
 }
 
-export function fetchLaterEffects(db: Database, seq: number): { rows: StoredRowEffect[]; schemas: StoredSchemaEffect[] } {
+export function fetchLaterEffects(db: Database, seq: number): { rows: CommitRowEffect[]; schemas: CommitSchemaEffect[] } {
   const laterCommits = db
     .select({ commitId: CommitTable.commitId })
     .from(CommitTable)
     .where(gt(CommitTable.seq, seq))
     .orderBy(asc(CommitTable.seq))
     .all();
-  const rows: StoredRowEffect[] = [];
-  const schemas: StoredSchemaEffect[] = [];
+  const rows: CommitRowEffect[] = [];
+  const schemas: CommitSchemaEffect[] = [];
   for (const commit of laterCommits) {
     rows.push(...getRowEffectsByCommitId(db, commit.commitId));
     schemas.push(...getSchemaEffectsByCommitId(db, commit.commitId));
@@ -196,8 +194,8 @@ function sqliteConstraintConflict(error: unknown): RevertConflict | null {
 
 function preflightInverseApply(
   db: Database,
-  targetRows: StoredRowEffect[],
-  targetSchemas: StoredSchemaEffect[],
+  targetRows: CommitRowEffect[],
+  targetSchemas: CommitSchemaEffect[],
 ): RevertConflict[] {
   try {
     runInSavepoint(
@@ -236,7 +234,7 @@ export function revert(db: Database, commitId: string): RevertResult {
     if (!targetCommit) {
       throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
     }
-    if (!targetCommit.revertible) {
+    if (targetCommit.revertible !== 1) {
       throw new CodedError("NOT_REVERTIBLE", `Commit ${commitId} has no inverse metadata`);
     }
 

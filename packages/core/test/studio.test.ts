@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  commitById,
-  commitEffects,
   commitHistory,
+  getCommitById,
+  getCommitEffects,
+  getCommitOperations,
   initDb,
   queryTable,
   schema,
@@ -93,7 +94,7 @@ describe("domain query API", () => {
     });
   });
 
-  testWithTmp("commitHistory, commitById, and commitEffects expose commit domain objects", async () => {
+  testWithTmp("commitHistory, getCommitById, getCommitOperations, and getCommitEffects expose commit domain objects", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });
 
@@ -125,11 +126,11 @@ describe("domain query API", () => {
       throw new Error("expected latest commit id");
     }
 
-    const commit = commitById(currentDb(), latestId);
+    const commit = getCommitById(currentDb(), latestId);
     expect(commit).not.toBeNull();
-    expect(commit?.operations).toHaveLength(1);
+    expect(getCommitOperations(currentDb(), latestId)).toHaveLength(1);
 
-    const effects = commitEffects(currentDb(), latestId);
+    const effects = getCommitEffects(currentDb(), latestId);
     expect(effects.rows).toHaveLength(1);
     expect(effects.rows[0]?.tableName).toBe("tasks");
     expect(effects.schemas).toHaveLength(0);

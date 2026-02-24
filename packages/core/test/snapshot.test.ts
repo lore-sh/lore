@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  history,
+  listCommits,
   initDb,
   CodedError,
   maybeCreateSnapshot,
@@ -11,7 +11,7 @@ import {
   verify,
 } from "../src";
 import { promotePrepared } from "../src/snapshot";
-import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/engine/db";
+import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/db";
 import { applyPlan, createTestContext, currentDb, writePlanFile, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -80,7 +80,7 @@ describe("snapshot / recover", () => {
     const rows = query(currentDb(), "SELECT id, msg FROM logs");
     expect(rows).toEqual([{ id: 1, msg: "hello" }]);
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(secondCommit.commitId);
     expect(commits[0]?.kind).toBe(secondCommit.kind);
     expect(commits[0]?.createdAt).toBe(secondCommit.createdAt);
@@ -211,7 +211,7 @@ describe("snapshot / recover", () => {
     const orderRows = query(currentDb(), "SELECT id, item FROM orders");
     expect(orderRows).toEqual([{ id: 1, item: "book" }]);
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(replayed.commitId);
   });
 
@@ -329,7 +329,7 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -365,7 +365,7 @@ describe("snapshot / recover", () => {
     const rows = query(currentDb(), "SELECT id, body FROM auto_replay ORDER BY id");
     expect(rows).toEqual([{ id: 1, body: "x" }]);
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(firstInsert.commitId);
   });
 
@@ -401,7 +401,7 @@ describe("snapshot / recover", () => {
 
     const tableRows = query(currentDb(), "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='auto_schema'");
     expect(tableRows).toEqual([{ c: 0 }]);
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(dropped.commitId);
   });
 
@@ -454,7 +454,7 @@ describe("snapshot / recover", () => {
     expect(fkCheck).toEqual([]);
     verify.close(false);
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -507,7 +507,7 @@ describe("snapshot / recover", () => {
     expect(() => verify.run("INSERT INTO self_fk_replay(id, parent_id, note) VALUES (4, 999, 'bad')")).toThrow();
     verify.close(false);
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(reverted.revertCommit.commitId);
   });
 
@@ -559,7 +559,7 @@ describe("snapshot / recover", () => {
     );
     expect(rows).toEqual([{ id: 1, payload_hex: "410042", payload_len: 3, tag: "b" }]);
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits[0]?.commitId).toBe(updated.commitId);
   });
 });

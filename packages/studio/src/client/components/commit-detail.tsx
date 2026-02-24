@@ -93,11 +93,11 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
           <div className="ui-commit-detail">
             <section>
               <p className="ui-label">Operations</p>
-              {commit.operations.length === 0 ? (
+              {detailData.operations.length === 0 ? (
                 <p className="ui-soft">No operations</p>
               ) : (
                 <ul className="ui-list-tight">
-                  {commit.operations.map((operation, index) => (
+                  {detailData.operations.map((operation, index) => (
                     <li key={`${operation.type}-${index}`} className="ui-mono ui-line">
                       {renderOperationLine(operation)}
                     </li>
@@ -136,7 +136,7 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
               </div>
             </section>
 
-            {enableRevert && commit.revertible ? (
+            {enableRevert && commit.revertible === 1 ? (
               <div className="ui-stack-2">
                 <button
                   type="button"

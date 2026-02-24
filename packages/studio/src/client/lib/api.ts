@@ -2,6 +2,7 @@ import type {
   Commit,
   CommitEffects,
   CommitSummary,
+  Operation,
   RevertConflicts,
   RevertResult,
   SchemaTable,
@@ -43,6 +44,7 @@ export interface TablesPayload {
 
 export interface CommitDetailPayload {
   commit: Commit;
+  operations: Operation[];
   effects: CommitEffects;
 }
 

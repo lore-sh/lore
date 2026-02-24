@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { history, initDb, query } from "../src";
+import { initDb, listCommits, query } from "../src";
 import { applyPlan, createTestContext, planCheck, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -31,7 +31,7 @@ describe("check", () => {
 
     const tableRows = query(currentDb(), "SELECT name FROM sqlite_master WHERE type='table' AND name='todos'");
     expect(tableRows).toEqual([]);
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits).toHaveLength(0);
   });
 

@@ -2,25 +2,26 @@ import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { Commit } from "./history";
+import type { CommitReplayInput } from "./commit";
 import {
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
   MAIN_REF_NAME,
   assertInitialized,
+  deleteWalAndShm,
+  deleteWithSidecars,
   listUserTables,
   openDb,
   resolveDbPath,
   runInDeferredTransaction,
   type Database,
-} from "./engine/db";
-import { CommitTable, RefTable, SnapshotTable } from "./engine/schema.sql";
-import * as schema from "./engine/schema.sql";
+} from "./db";
+import { CommitTable, RefTable, SnapshotTable } from "./schema";
+import * as schema from "./schema";
+import type { Commit } from "./schema";
 import { CodedError } from "./error";
-import { deleteWalAndShm, deleteWithSidecars } from "./engine/files";
-import type { CommitReplayInput } from "./engine/log";
-import { loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
-import { quoteIdentifier } from "./engine/sql";
+import { loadCommitReplayInputs, replayCommitExactly } from "./commit";
+import { quoteIdentifier } from "./sql";
 
 export interface Snapshot {
   commitId: string;

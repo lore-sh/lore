@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { CodedError, commitById, commitEffects, commitHistory, type Database } from "@toss/core";
+import { CodedError, commitHistory, getCommitById, getCommitEffects, getCommitOperations, type Database } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { commitIdParamSchema, positiveIntSchema, validationError } from "./shared";
@@ -43,11 +43,11 @@ export function createHistoryRoutes(db: Database) {
       }),
       (c) => {
         const param = c.req.valid("param");
-        const commit = commitById(db, param.id);
+        const commit = getCommitById(db, param.id);
         if (!commit) {
           throw new CodedError("NOT_FOUND", `Commit not found: ${param.id}`);
         }
-        return c.json({ commit, effects: commitEffects(db, param.id) }, 200);
+        return c.json({ commit, operations: getCommitOperations(db, param.id), effects: getCommitEffects(db, param.id) }, 200);
       },
     );
 }

@@ -35,7 +35,7 @@ export function summarizeCommit(entry: Commit): Record<string, unknown> {
     created_at_unix_ms: entry.createdAt,
     kind: entry.kind,
     message: entry.message,
-    parent_ids: entry.parentIds,
+    parent_count: entry.parentCount,
     state_hash_after: entry.stateHashAfter,
     schema_hash_after: entry.schemaHashAfter,
     revertible: entry.revertible,

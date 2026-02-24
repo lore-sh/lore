@@ -2,15 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import {
-  history,
+  listCommits,
   status,
   initDb,
   CodedError,
   query,
 } from "../src";
-import { executeOperation } from "../src/engine/execute";
+import { executeOperation } from "../src/operation";
 import type { RestoreTableOperation } from "../src";
-import * as engineSchema from "../src/engine/schema.sql";
+import * as engineSchema from "../src/schema";
 import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -49,10 +49,10 @@ describe("applyPlan", () => {
     expect(currentStatus.lastVerifiedAt).toBeNull();
     expect(currentStatus.lastVerifiedOk).toBeNull();
 
-    const commits = history(currentDb());
+    const commits = listCommits(currentDb(), true);
     expect(commits).toHaveLength(2);
     expect(commits[0]?.commitId).toBe(insertCommit.commitId);
-    expect(commits[0]?.parentIds).toHaveLength(1);
+    expect(commits[0]?.parentCount).toBe(1);
     expect(commits[0]?.stateHashAfter.length).toBeGreaterThan(10);
   });
 

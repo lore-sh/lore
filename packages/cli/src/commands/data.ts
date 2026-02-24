@@ -119,7 +119,7 @@ export async function runApply(db: Database, args: string[]): Promise<void> {
     toJson({
       status: "ok",
       commit: summarizeCommit(commit),
-      operations: commit.operations.length,
+      operations: plan.operations.length,
       sync,
       warnings: warning ? [warning] : [],
     }),

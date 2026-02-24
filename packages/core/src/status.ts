@@ -1,10 +1,19 @@
 import { sql } from "drizzle-orm";
-import type { CommitKind } from "./history";
-import type { SyncStatus } from "./sync";
-import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, getMetaValue, listUserTables, type Database } from "./engine/db";
-import { SnapshotTable } from "./engine/schema.sql";
-import { syncStatus } from "./sync";
-import { estimateCommitSizeBytes, estimateHistorySizeBytes, getCommitCount, getHeadCommit } from "./engine/log";
+import {
+  LAST_VERIFIED_AT_META_KEY,
+  LAST_VERIFIED_OK_META_KEY,
+  getMetaValue,
+  listUserTables,
+  type Database,
+} from "./db";
+import {
+  estimateCommitSizeBytes,
+  estimateHistorySizeBytes,
+  getCommitCount,
+  getHeadCommit,
+} from "./commit";
+import { SnapshotTable, type CommitKind } from "./schema";
+import { syncStatus, type SyncStatus } from "./sync";
 import { countTableRows } from "./table";
 
 export interface StorageEstimate {

@@ -1,5 +1,5 @@
 import {
-  history,
+  listCommits,
   status,
   recover,
   resolveDbPath,
@@ -131,7 +131,7 @@ export function runStatus(db: Database, args: string[]): void {
 
 export function runHistory(db: Database, args: string[]): void {
   const { verbose, json } = parseHistoryArgs(args);
-  const entries = history(db);
+  const entries = listCommits(db, true);
   if (json) {
     console.log(toJson(entries));
     return;
@@ -144,7 +144,7 @@ export function runHistory(db: Database, args: string[]): void {
           created_at: formatTimestamp(entry.createdAt),
           created_at_unix_ms: entry.createdAt,
           kind: entry.kind,
-          parent: entry.parentIds.join(","),
+          parent_count: entry.parentCount,
           revert_target: entry.revertTargetId ?? "",
           state_hash: entry.stateHashAfter,
           revertible: entry.revertible,
