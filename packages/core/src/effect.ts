@@ -469,20 +469,23 @@ export function applyRowEffects(
     const ordered = direction === "forward" ? filtered : filtered.toReversed();
     for (const effect of ordered) {
       const forward = direction === "forward";
-      const before = effect.beforeRow;
-      const after = effect.afterRow;
-      const rowMode = effect.opKind === "insert"
-        ? (forward
-          ? { expectedCurrent: null, target: after, opLabel: "insert" }
-          : { expectedCurrent: after, target: null, opLabel: "inverse-delete" })
-        : effect.opKind === "update"
-        ? (forward
-          ? { expectedCurrent: before, target: after, opLabel: "update" }
-          : { expectedCurrent: after, target: before, opLabel: "inverse-update" })
-        : (forward
-          ? { expectedCurrent: before, target: null, opLabel: "delete" }
-          : { expectedCurrent: null, target: before, opLabel: "inverse-insert" });
-      const { expectedCurrent, target, opLabel } = rowMode;
+      const { beforeRow, afterRow } = effect;
+      let expectedCurrent: EncodedRow | null;
+      let target: EncodedRow | null;
+      let opLabel: string;
+      if (effect.opKind === "insert") {
+        expectedCurrent = forward ? null : afterRow;
+        target = forward ? afterRow : null;
+        opLabel = forward ? "insert" : "inverse-delete";
+      } else if (effect.opKind === "update") {
+        expectedCurrent = forward ? beforeRow : afterRow;
+        target = forward ? afterRow : beforeRow;
+        opLabel = forward ? "update" : "inverse-update";
+      } else {
+        expectedCurrent = forward ? beforeRow : null;
+        target = forward ? null : beforeRow;
+        opLabel = forward ? "delete" : "inverse-insert";
+      }
       const isSystem = isSystemTable(effect.tableName);
       if (isSystem && systemPolicy === "reconcile") {
         applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);

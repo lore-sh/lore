@@ -377,29 +377,10 @@ export function readCommitsAfter(db: Database, fromSeqExclusive: number) {
     .where(gt(CommitTable.seq, fromSeqExclusive))
     .orderBy(asc(CommitTable.seq), asc(RowEffectTable.effectIndex))
     .all();
-  const rowEffectsByCommit = new Map<
-    string,
-    Array<{
-      tableName: string;
-      pkJson: string;
-      opKind: "insert" | "update" | "delete";
-      beforeJson: string | null;
-      afterJson: string | null;
-      beforeHash: string | null;
-      afterHash: string | null;
-    }>
-  >();
+  const rowEffectsByCommit = new Map<string, typeof rowEffectRows>();
   for (const row of rowEffectRows) {
     const rows = rowEffectsByCommit.get(row.commitId) ?? [];
-    rows.push({
-      tableName: row.tableName,
-      pkJson: row.pkJson,
-      opKind: row.opKind,
-      beforeJson: row.beforeJson,
-      afterJson: row.afterJson,
-      beforeHash: row.beforeHash,
-      afterHash: row.afterHash,
-    });
+    rows.push(row);
     rowEffectsByCommit.set(row.commitId, rows);
   }
 
@@ -533,20 +514,11 @@ export function replayCommit(
     );
   }
 
+  const { parentCount: _, ...commitFields } = replay.commit;
   writeCommit(
     db,
     {
-      commitId: replay.commit.commitId,
-      seq: replay.commit.seq,
-      kind: replay.commit.kind,
-      message: replay.commit.message,
-      createdAt: replay.commit.createdAt,
-      schemaHashBefore: replay.commit.schemaHashBefore,
-      schemaHashAfter: replay.commit.schemaHashAfter,
-      stateHashAfter: replay.commit.stateHashAfter,
-      planHash: replay.commit.planHash,
-      revertible: replay.commit.revertible,
-      revertTargetId: replay.commit.revertTargetId,
+      ...commitFields,
       parentIds: replay.parentIds,
       operations: replay.operations,
       rowEffects: replay.rowEffects,

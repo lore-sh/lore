@@ -432,15 +432,18 @@ export function syncStatus(db: Database) {
   const storedState = normalizeMetaString(getMetaValue(db, LAST_SYNC_STATE_META_KEY));
   const lastError = normalizeMetaString(getMetaValue(db, LAST_SYNC_ERROR_META_KEY));
   const pendingCommits = pendingCommitsFromHead(db, lastPushedCommit);
-  const state = config
-    ? storedState === "conflict"
-      ? "conflict"
-      : storedState === "offline"
-      ? "offline"
-      : pendingCommits > 0 || storedState === "pending"
-      ? "pending"
-      : "synced"
-    : "offline";
+  let state: "synced" | "pending" | "conflict" | "offline";
+  if (!config) {
+    state = "offline";
+  } else if (storedState === "conflict") {
+    state = "conflict";
+  } else if (storedState === "offline") {
+    state = "offline";
+  } else if (pendingCommits > 0 || storedState === "pending") {
+    state = "pending";
+  } else {
+    state = "synced";
+  }
   return {
     configured: config !== null,
     remotePlatform: config?.platform ?? null,
