@@ -1,32 +1,6 @@
-export const ERROR_CODES = {
-  CONFIG: "CONFIG",
-  NOT_INITIALIZED: "NOT_INITIALIZED",
-  NOT_FOUND: "NOT_FOUND",
-  INVALID_OPERATION: "INVALID_OPERATION",
-  INVALID_IDENTIFIER: "INVALID_IDENTIFIER",
-  INVALID_JSON: "INVALID_JSON",
-  INVALID_PLAN: "INVALID_PLAN",
-  INVALID_SQL: "INVALID_SQL",
-  APPLY_FAILED: "APPLY_FAILED",
-  UNSUPPORTED: "UNSUPPORTED",
-  NO_PRIMARY_KEY: "NO_PRIMARY_KEY",
-  REVERT_FAILED: "REVERT_FAILED",
-  NOT_REVERTIBLE: "NOT_REVERTIBLE",
-  ALREADY_REVERTED: "ALREADY_REVERTED",
-  SNAPSHOT_FAILED: "SNAPSHOT_FAILED",
-  RECOVER_FAILED: "RECOVER_FAILED",
-  SYNC_NOT_CONFIGURED: "SYNC_NOT_CONFIGURED",
-  SYNC_NON_FAST_FORWARD: "SYNC_NON_FAST_FORWARD",
-  SYNC_DIVERGED: "SYNC_DIVERGED",
-  SYNC_AUTH_FAILED: "SYNC_AUTH_FAILED",
-  SYNC_UNREACHABLE: "SYNC_UNREACHABLE",
-  INTERNAL: "INTERNAL",
-} as const;
-
-export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 export type ErrorCategory = "client" | "not_found" | "conflict" | "internal";
 
-export const ERROR_META = {
+const ERROR_CATALOG = {
   CONFIG: { category: "client", httpStatus: 400 },
   NOT_INITIALIZED: { category: "client", httpStatus: 400 },
   NOT_FOUND: { category: "not_found", httpStatus: 404 },
@@ -50,16 +24,13 @@ export const ERROR_META = {
   SYNC_UNREACHABLE: { category: "internal", httpStatus: 500 },
   INTERNAL: { category: "internal", httpStatus: 500 },
 } as const satisfies Record<
-  ErrorCode,
+  string,
   {
     readonly category: ErrorCategory;
     readonly httpStatus: 400 | 404 | 409 | 500;
   }
 >;
-
-export function isErrorCode(code: unknown): code is ErrorCode {
-  return typeof code === "string" && Object.hasOwn(ERROR_CODES, code);
-}
+export type ErrorCode = keyof typeof ERROR_CATALOG;
 
 export class CodedError extends Error {
   override readonly name = "CodedError";
@@ -71,13 +42,10 @@ export class CodedError extends Error {
   }
 
   static is(error: unknown): error is CodedError {
-    if (!(error instanceof Error)) {
+    if (!(error instanceof Error) || error.name !== "CodedError") {
       return false;
     }
-    if (error.name !== "CodedError") {
-      return false;
-    }
-    return "code" in error && isErrorCode(error.code);
+    return "code" in error && typeof error.code === "string" && Object.hasOwn(ERROR_CATALOG, error.code);
   }
 
   static hasCode<C extends ErrorCode>(
@@ -102,7 +70,7 @@ export interface HttpProblem {
 }
 
 export function httpStatusFromError(code: ErrorCode): 400 | 404 | 409 | 500 {
-  return ERROR_META[code].httpStatus;
+  return ERROR_CATALOG[code].httpStatus;
 }
 
 export function toHttpProblem(error: CodedError, instance: string): HttpProblem {

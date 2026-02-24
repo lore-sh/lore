@@ -1,7 +1,6 @@
 import { and, asc, eq, gt } from "drizzle-orm";
 import {
   createCommit,
-  decodeRowEffects,
   findCommit,
   commitRowEffects,
   commitSchemaEffects,
@@ -24,7 +23,7 @@ import {
   type RowEffect,
   type SchemaEffect,
 } from "./effect";
-import { CodedError } from "./error";
+import { CodedError, type ErrorCode } from "./error";
 import { canonicalJson } from "./hash";
 import { schemaHash } from "./inspect";
 import { CommitTable } from "./schema";
@@ -155,10 +154,27 @@ export function getLaterEffects(db: Database, seq: number): { rows: RowEffect[];
   const rows: RowEffect[] = [];
   const schemas: SchemaEffect[] = [];
   for (const commit of laterCommits) {
-    rows.push(...decodeRowEffects(commitRowEffects(db, commit.commitId)));
+    rows.push(...commitRowEffects(db, commit.commitId));
     schemas.push(...commitSchemaEffects(db, commit.commitId));
   }
   return { rows, schemas };
+}
+
+function applyInverse(
+  db: Database,
+  rows: RowEffect[],
+  schemas: SchemaEffect[],
+  errorCode: ErrorCode,
+  context: string,
+): void {
+  applyEffects(db, rows, schemas, "inverse", { disableTableTriggers: true });
+  applyRowEffects(db, rows, "inverse", {
+    disableTableTriggers: true,
+    includeUserEffects: false,
+    includeSystemEffects: true,
+    systemPolicy: "reconcile",
+  });
+  assertForeignKeys(db, errorCode, context);
 }
 
 function sqliteConstraintConflict(error: unknown): ReturnType<typeof detectRowConflict>[number] | null {
@@ -188,16 +204,7 @@ function preflightInverseApply(
       db,
       "toss_revert_preflight",
       () => {
-        applyEffects(db, targetRows, targetSchemas, "inverse", {
-          disableTableTriggers: true,
-        });
-        applyRowEffects(db, targetRows, "inverse", {
-          disableTableTriggers: true,
-          includeUserEffects: false,
-          includeSystemEffects: true,
-          systemPolicy: "reconcile",
-        });
-        assertForeignKeys(db, "REVERT_FAILED", "revert preflight");
+        applyInverse(db, targetRows, targetSchemas, "REVERT_FAILED", "revert preflight");
       },
       { rollbackOnSuccess: true },
     );
@@ -239,7 +246,7 @@ export function revert(
       throw new CodedError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
     }
 
-    const targetRows = decodeRowEffects(commitRowEffects(db, commitId));
+    const targetRows = commitRowEffects(db, commitId);
     const targetSchemas = commitSchemaEffects(db, commitId);
     const seq = commitSeq(db, commitId);
     if (seq === null) {
@@ -258,16 +265,7 @@ export function revert(
 
     const beforeSchemaHash = schemaHash(db);
     const beforeState = captureState(db);
-    applyEffects(db, targetRows, targetSchemas, "inverse", {
-      disableTableTriggers: true,
-    });
-    applyRowEffects(db, targetRows, "inverse", {
-      disableTableTriggers: true,
-      includeUserEffects: false,
-      includeSystemEffects: true,
-      systemPolicy: "reconcile",
-    });
-    assertForeignKeys(db, "REVERT_FAILED", "revert apply");
+    applyInverse(db, targetRows, targetSchemas, "REVERT_FAILED", "revert apply");
 
     const revertCommitEntry = createCommit(db, {
       operations: [],

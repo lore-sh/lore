@@ -4,6 +4,7 @@ import { captureState, diffState } from "./effect";
 import { CodedError } from "./error";
 import { schemaHash } from "./inspect";
 import { executeOperation, type Operation, type Plan } from "./operation";
+import { maybeCreateSnapshot } from "./snapshot";
 
 export async function apply(db: Database, plan: Plan): Promise<Commit> {
   const commit = db.transaction(() => {
@@ -22,7 +23,6 @@ export async function apply(db: Database, plan: Plan): Promise<Commit> {
     });
   }, { behavior: "immediate" });
 
-  const { maybeCreateSnapshot } = await import("./snapshot");
   await maybeCreateSnapshot(db, commit);
   return commit;
 }

@@ -13,7 +13,7 @@ import {
 import { CodedError, type ErrorCode } from "./error";
 import { canonicalJson, sha256Hex } from "./hash";
 import { schemaHash, stateHash } from "./inspect";
-import { Operation, type Operation as Op } from "./operation";
+import { type Operation as Op } from "./operation";
 import {
   CommitKind,
   CommitParentTable,
@@ -40,6 +40,17 @@ export const Commit = z.object({
   revertTargetId: z.string().nullable(),
 });
 export type Commit = z.infer<typeof Commit>;
+
+const SQLITE_VARIABLE_LIMIT = 999;
+
+function chunkSizeForInsert(columnsPerRow: number): number {
+  return Math.max(1, Math.floor(SQLITE_VARIABLE_LIMIT / columnsPerRow));
+}
+
+const COMMIT_PARENT_INSERT_CHUNK_SIZE = chunkSizeForInsert(3);
+const OP_INSERT_CHUNK_SIZE = chunkSizeForInsert(4);
+const ROW_EFFECT_INSERT_CHUNK_SIZE = chunkSizeForInsert(9);
+const SCHEMA_EFFECT_INSERT_CHUNK_SIZE = chunkSizeForInsert(5);
 
 export function computeCommitId(input: {
   seq: number;
@@ -104,17 +115,9 @@ function writeCommit(
     rowEffects: RowEffect[];
     schemaEffects: SchemaEffect[];
   },
-  options: { errorCode?: ErrorCode } = {},
 ) {
-  const errorCode = options.errorCode ?? "RECOVER_FAILED";
-  const { commitId, ...payload } = input;
-  const expected = computeCommitId(payload);
-  if (expected !== input.commitId) {
-    throw new CodedError(errorCode, `Commit payload mismatch for replayed commit ${input.commitId}`);
-  }
-
   const oldHead = headCommit(db)?.commitId ?? null;
-  const commit = Commit.parse({
+  const commit: Commit = {
     commitId: input.commitId,
     seq: input.seq,
     kind: input.kind,
@@ -127,53 +130,81 @@ function writeCommit(
     planHash: input.planHash,
     revertible: input.revertible,
     revertTargetId: input.revertTargetId,
-  });
+  };
 
   db.insert(CommitTable).values(commit).run();
 
-  for (let i = 0; i < input.parentIds.length; i += 1) {
-    db.insert(CommitParentTable)
-      .values({ commitId: input.commitId, parentCommitId: input.parentIds[i]!, ord: i })
-      .run();
+  if (input.parentIds.length > 0) {
+    for (let start = 0; start < input.parentIds.length; start += COMMIT_PARENT_INSERT_CHUNK_SIZE) {
+      const chunk = input.parentIds.slice(start, start + COMMIT_PARENT_INSERT_CHUNK_SIZE);
+      db.insert(CommitParentTable)
+        .values(
+          chunk.map((parentCommitId, offset) => ({
+            commitId: input.commitId,
+            parentCommitId,
+            ord: start + offset,
+          })),
+        )
+        .run();
+    }
   }
 
-  for (let i = 0; i < input.operations.length; i += 1) {
-    const operation = input.operations[i]!;
-    db.insert(OpTable)
-      .values({ commitId: input.commitId, opIndex: i, opType: operation.type, opJson: canonicalJson(operation) })
-      .run();
+  if (input.operations.length > 0) {
+    for (let start = 0; start < input.operations.length; start += OP_INSERT_CHUNK_SIZE) {
+      const chunk = input.operations.slice(start, start + OP_INSERT_CHUNK_SIZE);
+      db.insert(OpTable)
+        .values(
+          chunk.map((operation, offset) => ({
+            commitId: input.commitId,
+            opIndex: start + offset,
+            opType: operation.type,
+            opJson: canonicalJson(operation),
+          })),
+        )
+        .run();
+    }
   }
 
-  for (let i = 0; i < input.rowEffects.length; i += 1) {
-    const effect = input.rowEffects[i]!;
-    const beforeJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
-    const afterJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
-    db.insert(RowEffectTable)
-      .values({
-        commitId: input.commitId,
-        effectIndex: i,
-        tableName: effect.tableName,
-        pkJson: canonicalJson(effect.pk),
-        opKind: effect.opKind,
-        beforeJson,
-        afterJson,
-        beforeHash: beforeJson ? sha256Hex(beforeJson) : null,
-        afterHash: afterJson ? sha256Hex(afterJson) : null,
-      })
-      .run();
+  if (input.rowEffects.length > 0) {
+    for (let start = 0; start < input.rowEffects.length; start += ROW_EFFECT_INSERT_CHUNK_SIZE) {
+      const chunk = input.rowEffects.slice(start, start + ROW_EFFECT_INSERT_CHUNK_SIZE);
+      db.insert(RowEffectTable)
+        .values(
+          chunk.map((effect, offset) => {
+            const beforeJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
+            const afterJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
+            return {
+              commitId: input.commitId,
+              effectIndex: start + offset,
+              tableName: effect.tableName,
+              pkJson: canonicalJson(effect.pk),
+              opKind: effect.opKind,
+              beforeJson,
+              afterJson,
+              beforeHash: beforeJson ? sha256Hex(beforeJson) : null,
+              afterHash: afterJson ? sha256Hex(afterJson) : null,
+            };
+          }),
+        )
+        .run();
+    }
   }
 
-  for (let i = 0; i < input.schemaEffects.length; i += 1) {
-    const effect = input.schemaEffects[i]!;
-    db.insert(SchemaEffectTable)
-      .values({
-        commitId: input.commitId,
-        effectIndex: i,
-        tableName: effect.tableName,
-        beforeJson: effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
-        afterJson: effect.afterTable ? canonicalJson(effect.afterTable) : null,
-      })
-      .run();
+  if (input.schemaEffects.length > 0) {
+    for (let start = 0; start < input.schemaEffects.length; start += SCHEMA_EFFECT_INSERT_CHUNK_SIZE) {
+      const chunk = input.schemaEffects.slice(start, start + SCHEMA_EFFECT_INSERT_CHUNK_SIZE);
+      db.insert(SchemaEffectTable)
+        .values(
+          chunk.map((effect, offset) => ({
+            commitId: input.commitId,
+            effectIndex: start + offset,
+            tableName: effect.tableName,
+            beforeJson: effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
+            afterJson: effect.afterTable ? canonicalJson(effect.afterTable) : null,
+          })),
+        )
+        .run();
+    }
   }
 
   db.update(RefTable)
@@ -207,64 +238,75 @@ export function headCommit(db: Database) {
   return findCommit(db, row.commitId);
 }
 
-export function findCommit(db: Database, commitId: string) {
-  const row = db.select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
-  return row ? Commit.parse(row) : null;
+export function findCommit(db: Database, commitId: string): Commit | null {
+  return db.select().from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get() ?? null;
 }
 
-export function listCommits(db: Database, descending: boolean) {
-  const rows = db
+export function listCommits(db: Database, descending: boolean): Commit[] {
+  return db
     .select()
     .from(CommitTable)
     .orderBy(descending ? desc(CommitTable.seq) : asc(CommitTable.seq))
     .all();
-  return rows.map((row) => Commit.parse(row));
 }
 
-export function commitOperations(db: Database, commitId: string) {
+export function commitOperations(db: Database, commitId: string): Op[] {
   return db
     .select({ opJson: OpTable.opJson })
     .from(OpTable)
     .where(eq(OpTable.commitId, commitId))
     .orderBy(asc(OpTable.opIndex))
     .all()
-    .map((row) => Operation.parse(JSON.parse(row.opJson)));
+    .map((row) => {
+      const operation: Op = JSON.parse(row.opJson);
+      return operation;
+    });
 }
 
-export function commitRowEffects(db: Database, commitId: string) {
-  return db
+type RowEffectRow = {
+  tableName: string;
+  pkJson: string;
+  opKind: RowEffect["opKind"];
+  beforeJson: string | null;
+  afterJson: string | null;
+};
+
+function decodeRowEffects(rows: RowEffectRow[]): RowEffect[] {
+  return rows.map((row) => {
+    const pk: Record<string, string> = JSON.parse(row.pkJson);
+    const beforeRow: RowEffect["beforeRow"] = row.beforeJson ? JSON.parse(row.beforeJson) : null;
+    const afterRow: RowEffect["afterRow"] = row.afterJson ? JSON.parse(row.afterJson) : null;
+    const beforeHash = beforeRow ? sha256Hex(beforeRow) : null;
+    const afterHash = afterRow ? sha256Hex(afterRow) : null;
+    return {
+      tableName: row.tableName,
+      pk,
+      opKind: row.opKind,
+      beforeRow,
+      afterRow,
+      beforeHash,
+      afterHash,
+    };
+  });
+}
+
+export function commitRowEffects(db: Database, commitId: string): RowEffect[] {
+  const rows = db
     .select({
       tableName: RowEffectTable.tableName,
       pkJson: RowEffectTable.pkJson,
       opKind: RowEffectTable.opKind,
       beforeJson: RowEffectTable.beforeJson,
       afterJson: RowEffectTable.afterJson,
-      beforeHash: RowEffectTable.beforeHash,
-      afterHash: RowEffectTable.afterHash,
     })
     .from(RowEffectTable)
     .where(eq(RowEffectTable.commitId, commitId))
     .orderBy(asc(RowEffectTable.effectIndex))
     .all();
+  return decodeRowEffects(rows);
 }
 
-export function decodeRowEffects(rows: ReturnType<typeof commitRowEffects>) {
-  return rows.map((row) => {
-    const beforeRow = row.beforeJson ? JSON.parse(row.beforeJson) : null;
-    const afterRow = row.afterJson ? JSON.parse(row.afterJson) : null;
-    return RowEffect.parse({
-      tableName: row.tableName,
-      pk: JSON.parse(row.pkJson),
-      opKind: row.opKind,
-      beforeRow,
-      afterRow,
-      beforeHash: beforeRow ? sha256Hex(beforeRow) : null,
-      afterHash: afterRow ? sha256Hex(afterRow) : null,
-    });
-  });
-}
-
-export function commitSchemaEffects(db: Database, commitId: string) {
+export function commitSchemaEffects(db: Database, commitId: string): SchemaEffect[] {
   return db
     .select({
       tableName: SchemaEffectTable.tableName,
@@ -275,13 +317,11 @@ export function commitSchemaEffects(db: Database, commitId: string) {
     .where(eq(SchemaEffectTable.commitId, commitId))
     .orderBy(asc(SchemaEffectTable.effectIndex))
     .all()
-    .map((row) =>
-      SchemaEffect.parse({
-        tableName: row.tableName,
-        beforeTable: row.beforeJson ? JSON.parse(row.beforeJson) : null,
-        afterTable: row.afterJson ? JSON.parse(row.afterJson) : null,
-      }),
-    );
+    .map((row) => {
+      const beforeTable: SchemaEffect["beforeTable"] = row.beforeJson ? JSON.parse(row.beforeJson) : null;
+      const afterTable: SchemaEffect["afterTable"] = row.afterJson ? JSON.parse(row.afterJson) : null;
+      return { tableName: row.tableName, beforeTable, afterTable };
+    });
 }
 
 export function commitSeq(db: Database, commitId: string) {
@@ -310,7 +350,7 @@ export function readCommit(db: Database, commitId: string) {
     commit,
     parentIds,
     operations: commitOperations(db, commitId),
-    rowEffects: decodeRowEffects(commitRowEffects(db, commitId)),
+    rowEffects: commitRowEffects(db, commitId),
     schemaEffects: commitSchemaEffects(db, commitId),
   };
 }
@@ -321,8 +361,7 @@ export function readCommitsAfter(db: Database, fromSeqExclusive: number) {
     .from(CommitTable)
     .where(gt(CommitTable.seq, fromSeqExclusive))
     .orderBy(asc(CommitTable.seq))
-    .all()
-    .map((row) => Commit.parse(row));
+    .all();
   if (commits.length === 0) {
     return [];
   }
@@ -357,7 +396,8 @@ export function readCommitsAfter(db: Database, fromSeqExclusive: number) {
   const operationsByCommit = new Map<string, Op[]>();
   for (const row of operationRows) {
     const operations = operationsByCommit.get(row.commitId) ?? [];
-    operations.push(Operation.parse(JSON.parse(row.opJson)));
+    const operation: Op = JSON.parse(row.opJson);
+    operations.push(operation);
     operationsByCommit.set(row.commitId, operations);
   }
 
@@ -369,8 +409,6 @@ export function readCommitsAfter(db: Database, fromSeqExclusive: number) {
       opKind: RowEffectTable.opKind,
       beforeJson: RowEffectTable.beforeJson,
       afterJson: RowEffectTable.afterJson,
-      beforeHash: RowEffectTable.beforeHash,
-      afterHash: RowEffectTable.afterHash,
     })
     .from(RowEffectTable)
     .innerJoin(CommitTable, eq(CommitTable.commitId, RowEffectTable.commitId))
@@ -399,13 +437,9 @@ export function readCommitsAfter(db: Database, fromSeqExclusive: number) {
   const schemaEffectsByCommit = new Map<string, SchemaEffect[]>();
   for (const row of schemaEffectRows) {
     const effects = schemaEffectsByCommit.get(row.commitId) ?? [];
-    effects.push(
-      SchemaEffect.parse({
-        tableName: row.tableName,
-        beforeTable: row.beforeJson ? JSON.parse(row.beforeJson) : null,
-        afterTable: row.afterJson ? JSON.parse(row.afterJson) : null,
-      }),
-    );
+    const beforeTable: SchemaEffect["beforeTable"] = row.beforeJson ? JSON.parse(row.beforeJson) : null;
+    const afterTable: SchemaEffect["afterTable"] = row.afterJson ? JSON.parse(row.afterJson) : null;
+    effects.push({ tableName: row.tableName, beforeTable, afterTable });
     schemaEffectsByCommit.set(row.commitId, effects);
   }
 
@@ -514,16 +548,35 @@ export function replayCommit(
     );
   }
 
+  const expectedCommitId = computeCommitId({
+    seq: replay.commit.seq,
+    kind: replay.commit.kind,
+    message: replay.commit.message,
+    createdAt: replay.commit.createdAt,
+    schemaHashBefore: replay.commit.schemaHashBefore,
+    schemaHashAfter: replay.commit.schemaHashAfter,
+    stateHashAfter: replay.commit.stateHashAfter,
+    planHash: replay.commit.planHash,
+    revertible: replay.commit.revertible,
+    revertTargetId: replay.commit.revertTargetId,
+    parentIds: replay.parentIds,
+    operations: replay.operations,
+    rowEffects: replay.rowEffects,
+    schemaEffects: replay.schemaEffects,
+  });
+  if (expectedCommitId !== replay.commit.commitId) {
+    throw new CodedError(
+      errorCode,
+      `commitId mismatch for replay ${replay.commit.commitId}: expected ${expectedCommitId}`,
+    );
+  }
+
   const { parentCount: _, ...commitFields } = replay.commit;
-  writeCommit(
-    db,
-    {
-      ...commitFields,
-      parentIds: replay.parentIds,
-      operations: replay.operations,
-      rowEffects: replay.rowEffects,
-      schemaEffects: replay.schemaEffects,
-    },
-    { errorCode },
-  );
+  writeCommit(db, {
+    ...commitFields,
+    parentIds: replay.parentIds,
+    operations: replay.operations,
+    rowEffects: replay.rowEffects,
+    schemaEffects: replay.schemaEffects,
+  });
 }

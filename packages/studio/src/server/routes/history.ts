@@ -5,7 +5,6 @@ import {
   findCommit,
   commitOperations,
   commitRowEffects,
-  decodeRowEffects,
   commitSchemaEffects,
   type Database,
 } from "@toss/core";
@@ -56,7 +55,7 @@ export function createHistoryRoutes(db: Database) {
         if (!commit) {
           throw new CodedError("NOT_FOUND", `Commit not found: ${param.id}`);
         }
-        const rowEffects = decodeRowEffects(commitRowEffects(db, param.id));
+        const rowEffects = commitRowEffects(db, param.id);
         return c.json(
           {
             commit,

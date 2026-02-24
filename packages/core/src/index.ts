@@ -1,5 +1,4 @@
 export {
-  ERROR_CODES,
   type ErrorCategory,
   type ErrorCode,
   CodedError,
@@ -13,7 +12,6 @@ export {
   JsonValue,
   JsonObject,
   SqlStorageClass,
-  isSqlStorageClass,
   EncodedCell,
   EncodedRow,
   TableSecondaryObject,
@@ -57,8 +55,6 @@ export {
   LAST_MATERIALIZED_ERROR_META_KEY,
   LAST_VERIFIED_AT_META_KEY,
   LAST_VERIFIED_OK_META_KEY,
-  RESETTABLE_META_DEFAULTS,
-  PRESERVED_META_DEFAULTS,
   isEnoent,
   resolveHomeDir,
   deleteIfExists,
@@ -115,7 +111,6 @@ export {
   replayCommit,
   createCommit,
   computeCommitId,
-  decodeRowEffects,
 } from "./commit";
 
 export {

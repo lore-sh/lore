@@ -7,7 +7,6 @@ import {
   findCommit,
   commitOperations,
   commitRowEffects,
-  decodeRowEffects,
   commitSchemaEffects,
   initDb,
   status,
@@ -58,7 +57,7 @@ describe("history domain", () => {
     expect(commit).not.toBeNull();
     expect(commitOperations(currentDb(), latestId)).toHaveLength(1);
 
-    const rowEffects = decodeRowEffects(commitRowEffects(currentDb(), latestId));
+    const rowEffects = commitRowEffects(currentDb(), latestId);
     expect(rowEffects).toHaveLength(1);
     expect(rowEffects[0]?.tableName).toBe("tasks");
     const schemaEffects = commitSchemaEffects(currentDb(), latestId);
