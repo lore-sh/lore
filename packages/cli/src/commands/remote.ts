@@ -140,33 +140,152 @@ function promptPlatformSelection(): Promise<RemotePlatform> {
   });
 }
 
+type EscapeMode = "none" | "esc" | "csi" | "ss3";
+
+export function reduceMaskedInput(
+  value: string,
+  chunk: string,
+  escapeMode: EscapeMode,
+): {
+  value: string;
+  escapeMode: EscapeMode;
+  submit: boolean;
+  cancel: boolean;
+} {
+  let nextValue = value;
+  let mode: EscapeMode = escapeMode;
+
+  for (const char of chunk) {
+    if (mode === "esc") {
+      if (char === "[") {
+        mode = "csi";
+      } else if (char === "O") {
+        mode = "ss3";
+      } else {
+        mode = "none";
+      }
+      continue;
+    }
+    if (mode === "csi") {
+      const code = char.charCodeAt(0);
+      if (code >= 0x40 && code <= 0x7e) {
+        mode = "none";
+      }
+      continue;
+    }
+    if (mode === "ss3") {
+      mode = "none";
+      continue;
+    }
+
+    if (char === "\u001b") {
+      mode = "esc";
+      continue;
+    }
+    if (char === "\u0003") {
+      return { value: nextValue, escapeMode: mode, submit: false, cancel: true };
+    }
+    if (char === "\r" || char === "\n") {
+      return { value: nextValue, escapeMode: mode, submit: true, cancel: false };
+    }
+    if (char === "\u007F" || char === "\b") {
+      nextValue = nextValue.slice(0, -1);
+      continue;
+    }
+    if (char >= " ") {
+      nextValue += char;
+    }
+  }
+
+  return { value: nextValue, escapeMode: mode, submit: false, cancel: false };
+}
+
+async function promptMaskedInput(question: string): Promise<string> {
+  if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== "function") {
+    throw new Error("interactive terminal required for masked input");
+  }
+
+  stdout.write(question);
+  const wasRaw = stdin.isRaw === true;
+  stdin.resume();
+  if (!wasRaw) {
+    stdin.setRawMode(true);
+  }
+
+  return await new Promise<string>((resolve, reject) => {
+    let value = "";
+    let escapeMode: EscapeMode = "none";
+
+    const finish = (result: string): void => {
+      stdin.off("data", onData);
+      if (!wasRaw && stdin.isRaw) {
+        stdin.setRawMode(false);
+      }
+      stdin.pause();
+      stdout.write("\n");
+      resolve(result);
+    };
+
+    const fail = (error: Error): void => {
+      stdin.off("data", onData);
+      if (!wasRaw && stdin.isRaw) {
+        stdin.setRawMode(false);
+      }
+      stdin.pause();
+      stdout.write("\n");
+      reject(error);
+    };
+
+    const onData = (chunk: Buffer | string): void => {
+      const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      const reduced = reduceMaskedInput(value, text, escapeMode);
+      value = reduced.value;
+      escapeMode = reduced.escapeMode;
+      if (reduced.cancel) {
+        fail(new Error("remote connect cancelled"));
+        return;
+      }
+      if (reduced.submit) {
+        finish(value);
+        return;
+      }
+    };
+
+    stdin.on("data", onData);
+  });
+}
+
 export async function promptRemoteConnect(): Promise<ConnectInput> {
   const platform = await promptPlatformSelection();
   const prompt = createInterface({ input: stdin, output: stdout });
+  let url = "";
+  let tokenActionRaw = "";
   try {
     const urlLabel = platform === "turso" ? "? Turso database URL: " : "? libSQL endpoint URL: ";
-    const url = normalizeRequired(await prompt.question(urlLabel), "Remote URL");
-    const tokenActionRaw = (await prompt.question("? Auth token action [keep|set|clear] (default: keep): "))
+    url = normalizeRequired(await prompt.question(urlLabel), "Remote URL");
+    tokenActionRaw = (await prompt.question("? Auth token action [keep|set|clear] (default: keep): "))
       .trim()
       .toLowerCase();
-    let authToken: string | null | undefined;
-    if (tokenActionRaw.length === 0 || tokenActionRaw === "keep") {
-      authToken = undefined;
-    } else if (tokenActionRaw === "clear") {
-      authToken = null;
-    } else if (tokenActionRaw === "set") {
-      authToken = normalizeRequired(await prompt.question("? Auth token: "), "Auth token");
-    } else {
-      throw new Error("Auth token action must be one of: keep, set, clear.");
-    }
-    return {
-      platform,
-      url,
-      authToken,
-    };
   } finally {
     prompt.close();
   }
+
+  let authToken: string | null | undefined;
+  if (tokenActionRaw.length === 0 || tokenActionRaw === "keep") {
+    authToken = undefined;
+  } else if (tokenActionRaw === "clear") {
+    authToken = null;
+  } else if (tokenActionRaw === "set") {
+    authToken = normalizeRequired(await promptMaskedInput("? Auth token: "), "Auth token");
+  } else {
+    throw new Error("Auth token action must be one of: keep, set, clear.");
+  }
+
+  return {
+    platform,
+    url,
+    authToken,
+  };
 }
 
 function parseRemoteStatusArgs(args: string[]): void {

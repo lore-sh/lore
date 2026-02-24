@@ -9,10 +9,12 @@ import {
 } from "./commit";
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import {
+  DEFAULT_SYNC_PROTOCOL_VERSION,
   LAST_PULLED_COMMIT_META_KEY,
   LAST_PUSHED_COMMIT_META_KEY,
   LAST_SYNC_ERROR_META_KEY,
   LAST_SYNC_STATE_META_KEY,
+  SYNC_PROTOCOL_VERSION_META_KEY,
   getMetaValue,
   initDb,
   normalizeMetaString,
@@ -37,8 +39,11 @@ import {
   openRemoteClient,
   parseRemoteDbName,
   pushCommit,
+  readRemoteSyncProtocolVersion,
+  remoteConfigForDisplay,
   remoteCommitSeq,
   remoteHasCommit,
+  syncErrorForDisplay,
 } from "./remote";
 
 export type RemotePlatform = "turso" | "libsql";
@@ -58,8 +63,9 @@ export function syncConfig() {
 }
 
 function writeSyncState(db: Database, state: "synced" | "pending" | "conflict" | "offline", error: string | null): void {
+  const sanitized = syncErrorForDisplay(error);
   setMetaValue(db, LAST_SYNC_STATE_META_KEY, state);
-  setMetaValue(db, LAST_SYNC_ERROR_META_KEY, error ?? "");
+  setMetaValue(db, LAST_SYNC_ERROR_META_KEY, sanitized ?? "");
 }
 
 function pendingCommitsFromHead(db: Database, lastPushedCommit: string | null): number {
@@ -77,16 +83,39 @@ function pendingCommitsFromHead(db: Database, lastPushedCommit: string | null): 
   return Math.max(head.seq - pushedSeq, 0);
 }
 
+function incompatibleProtocolMessage(localVersion: string | null, remoteVersion: string | null): string {
+  const localLabel = localVersion ?? "missing";
+  const remoteLabel = remoteVersion ?? "missing";
+  return `Incompatible sync protocol: local=${localLabel}, remote=${remoteLabel}, required=${DEFAULT_SYNC_PROTOCOL_VERSION}. Reinitialize local/remote or reconnect to a compatible remote.`;
+}
+
+function assertLocalSyncProtocolVersion(db: Database): string {
+  const localVersion = normalizeMetaString(getMetaValue(db, SYNC_PROTOCOL_VERSION_META_KEY));
+  if (localVersion !== DEFAULT_SYNC_PROTOCOL_VERSION) {
+    throw new CodedError("SYNC_DIVERGED", incompatibleProtocolMessage(localVersion, null));
+  }
+  return localVersion;
+}
+
+async function assertRemoteSyncProtocolVersion(localVersion: string, client: ReturnType<typeof openRemoteClient>): Promise<void> {
+  const remoteVersion = await readRemoteSyncProtocolVersion(client);
+  if (remoteVersion !== localVersion) {
+    throw new CodedError("SYNC_DIVERGED", incompatibleProtocolMessage(localVersion, remoteVersion));
+  }
+}
+
 export async function push(db: Database) {
   const config = syncConfig();
   if (!config) {
     writeSyncState(db, "offline", "Remote is not configured");
     throw new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured");
   }
-
-  const client = openRemoteClient(config);
+  let client: ReturnType<typeof openRemoteClient> | null = null;
   try {
+    const localProtocolVersion = assertLocalSyncProtocolVersion(db);
+    client = openRemoteClient(config);
     await ensureRemoteInitialized(client);
+    await assertRemoteSyncProtocolVersion(localProtocolVersion, client);
     await materializeToHead(client);
     const remoteHeadBefore = await remoteHead(client);
 
@@ -131,7 +160,7 @@ export async function push(db: Database) {
     }
     throw mapped;
   } finally {
-    client.close();
+    client?.close();
   }
 }
 
@@ -141,9 +170,10 @@ export async function pull(db: Database) {
     writeSyncState(db, "offline", "Remote is not configured");
     throw new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured");
   }
-
-  const client = openRemoteClient(config);
+  let client: ReturnType<typeof openRemoteClient> | null = null;
   try {
+    const localProtocolVersion = assertLocalSyncProtocolVersion(db);
+    client = openRemoteClient(config);
     const localHead = headCommit(db)?.commitId ?? null;
     const remoteState = await detectRemoteReadState(client);
     if (remoteState === "empty") {
@@ -163,6 +193,7 @@ export async function pull(db: Database) {
         error: undefined,
       };
     }
+    await assertRemoteSyncProtocolVersion(localProtocolVersion, client);
     const pulledRemoteHead = await remoteHead(client);
     let fromSeq = 0;
 
@@ -231,7 +262,7 @@ export async function pull(db: Database) {
     }
     throw mapped;
   } finally {
-    client.close();
+    client?.close();
   }
 }
 
@@ -332,12 +363,12 @@ export async function autoSync(db: Database) {
       conflict: isConflict
         ? {
             kind: CodedError.hasCode(mapped, "SYNC_DIVERGED") ? "diverged" : "non_fast_forward",
-            message: mapped.message,
+            message: syncErrorForDisplay(mapped.message) ?? mapped.message,
             localHead,
             remoteHead: null,
           }
         : undefined,
-      error: mapped.message,
+      error: syncErrorForDisplay(mapped.message),
     };
   }
 }
@@ -363,7 +394,7 @@ export async function remoteStatus(db: Database) {
     const remoteState = await detectRemoteReadState(client);
     if (remoteState === "empty") {
       return {
-        config,
+        config: remoteConfigForDisplay(config),
         localHead,
         remoteHead: null,
         pendingCommits: pendingCommitsFromHead(db, null),
@@ -376,14 +407,14 @@ export async function remoteStatus(db: Database) {
     const statusRemoteHead = await remoteHead(client);
     const projection = await projectionStatus(client, statusRemoteHead);
     return {
-      config,
+      config: remoteConfigForDisplay(config),
       localHead,
       remoteHead: statusRemoteHead,
       pendingCommits: localPending,
       hasAuthToken: authTokenForPlatform(config) !== undefined,
       projectionHead: projection.projectionHead,
       projectionLagCommits: projection.projectionLagCommits,
-      projectionError: projection.projectionError,
+      projectionError: syncErrorForDisplay(projection.projectionError),
     };
   } catch (error) {
     throw classifySyncBoundaryError(error);
@@ -447,13 +478,13 @@ export function syncStatus(db: Database) {
   return {
     configured: config !== null,
     remotePlatform: config?.platform ?? null,
-    remoteUrl: config?.remoteUrl ?? null,
+    remoteUrl: config ? remoteConfigForDisplay(config).remoteUrl : null,
     remoteDbName: config?.remoteDbName ?? null,
     state,
     lastPushedCommit,
     lastPulledCommit,
     pendingCommits,
-    lastError,
+    lastError: syncErrorForDisplay(lastError),
     projectionHead: null,
     projectionLagCommits: null,
     projectionError: null,

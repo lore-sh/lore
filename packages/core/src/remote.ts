@@ -18,6 +18,7 @@ import {
   RESETTABLE_META_DEFAULTS,
   ROW_EFFECT_TABLE,
   SCHEMA_EFFECT_TABLE,
+  SYNC_PROTOCOL_VERSION_META_KEY,
   normalizeMetaString,
 } from "./db";
 import { CodedError } from "./error";
@@ -34,6 +35,7 @@ import {
   quoteIdentifier,
   rewriteCreateTableName,
 } from "./sql";
+import { stateHashForRemote } from "./state";
 import type { RemotePlatform } from "./sync";
 
 const ENGINE_MIGRATION_DIR = resolve(import.meta.dir, "../migration");
@@ -51,6 +53,65 @@ const SQLITE_SEQUENCE_TABLE = "sqlite_sequence";
 
 type ReplayDirection = "forward" | "inverse";
 type Replay = ReturnType<typeof readCommit>;
+
+const SENSITIVE_QUERY_KEYS = [
+  "token",
+  "auth",
+  "auth_token",
+  "authorization",
+  "access_token",
+  "refresh_token",
+  "api_key",
+  "apikey",
+  "secret",
+  "password",
+  "passwd",
+] as const;
+
+function isSensitiveQueryKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return SENSITIVE_QUERY_KEYS.some((candidate) => normalized.includes(candidate));
+}
+
+export function maskSensitiveUrl(input: string): string {
+  if (!URL.canParse(input)) {
+    return input;
+  }
+  const parsed = new URL(input);
+  let changed = false;
+  if (parsed.username) {
+    parsed.username = "[REDACTED]";
+    changed = true;
+  }
+  if (parsed.password) {
+    parsed.password = "[REDACTED]";
+    changed = true;
+  }
+  for (const key of Array.from(parsed.searchParams.keys())) {
+    if (!isSensitiveQueryKey(key)) {
+      continue;
+    }
+    parsed.searchParams.set(key, "[REDACTED]");
+    changed = true;
+  }
+  return changed ? parsed.toString() : input;
+}
+
+export function maskSensitiveText(input: string): string {
+  let output = input;
+  output = output.replace(/\b(?:https?|libsql|wss?):\/\/[^\s"'`]+/gi, (url) => maskSensitiveUrl(url));
+  output = output.replace(/\bfile:[^\s"'`]+/gi, (url) => maskSensitiveUrl(url));
+  output = output.replace(
+    /"(auth[_-]?token|access[_-]?token|refresh[_-]?token|token|authorization|api[_-]?key|password)"\s*:\s*"[^"]*"/gi,
+    '"$1":"[REDACTED]"',
+  );
+  output = output.replace(
+    /\b(auth[_-]?token|access[_-]?token|refresh[_-]?token|token|authorization|api[_-]?key|password)\b(\s*[:=]\s*)([^,\s;]+)/gi,
+    (_match, key, sep) => `${key}${sep}[REDACTED]`,
+  );
+  output = output.replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [REDACTED]");
+  return output;
+}
 
 function parseRemoteRow(row: Row): Record<string, unknown> {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
@@ -194,12 +255,12 @@ function projectionErrorMessage(error: unknown): string | null {
 
 function describeError(error: unknown): string {
   if (CodedError.is(error)) {
-    return `${error.code}: ${error.message}`;
+    return `${error.code}: ${maskSensitiveText(error.message)}`;
   }
   if (error instanceof Error) {
-    return error.message;
+    return maskSensitiveText(error.message);
   }
-  return String(error);
+  return maskSensitiveText(String(error));
 }
 
 function toProjectionError(error: unknown, context?: string): CodedError {
@@ -220,19 +281,45 @@ async function runProjectionStep<T>(run: () => Promise<T>, context: string): Pro
 
 export function classifySyncBoundaryError(error: unknown): CodedError {
   if (CodedError.is(error)) {
-    return error;
+    const sanitized = maskSensitiveText(error.message);
+    if (sanitized === error.message) {
+      return error;
+    }
+    return new CodedError(error.code, sanitized, { cause: error });
   }
   if (error instanceof Error && (error.name === "SyntaxError" || error.name === "ZodError")) {
-    return new CodedError("SYNC_DIVERGED", error.message, { cause: error });
+    return new CodedError("SYNC_DIVERGED", maskSensitiveText(error.message), { cause: error });
   }
   if (error instanceof Error) {
-    const message = error.message.toLowerCase();
-    if (message.includes("unauthorized") || message.includes("401") || message.includes("auth")) {
-      return new CodedError("SYNC_AUTH_FAILED", error.message, { cause: error });
+    const rawMessage = error.message;
+    const normalized = rawMessage.toLowerCase();
+    const sanitized = maskSensitiveText(rawMessage);
+    if (normalized.includes("unauthorized") || normalized.includes("401") || normalized.includes("auth")) {
+      return new CodedError("SYNC_AUTH_FAILED", sanitized, { cause: error });
     }
-    return new CodedError("SYNC_UNREACHABLE", error.message, { cause: error });
+    return new CodedError("SYNC_UNREACHABLE", sanitized, { cause: error });
   }
-  return new CodedError("SYNC_UNREACHABLE", String(error));
+  return new CodedError("SYNC_UNREACHABLE", maskSensitiveText(String(error)));
+}
+
+export async function readRemoteSyncProtocolVersion(executor: Client | Transaction): Promise<string | null> {
+  const raw = await getRemoteMetaValue(executor, SYNC_PROTOCOL_VERSION_META_KEY);
+  return normalizeMetaString(raw);
+}
+
+export function remoteConfigForDisplay(config: { platform: RemotePlatform; remoteUrl: string; remoteDbName: string | null }) {
+  return {
+    platform: config.platform,
+    remoteUrl: maskSensitiveUrl(config.remoteUrl),
+    remoteDbName: config.remoteDbName,
+  };
+}
+
+export function syncErrorForDisplay(message: string | null): string | null {
+  if (message === null) {
+    return null;
+  }
+  return maskSensitiveText(message);
 }
 
 export function normalizeToken(token: string | null | undefined): string | undefined {
@@ -419,62 +506,13 @@ async function listRemoteUserTables(executor: Client | Transaction): Promise<str
   return rowsFrom(result).map((row) => parseString(parseRowValue(row, "name"), "sqlite_master.name"));
 }
 
-function normalizeStateValue(value: unknown): string | number | boolean | null {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return value;
-  }
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (value instanceof Uint8Array) {
-    return Buffer.from(value).toString("base64");
-  }
-  if (value instanceof ArrayBuffer) {
-    return Buffer.from(new Uint8Array(value)).toString("base64");
-  }
-  if (ArrayBuffer.isView(value)) {
-    return Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64");
-  }
-  return JSON.stringify(value);
-}
-
-function normalizeStateRow(row: Record<string, unknown>): Record<string, string | number | boolean | null> {
-  const out: Record<string, string | number | boolean | null> = {};
-  for (const [key, value] of Object.entries(row)) {
-    out[key] = normalizeStateValue(value);
-  }
-  return out;
-}
-
-async function remotePrimaryKeyColumns(executor: Client | Transaction, tableName: string): Promise<string[]> {
-  const result = await executor.execute(`PRAGMA table_info(${pragmaLiteral(tableName)})`);
-  const pkColumns = rowsFrom(result)
-    .map((row) => ({
-      name: parseString(parseRowValue(row, "name"), `PRAGMA table_info(${tableName}).name`),
-      pk: parseInteger(parseRowValue(row, "pk"), `PRAGMA table_info(${tableName}).pk`),
-    }))
-    .filter((column) => column.pk > 0)
-    .sort((a, b) => a.pk - b.pk)
-    .map((column) => column.name);
-  if (pkColumns.length === 0) {
-    throw projectionFailure(`Table ${tableName} must define PRIMARY KEY for tracked operations`);
-  }
-  return pkColumns;
-}
-
 async function remoteStateHash(executor: Client | Transaction): Promise<string> {
-  const tables = await listRemoteUserTables(executor);
-  const state: Record<string, Array<Record<string, string | number | boolean | null>>> = {};
-  for (const tableName of tables) {
-    const pkColumns = await remotePrimaryKeyColumns(executor, tableName);
-    const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
-    const result = await executor.execute(`SELECT * FROM ${quoteIdentifier(tableName, { unsafe: true })} ORDER BY ${orderBy}`);
-    state[tableName] = rowsFrom(result).map((row) => normalizeStateRow(parseRemoteRow(row)));
+  try {
+    return await stateHashForRemote(executor);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw projectionFailure(`state hash failed: ${message}`);
   }
-  return sha256Hex(state);
 }
 
 async function remoteSchemaHash(executor: Client | Transaction): Promise<string> {

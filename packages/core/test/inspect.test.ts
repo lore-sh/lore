@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { normalizePage, normalizePageSize, normalizeRow, whereClause } from "../src/inspect";
-import { computeSchemaHash, withTmpDirCleanup } from "./helpers";
+import { initDb } from "../src";
+import { normalizePage, normalizePageSize, normalizeRow, stateHash, whereClause } from "../src/inspect";
+import { computeSchemaHash, createTestContext, currentDb, withDbPath, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
@@ -79,6 +80,20 @@ describe("schemaHash", () => {
 });
 
 describe("inspect helpers", () => {
+  testWithTmp("stateHash distinguishes adjacent int64 values", async () => {
+    const ctx = createTestContext();
+    await initDb({ dbPath: ctx.dbPath });
+
+    await withDbPath(ctx.dbPath, async () => {
+      currentDb().$client.run("CREATE TABLE ledger (id INTEGER PRIMARY KEY, amount INTEGER NOT NULL)");
+      currentDb().$client.run("INSERT INTO ledger(id, amount) VALUES (1, 9223372036854775806)");
+      const hashA = stateHash(currentDb());
+      currentDb().$client.run("UPDATE ledger SET amount = 9223372036854775807 WHERE id = 1");
+      const hashB = stateHash(currentDb());
+      expect(hashA).not.toBe(hashB);
+    });
+  });
+
   test("normalizeRow serializes non-finite/bytes/object values", () => {
     const normalized = normalizeRow({
       amount: Infinity,

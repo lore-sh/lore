@@ -2,6 +2,7 @@ import { listUserTables, type Database } from "./db";
 import { CodedError } from "./error";
 import { sha256Hex } from "./hash";
 import type { JsonObject, JsonPrimitive } from "./schema";
+import { stateHashForDb } from "./state";
 import {
   extractCheckConstraints,
   normalizeSqlNullable,
@@ -233,17 +234,7 @@ export function schemaHash(db: Database): string {
 }
 
 export function stateHash(db: Database): string {
-  const tables = listUserTables(db);
-  const state: Record<string, JsonObject[]> = {};
-  for (const table of tables) {
-    const pkColumns = assertPrimaryKey(db, table);
-    const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
-    const rows = db.$client
-      .query<Record<string, unknown>, []>(`SELECT * FROM ${quoteIdentifier(table, { unsafe: true })} ORDER BY ${orderBy}`)
-      .all();
-    state[table] = rows.map((row) => normalizeRow(row));
-  }
-  return sha256Hex(state);
+  return stateHashForDb(db);
 }
 
 export function whereClause(values: Record<string, JsonPrimitive>): { clause: string; bindings: JsonPrimitive[] } {

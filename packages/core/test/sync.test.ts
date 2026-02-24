@@ -3,10 +3,14 @@ import { Database } from "bun:sqlite";
 import { chmod } from "node:fs/promises";
 import {
   autoSync,
+  classifySyncBoundaryError,
   clone,
   connect,
+  openRemoteClient,
   syncConfig,
   remoteStatus,
+  sync,
+  stateHash,
   status,
   initDb,
   CodedError,
@@ -17,7 +21,8 @@ import {
   verify,
 } from "../src";
 import { readAuthToken, writeAuthToken, writeRemoteConfig } from "../src/config";
-import { LAST_SYNC_STATE_META_KEY } from "../src/db";
+import { LAST_SYNC_STATE_META_KEY, SYNC_PROTOCOL_VERSION_META_KEY } from "../src/db";
+import { stateHashForRemote } from "../src/state";
 import { applyPlan, createTestContext, currentDb, withDbPath, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -1398,6 +1403,178 @@ describe("sync with Turso protocol", () => {
       const status = await remoteStatus(currentDb());
       expect(status.config).toBeNull();
       expect(status.hasAuthToken).toBe(true);
+    });
+  });
+
+  testWithTmp("local and remote stateHash are identical after push", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDb({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create-orders.json", {
+      message: "create orders",
+      operations: [
+        {
+          type: "create_table",
+          table: "orders",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert-orders.json", {
+      message: "insert orders",
+      operations: [{ type: "insert", table: "orders", values: { id: 1, title: "first" } }],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connect(currentDb(), { platform: "libsql", url: remoteUrl });
+      await applyPlan(currentDb(), createPlan);
+      await applyPlan(currentDb(), insertPlan);
+      const localHash = stateHash(currentDb());
+      await push(currentDb());
+
+      const config = syncConfig();
+      if (!config) {
+        throw new Error("remote config is missing");
+      }
+      const client = openRemoteClient(config);
+      try {
+        const remoteHash = await stateHashForRemote(client);
+        expect(remoteHash).toBe(localHash);
+      } finally {
+        client.close();
+      }
+    });
+  });
+
+  testWithTmp("push/pull/sync fail fast when sync protocol version mismatches", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDb({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create-protocol.json", {
+      message: "create protocol table",
+      operations: [
+        {
+          type: "create_table",
+          table: "items",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connect(currentDb(), { platform: "libsql", url: remoteUrl });
+      await applyPlan(currentDb(), createPlan);
+      await push(currentDb());
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb
+        .query("UPDATE _toss_meta SET value = '2' WHERE key = ?")
+        .run(SYNC_PROTOCOL_VERSION_META_KEY);
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      const checks = [
+        { name: "pull", run: () => pull(currentDb()) },
+        { name: "push", run: () => push(currentDb()) },
+        { name: "sync", run: () => sync(currentDb()) },
+      ];
+      for (const check of checks) {
+        try {
+          await check.run();
+          throw new Error(`${check.name} should fail when sync protocol versions differ`);
+        } catch (error) {
+          expect(CodedError.hasCode(error, "SYNC_DIVERGED")).toBe(true);
+          if (CodedError.hasCode(error, "SYNC_DIVERGED")) {
+            expect(error.message).toContain("Incompatible sync protocol");
+            expect(error.message).toContain("Reinitialize");
+          }
+        }
+      }
+    });
+  });
+
+  testWithTmp("local protocol mismatch records conflict state on push/pull", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDb({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create-local-protocol.json", {
+      message: "create local protocol table",
+      operations: [
+        {
+          type: "create_table",
+          table: "notes",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+
+    await withDbPath(local.dbPath, async () => {
+      await connect(currentDb(), { platform: "libsql", url: remoteUrl });
+      await applyPlan(currentDb(), createPlan);
+      await push(currentDb());
+      expect(status(currentDb()).sync.state).toBe("synced");
+
+      currentDb().$client.query("UPDATE _toss_meta SET value = '2' WHERE key = ?").run(SYNC_PROTOCOL_VERSION_META_KEY);
+      const localProtocol = currentDb().$client
+        .query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1")
+        .get(SYNC_PROTOCOL_VERSION_META_KEY);
+      expect(localProtocol?.value).toBe("2");
+
+      const checks = [
+        { name: "push", run: () => push(currentDb()) },
+        { name: "pull", run: () => pull(currentDb()) },
+      ];
+
+      for (const check of checks) {
+        let thrown: unknown = null;
+        try {
+          await check.run();
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown).not.toBeNull();
+        const currentStatus = status(currentDb());
+        expect(currentStatus.sync.state).toBe("conflict");
+        expect(currentStatus.sync.lastError).toContain("Incompatible sync protocol");
+      }
+    });
+  });
+
+  test("classifySyncBoundaryError redacts token and auth query values", () => {
+    const mapped = classifySyncBoundaryError(
+      new Error("request failed for libsql://db.turso.io?authToken=plain-token&trace=1 token=inline-secret Bearer abc.def"),
+    );
+    expect(mapped.message).not.toContain("plain-token");
+    expect(mapped.message).not.toContain("inline-secret");
+    expect(mapped.message).not.toContain("abc.def");
+    expect(mapped.message).toContain("[REDACTED]");
+  });
+
+  testWithTmp("status masks sensitive query values in remote URL", async () => {
+    const local = createTestContext();
+    await initDb({ dbPath: local.dbPath });
+
+    await withDbPath(local.dbPath, async () => {
+      writeRemoteConfig({
+        platform: "libsql",
+        url: "libsql://db.example.com?authToken=plain-token&region=apne2",
+      });
+      const currentStatus = status(currentDb());
+      expect(currentStatus.sync.remoteUrl).toContain("%5BREDACTED%5D");
+      expect(currentStatus.sync.remoteUrl).not.toContain("plain-token");
     });
   });
 

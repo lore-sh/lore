@@ -4,6 +4,7 @@ import {
   parseCloneArgs,
   parseClonePlatform,
   parseRemoteConnectArgs,
+  reduceMaskedInput,
   validatePullArgs,
   validatePushArgs,
   validateRemoteArgs,
@@ -126,5 +127,32 @@ describe("remote command", () => {
     expect(() => validatePushArgs(["--x"])).toThrow("push does not accept arguments");
     expect(() => validatePullArgs(["--x"])).toThrow("pull does not accept arguments");
     expect(() => validateSyncArgs(["--x"])).toThrow("sync does not accept arguments");
+  });
+
+  test("reduceMaskedInput consumes full CSI escape sequences", () => {
+    const reduced = reduceMaskedInput("token", "\u001b[D", "none");
+    expect(reduced.value).toBe("token");
+    expect(reduced.escapeMode).toBe("none");
+    expect(reduced.submit).toBe(false);
+    expect(reduced.cancel).toBe(false);
+  });
+
+  test("reduceMaskedInput consumes split escape sequences across chunks", () => {
+    const first = reduceMaskedInput("ab", "\u001b[", "none");
+    expect(first.value).toBe("ab");
+    expect(first.escapeMode).toBe("csi");
+
+    const second = reduceMaskedInput(first.value, "D3", first.escapeMode);
+    expect(second.value).toBe("ab3");
+    expect(second.escapeMode).toBe("none");
+  });
+
+  test("reduceMaskedInput ignores delete key sequence and keeps backspace behavior", () => {
+    const deleted = reduceMaskedInput("abc", "\u001b[3~", "none");
+    expect(deleted.value).toBe("abc");
+    expect(deleted.escapeMode).toBe("none");
+
+    const backspaced = reduceMaskedInput("abc", "\u007F", "none");
+    expect(backspaced.value).toBe("ab");
   });
 });
