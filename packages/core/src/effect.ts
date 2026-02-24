@@ -465,49 +465,52 @@ export function applyRowEffects(
     isSystemTable(effect.tableName) ? includeSystemEffects : includeUserEffects,
   );
   const droppedTriggers = options.disableTableTriggers ? dropTriggersForTables(db, filtered) : null;
-  const ordered = direction === "forward" ? filtered : filtered.toReversed();
-  for (const effect of ordered) {
-    const forward = direction === "forward";
-    const before = effect.beforeRow;
-    const after = effect.afterRow;
-    const rowMode = effect.opKind === "insert"
-      ? (forward
-        ? { expectedCurrent: null, target: after, opLabel: "insert" }
-        : { expectedCurrent: after, target: null, opLabel: "inverse-delete" })
-      : effect.opKind === "update"
-      ? (forward
-        ? { expectedCurrent: before, target: after, opLabel: "update" }
-        : { expectedCurrent: after, target: before, opLabel: "inverse-update" })
-      : (forward
-        ? { expectedCurrent: before, target: null, opLabel: "delete" }
-        : { expectedCurrent: null, target: before, opLabel: "inverse-insert" });
-    const { expectedCurrent, target, opLabel } = rowMode;
-    const isSystem = isSystemTable(effect.tableName);
-    if (isSystem && systemPolicy === "reconcile") {
-      applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);
-      continue;
+  try {
+    const ordered = direction === "forward" ? filtered : filtered.toReversed();
+    for (const effect of ordered) {
+      const forward = direction === "forward";
+      const before = effect.beforeRow;
+      const after = effect.afterRow;
+      const rowMode = effect.opKind === "insert"
+        ? (forward
+          ? { expectedCurrent: null, target: after, opLabel: "insert" }
+          : { expectedCurrent: after, target: null, opLabel: "inverse-delete" })
+        : effect.opKind === "update"
+        ? (forward
+          ? { expectedCurrent: before, target: after, opLabel: "update" }
+          : { expectedCurrent: after, target: before, opLabel: "inverse-update" })
+        : (forward
+          ? { expectedCurrent: before, target: null, opLabel: "delete" }
+          : { expectedCurrent: null, target: before, opLabel: "inverse-insert" });
+      const { expectedCurrent, target, opLabel } = rowMode;
+      const isSystem = isSystemTable(effect.tableName);
+      if (isSystem && systemPolicy === "reconcile") {
+        applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);
+        continue;
+      }
+      const current = readRow(db, effect.tableName, effect.pk);
+      const currentHash = rowHash(current);
+      const expectedHash = rowHash(expectedCurrent);
+      if (currentHash !== expectedHash) {
+        throw new CodedError(
+          "REVERT_FAILED",
+          `Observed row mismatch during ${opLabel} on ${effect.tableName} (pk=${canonicalJson(effect.pk)})`,
+        );
+      }
+      if (!target) {
+        deleteByPk(db, effect.tableName, effect.pk);
+        continue;
+      }
+      if (!current) {
+        insertEncodedRow(db, effect.tableName, target);
+        continue;
+      }
+      updateEncodedRow(db, effect.tableName, effect.pk, target);
     }
-    const current = readRow(db, effect.tableName, effect.pk);
-    const currentHash = rowHash(current);
-    const expectedHash = rowHash(expectedCurrent);
-    if (currentHash !== expectedHash) {
-      throw new CodedError(
-        "REVERT_FAILED",
-        `Observed row mismatch during ${opLabel} on ${effect.tableName} (pk=${canonicalJson(effect.pk)})`,
-      );
+  } finally {
+    if (droppedTriggers) {
+      restoreDroppedTriggers(db, droppedTriggers);
     }
-    if (!target) {
-      deleteByPk(db, effect.tableName, effect.pk);
-      continue;
-    }
-    if (!current) {
-      insertEncodedRow(db, effect.tableName, target);
-      continue;
-    }
-    updateEncodedRow(db, effect.tableName, effect.pk, target);
-  }
-  if (droppedTriggers) {
-    restoreDroppedTriggers(db, droppedTriggers);
   }
 }
 

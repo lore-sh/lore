@@ -316,13 +316,125 @@ export function readCommit(db: Database, commitId: string) {
 }
 
 export function readCommitsAfter(db: Database, fromSeqExclusive: number) {
-  const rows = db
-    .select({ commitId: CommitTable.commitId })
+  const commits = db
+    .select()
     .from(CommitTable)
     .where(gt(CommitTable.seq, fromSeqExclusive))
     .orderBy(asc(CommitTable.seq))
+    .all()
+    .map((row) => Commit.parse(row));
+  if (commits.length === 0) {
+    return [];
+  }
+
+  const parentRows = db
+    .select({
+      commitId: CommitParentTable.commitId,
+      parentCommitId: CommitParentTable.parentCommitId,
+    })
+    .from(CommitParentTable)
+    .innerJoin(CommitTable, eq(CommitTable.commitId, CommitParentTable.commitId))
+    .where(gt(CommitTable.seq, fromSeqExclusive))
+    .orderBy(asc(CommitTable.seq), asc(CommitParentTable.ord))
     .all();
-  return rows.map((row) => readCommit(db, row.commitId));
+  const parentsByCommit = new Map<string, string[]>();
+  for (const row of parentRows) {
+    const parentIds = parentsByCommit.get(row.commitId) ?? [];
+    parentIds.push(row.parentCommitId);
+    parentsByCommit.set(row.commitId, parentIds);
+  }
+
+  const operationRows = db
+    .select({
+      commitId: OpTable.commitId,
+      opJson: OpTable.opJson,
+    })
+    .from(OpTable)
+    .innerJoin(CommitTable, eq(CommitTable.commitId, OpTable.commitId))
+    .where(gt(CommitTable.seq, fromSeqExclusive))
+    .orderBy(asc(CommitTable.seq), asc(OpTable.opIndex))
+    .all();
+  const operationsByCommit = new Map<string, Op[]>();
+  for (const row of operationRows) {
+    const operations = operationsByCommit.get(row.commitId) ?? [];
+    operations.push(Operation.parse(JSON.parse(row.opJson)));
+    operationsByCommit.set(row.commitId, operations);
+  }
+
+  const rowEffectRows = db
+    .select({
+      commitId: RowEffectTable.commitId,
+      tableName: RowEffectTable.tableName,
+      pkJson: RowEffectTable.pkJson,
+      opKind: RowEffectTable.opKind,
+      beforeJson: RowEffectTable.beforeJson,
+      afterJson: RowEffectTable.afterJson,
+      beforeHash: RowEffectTable.beforeHash,
+      afterHash: RowEffectTable.afterHash,
+    })
+    .from(RowEffectTable)
+    .innerJoin(CommitTable, eq(CommitTable.commitId, RowEffectTable.commitId))
+    .where(gt(CommitTable.seq, fromSeqExclusive))
+    .orderBy(asc(CommitTable.seq), asc(RowEffectTable.effectIndex))
+    .all();
+  const rowEffectsByCommit = new Map<
+    string,
+    Array<{
+      tableName: string;
+      pkJson: string;
+      opKind: "insert" | "update" | "delete";
+      beforeJson: string | null;
+      afterJson: string | null;
+      beforeHash: string | null;
+      afterHash: string | null;
+    }>
+  >();
+  for (const row of rowEffectRows) {
+    const rows = rowEffectsByCommit.get(row.commitId) ?? [];
+    rows.push({
+      tableName: row.tableName,
+      pkJson: row.pkJson,
+      opKind: row.opKind,
+      beforeJson: row.beforeJson,
+      afterJson: row.afterJson,
+      beforeHash: row.beforeHash,
+      afterHash: row.afterHash,
+    });
+    rowEffectsByCommit.set(row.commitId, rows);
+  }
+
+  const schemaEffectRows = db
+    .select({
+      commitId: SchemaEffectTable.commitId,
+      tableName: SchemaEffectTable.tableName,
+      beforeJson: SchemaEffectTable.beforeJson,
+      afterJson: SchemaEffectTable.afterJson,
+    })
+    .from(SchemaEffectTable)
+    .innerJoin(CommitTable, eq(CommitTable.commitId, SchemaEffectTable.commitId))
+    .where(gt(CommitTable.seq, fromSeqExclusive))
+    .orderBy(asc(CommitTable.seq), asc(SchemaEffectTable.effectIndex))
+    .all();
+  const schemaEffectsByCommit = new Map<string, SchemaEffect[]>();
+  for (const row of schemaEffectRows) {
+    const effects = schemaEffectsByCommit.get(row.commitId) ?? [];
+    effects.push(
+      SchemaEffect.parse({
+        tableName: row.tableName,
+        beforeTable: row.beforeJson ? JSON.parse(row.beforeJson) : null,
+        afterTable: row.afterJson ? JSON.parse(row.afterJson) : null,
+      }),
+    );
+    schemaEffectsByCommit.set(row.commitId, effects);
+  }
+
+  return commits.map((commit) => ({
+    commit,
+    parentIds: parentsByCommit.get(commit.commitId) ?? [],
+    operations: operationsByCommit.get(commit.commitId) ?? [],
+    rowEffects: decodeRowEffects(rowEffectsByCommit.get(commit.commitId) ?? []),
+    schemaEffects: schemaEffectsByCommit.get(commit.commitId) ?? [],
+  }));
 }
 
 export function createCommit(

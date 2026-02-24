@@ -21,10 +21,10 @@ import {
   normalizeMetaString,
 } from "./db";
 import { CodedError } from "./error";
-import type { RowEffect, SchemaEffect } from "./effect";
+import { dependencyOrder, RowEffect, SchemaEffect } from "./effect";
 import { canonicalJson, sha256Hex } from "./hash";
 import { hashSchema } from "./inspect";
-import type { Operation } from "./operation";
+import { Operation, type Operation as Op } from "./operation";
 import type { EncodedCell, EncodedRow } from "./schema";
 import {
   extractCheckConstraints,
@@ -60,24 +60,23 @@ function parseRemoteRow(row: Row): Record<string, unknown> {
 }
 
 export function parseRemoteDbName(remoteUrl: string): string | null {
-  try {
-    const parsed = new URL(remoteUrl);
-    if (parsed.protocol === "file:") {
-      const file = basename(parsed.pathname);
-      if (!file) {
-        return null;
-      }
-      return file.endsWith(".db") ? file.slice(0, -3) : file;
-    }
-    const host = parsed.hostname.trim();
-    if (!host) {
-      return null;
-    }
-    const [name] = host.split(".");
-    return name?.trim().length ? name.trim() : null;
-  } catch {
+  if (!URL.canParse(remoteUrl)) {
     return null;
   }
+  const parsed = new URL(remoteUrl);
+  if (parsed.protocol === "file:") {
+    const file = basename(parsed.pathname);
+    if (!file) {
+      return null;
+    }
+    return file.endsWith(".db") ? file.slice(0, -3) : file;
+  }
+  const host = parsed.hostname.trim();
+  if (!host) {
+    return null;
+  }
+  const [name] = host.split(".");
+  return name?.trim().length ? name.trim() : null;
 }
 
 function parseRowValue(row: Row, key: string): unknown {
@@ -115,22 +114,32 @@ function parseNullableStringLike(value: unknown, label: string): string | null {
   return parseStringLike(value, label);
 }
 
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE_INTEGER_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
+
+function parseSafeBigInt(value: bigint, label: string): number {
+  if (value > MAX_SAFE_INTEGER_BIGINT || value < MIN_SAFE_INTEGER_BIGINT) {
+    throw new CodedError("SYNC_DIVERGED", `Remote ${label} is outside JavaScript safe integer range`);
+  }
+  return Number(value);
+}
+
 function parseInteger(value: unknown, label: string): number {
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new CodedError("SYNC_DIVERGED", `Remote ${label} is not a finite number`);
+    if (!Number.isInteger(value) || !Number.isSafeInteger(value)) {
+      throw new CodedError("SYNC_DIVERGED", `Remote ${label} is not a safe integer`);
     }
     return value;
   }
   if (typeof value === "bigint") {
-    return Number(value);
+    return parseSafeBigInt(value, label);
   }
   if (typeof value === "string") {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) {
+    const normalized = value.trim();
+    if (!/^[+-]?\d+$/.test(normalized)) {
       throw new CodedError("SYNC_DIVERGED", `Remote ${label} is not an integer`);
     }
-    return parsed;
+    return parseSafeBigInt(BigInt(normalized), label);
   }
   throw new CodedError("SYNC_DIVERGED", `Remote ${label} is invalid`);
 }
@@ -149,13 +158,9 @@ function parseOpKind(value: string): "insert" | "update" | "delete" {
   throw new CodedError("SYNC_DIVERGED", `Remote row effect kind is invalid: ${value}`);
 }
 
-function parseJson<T>(value: unknown, label: string): T {
+function parseJson(value: unknown, label: string): unknown {
   const text = parseString(value, label);
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new CodedError("SYNC_DIVERGED", `Remote ${label} JSON is invalid`);
-  }
+  return JSON.parse(text) as unknown;
 }
 
 function parseSqlStorageClass(value: unknown, label: string): EncodedCell["storageClass"] {
@@ -216,6 +221,9 @@ async function runProjectionStep<T>(run: () => Promise<T>, context: string): Pro
 export function classifySyncBoundaryError(error: unknown): CodedError {
   if (CodedError.is(error)) {
     return error;
+  }
+  if (error instanceof Error && (error.name === "SyntaxError" || error.name === "ZodError")) {
+    return new CodedError("SYNC_DIVERGED", error.message, { cause: error });
   }
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
@@ -326,7 +334,12 @@ async function writeMaterializedCheckpoint(executor: Client | Transaction, commi
 }
 
 async function persistMaterializationErrorBestEffort(client: Client, error: unknown): Promise<void> {
-  const message = projectionErrorMessage(error);
+  const message = projectionErrorMessage(error) ??
+    (CodedError.hasCode(error, "SYNC_DIVERGED")
+      ? error.message
+      : error instanceof Error && (error.name === "SyntaxError" || error.name === "ZodError")
+      ? toProjectionError(error).message
+      : null);
   if (!message) {
     return;
   }
@@ -935,51 +948,6 @@ function orderSchemaEffectsForReplay(effects: SchemaEffect[], direction: ReplayD
     return effects;
   }
 
-  const compareTableNames = (left: string, right: string): number => {
-    const leftSystem = isSystemSideEffectTable(left);
-    const rightSystem = isSystemSideEffectTable(right);
-    if (leftSystem !== rightSystem) {
-      return leftSystem ? -1 : 1;
-    }
-    return left.localeCompare(right);
-  };
-
-  const dependencyOrder = (
-    tables: string[],
-    tableRefs: Map<string, string[]>,
-    mode: "parent-first" | "child-first",
-  ): string[] => {
-    const tableSet = new Set(tables);
-    const outgoing = new Map<string, string[]>();
-    for (const table of tables) {
-      const refs = (tableRefs.get(table) ?? []).filter((ref) => tableSet.has(ref));
-      outgoing.set(table, refs.sort(compareTableNames));
-    }
-
-    const temporary = new Set<string>();
-    const permanent = new Set<string>();
-    const parentFirst: string[] = [];
-
-    const visit = (table: string): void => {
-      if (permanent.has(table) || temporary.has(table)) {
-        return;
-      }
-      temporary.add(table);
-      for (const ref of outgoing.get(table) ?? []) {
-        visit(ref);
-      }
-      temporary.delete(table);
-      permanent.add(table);
-      parentFirst.push(table);
-    };
-
-    for (const table of [...tables].sort(compareTableNames)) {
-      visit(table);
-    }
-
-    return mode === "parent-first" ? parentFirst : [...parentFirst].reverse();
-  };
-
   const byTable = new Map<string, SchemaEffect>();
   for (const effect of effects) {
     byTable.set(effect.tableName, effect);
@@ -1285,7 +1253,10 @@ export async function materializeToHead(client: Client): Promise<void> {
 
     await runProjectionStep(() => verifyProjectionAtCommit(tx, checkpoint), `verify checkpoint ${checkpoint}`);
 
-    const replayInputs = await fetchCommitsAfter(tx, checkpointSeq, head);
+    const replayInputs = await runProjectionStep(
+      () => fetchCommitsAfter(tx, checkpointSeq, head),
+      `load commits after checkpoint ${checkpoint}`,
+    );
     for (const replay of replayInputs) {
       await materializeCommit(tx, replay);
       await writeMaterializedCheckpoint(tx, replay.commit.commitId);
@@ -1296,7 +1267,9 @@ export async function materializeToHead(client: Client): Promise<void> {
     await tx.commit();
   } catch (error) {
     const shouldWrapProjectionError =
-      projectionErrorMessage(error) !== null || CodedError.hasCode(error, "SYNC_DIVERGED");
+      projectionErrorMessage(error) !== null ||
+      CodedError.hasCode(error, "SYNC_DIVERGED") ||
+      (error instanceof Error && (error.name === "SyntaxError" || error.name === "ZodError"));
     const projectionError = shouldWrapProjectionError ? toProjectionError(error, "materialize to head") : null;
     try {
       await tx.rollback();
@@ -1528,112 +1501,6 @@ export async function pushCommit(
   }
 }
 
-async function fetchCommit(executor: Client | Transaction, commitId: string): Promise<Replay> {
-  const commitResult = await executor.execute({
-    sql: `
-      SELECT
-        commit_id, seq, kind, message, created_at, parent_count,
-        schema_hash_before, schema_hash_after, state_hash_after, plan_hash,
-        revertible, revert_target_id
-      FROM _toss_commit
-      WHERE commit_id = ?
-      LIMIT 1
-    `,
-    args: [commitId],
-  });
-  const commitRow = rowsFrom(commitResult)[0];
-  if (!commitRow) {
-    throw new CodedError("SYNC_DIVERGED", `Remote commit not found during pull: ${commitId}`);
-  }
-
-  const parentsResult = await executor.execute({
-    sql: `
-      SELECT parent_commit_id
-      FROM _toss_commit_parent
-      WHERE commit_id = ?
-      ORDER BY ord ASC
-    `,
-    args: [commitId],
-  });
-  const parentIds = rowsFrom(parentsResult).map((row) =>
-    parseString(parseRowValue(row, "parent_commit_id"), "_toss_commit_parent.parent_commit_id")
-  );
-
-  const opsResult = await executor.execute({
-    sql: `
-      SELECT op_json
-      FROM _toss_op
-      WHERE commit_id = ?
-      ORDER BY op_index ASC
-    `,
-    args: [commitId],
-  });
-  const operations = rowsFrom(opsResult).map((row) => parseJson<Operation>(parseRowValue(row, "op_json"), "_toss_op.op_json"));
-
-  const rowEffectsResult = await executor.execute({
-    sql: `
-      SELECT table_name, pk_json, op_kind, before_json, after_json, before_hash, after_hash
-      FROM _toss_row_effect
-      WHERE commit_id = ?
-      ORDER BY effect_index ASC
-    `,
-    args: [commitId],
-  });
-  const rowEffects = rowsFrom(rowEffectsResult).map((row) => ({
-    tableName: parseString(parseRowValue(row, "table_name"), "_toss_row_effect.table_name"),
-    pk: parseJson<Record<string, string>>(parseRowValue(row, "pk_json"), "_toss_row_effect.pk_json"),
-    opKind: parseOpKind(parseString(parseRowValue(row, "op_kind"), "_toss_row_effect.op_kind")),
-    beforeRow: parseRowValue(row, "before_json")
-      ? parseJson<RowEffect["beforeRow"]>(parseRowValue(row, "before_json"), "_toss_row_effect.before_json")
-      : null,
-    afterRow: parseRowValue(row, "after_json")
-      ? parseJson<RowEffect["afterRow"]>(parseRowValue(row, "after_json"), "_toss_row_effect.after_json")
-      : null,
-    beforeHash: parseNullableString(parseRowValue(row, "before_hash"), "_toss_row_effect.before_hash"),
-    afterHash: parseNullableString(parseRowValue(row, "after_hash"), "_toss_row_effect.after_hash"),
-  }));
-
-  const schemaEffectsResult = await executor.execute({
-    sql: `
-      SELECT table_name, before_json, after_json
-      FROM _toss_schema_effect
-      WHERE commit_id = ?
-      ORDER BY effect_index ASC
-    `,
-    args: [commitId],
-  });
-  const schemaEffects = rowsFrom(schemaEffectsResult).map((row) => ({
-    tableName: parseString(parseRowValue(row, "table_name"), "_toss_schema_effect.table_name"),
-    beforeTable: parseRowValue(row, "before_json")
-      ? parseJson<SchemaEffect["beforeTable"]>(parseRowValue(row, "before_json"), "_toss_schema_effect.before_json")
-      : null,
-    afterTable: parseRowValue(row, "after_json")
-      ? parseJson<SchemaEffect["afterTable"]>(parseRowValue(row, "after_json"), "_toss_schema_effect.after_json")
-      : null,
-  }));
-
-  return {
-    commit: {
-      commitId: parseString(parseRowValue(commitRow, "commit_id"), "_toss_commit.commit_id"),
-      seq: parseInteger(parseRowValue(commitRow, "seq"), "_toss_commit.seq"),
-      kind: parseCommitKind(parseString(parseRowValue(commitRow, "kind"), "_toss_commit.kind")),
-      message: parseString(parseRowValue(commitRow, "message"), "_toss_commit.message"),
-      createdAt: parseInteger(parseRowValue(commitRow, "created_at"), "_toss_commit.created_at"),
-      parentCount: parseInteger(parseRowValue(commitRow, "parent_count"), "_toss_commit.parent_count"),
-      schemaHashBefore: parseString(parseRowValue(commitRow, "schema_hash_before"), "_toss_commit.schema_hash_before"),
-      schemaHashAfter: parseString(parseRowValue(commitRow, "schema_hash_after"), "_toss_commit.schema_hash_after"),
-      stateHashAfter: parseString(parseRowValue(commitRow, "state_hash_after"), "_toss_commit.state_hash_after"),
-      planHash: parseString(parseRowValue(commitRow, "plan_hash"), "_toss_commit.plan_hash"),
-      revertible: parseInteger(parseRowValue(commitRow, "revertible"), "_toss_commit.revertible"),
-      revertTargetId: parseNullableString(parseRowValue(commitRow, "revert_target_id"), "_toss_commit.revert_target_id"),
-    },
-    parentIds,
-    operations,
-    rowEffects,
-    schemaEffects,
-  };
-}
-
 async function fetchCommitRange(
   executor: Client | Transaction,
   fromSeqExclusive: number,
@@ -1642,21 +1509,139 @@ async function fetchCommitRange(
   if (toSeqInclusive <= fromSeqExclusive) {
     return [];
   }
-  const result = await executor.execute({
+  const commitResult = await executor.execute({
     sql: `
-      SELECT commit_id
+      SELECT
+        commit_id, seq, kind, message, created_at, parent_count,
+        schema_hash_before, schema_hash_after, state_hash_after, plan_hash,
+        revertible, revert_target_id
       FROM _toss_commit
       WHERE seq > ? AND seq <= ?
       ORDER BY seq ASC
     `,
     args: [fromSeqExclusive, toSeqInclusive],
   });
-  const commitIds = rowsFrom(result).map((row) => parseString(parseRowValue(row, "commit_id"), "_toss_commit.commit_id"));
-  const replayInputs: Replay[] = [];
-  for (const commitId of commitIds) {
-    replayInputs.push(await fetchCommit(executor, commitId));
+  const commits = rowsFrom(commitResult).map((row) => ({
+    commitId: parseString(parseRowValue(row, "commit_id"), "_toss_commit.commit_id"),
+    seq: parseInteger(parseRowValue(row, "seq"), "_toss_commit.seq"),
+    kind: parseCommitKind(parseString(parseRowValue(row, "kind"), "_toss_commit.kind")),
+    message: parseString(parseRowValue(row, "message"), "_toss_commit.message"),
+    createdAt: parseInteger(parseRowValue(row, "created_at"), "_toss_commit.created_at"),
+    parentCount: parseInteger(parseRowValue(row, "parent_count"), "_toss_commit.parent_count"),
+    schemaHashBefore: parseString(parseRowValue(row, "schema_hash_before"), "_toss_commit.schema_hash_before"),
+    schemaHashAfter: parseString(parseRowValue(row, "schema_hash_after"), "_toss_commit.schema_hash_after"),
+    stateHashAfter: parseString(parseRowValue(row, "state_hash_after"), "_toss_commit.state_hash_after"),
+    planHash: parseString(parseRowValue(row, "plan_hash"), "_toss_commit.plan_hash"),
+    revertible: parseInteger(parseRowValue(row, "revertible"), "_toss_commit.revertible"),
+    revertTargetId: parseNullableString(parseRowValue(row, "revert_target_id"), "_toss_commit.revert_target_id"),
+  }));
+  if (commits.length === 0) {
+    return [];
   }
-  return replayInputs;
+
+  const parentRows = rowsFrom(await executor.execute({
+    sql: `
+      SELECT cp.commit_id, cp.parent_commit_id
+      FROM _toss_commit_parent cp
+      JOIN _toss_commit c ON c.commit_id = cp.commit_id
+      WHERE c.seq > ? AND c.seq <= ?
+      ORDER BY c.seq ASC, cp.ord ASC
+    `,
+    args: [fromSeqExclusive, toSeqInclusive],
+  }));
+  const parentIdsByCommit = new Map<string, string[]>();
+  for (const row of parentRows) {
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_commit_parent.commit_id");
+    const parentId = parseString(parseRowValue(row, "parent_commit_id"), "_toss_commit_parent.parent_commit_id");
+    const parentIds = parentIdsByCommit.get(commitId) ?? [];
+    parentIds.push(parentId);
+    parentIdsByCommit.set(commitId, parentIds);
+  }
+
+  const operationRows = rowsFrom(await executor.execute({
+    sql: `
+      SELECT o.commit_id, o.op_json
+      FROM _toss_op o
+      JOIN _toss_commit c ON c.commit_id = o.commit_id
+      WHERE c.seq > ? AND c.seq <= ?
+      ORDER BY c.seq ASC, o.op_index ASC
+    `,
+    args: [fromSeqExclusive, toSeqInclusive],
+  }));
+  const operationsByCommit = new Map<string, Op[]>();
+  for (const row of operationRows) {
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_op.commit_id");
+    const operation = Operation.parse(parseJson(parseRowValue(row, "op_json"), "_toss_op.op_json"));
+    const operations = operationsByCommit.get(commitId) ?? [];
+    operations.push(operation);
+    operationsByCommit.set(commitId, operations);
+  }
+
+  const rowEffectRows = rowsFrom(await executor.execute({
+    sql: `
+      SELECT re.commit_id, re.table_name, re.pk_json, re.op_kind, re.before_json, re.after_json, re.before_hash, re.after_hash
+      FROM _toss_row_effect re
+      JOIN _toss_commit c ON c.commit_id = re.commit_id
+      WHERE c.seq > ? AND c.seq <= ?
+      ORDER BY c.seq ASC, re.effect_index ASC
+    `,
+    args: [fromSeqExclusive, toSeqInclusive],
+  }));
+  const rowEffectsByCommit = new Map<string, RowEffect[]>();
+  for (const row of rowEffectRows) {
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_row_effect.commit_id");
+    const effect = RowEffect.parse({
+      tableName: parseString(parseRowValue(row, "table_name"), "_toss_row_effect.table_name"),
+      pk: parseJson(parseRowValue(row, "pk_json"), "_toss_row_effect.pk_json"),
+      opKind: parseOpKind(parseString(parseRowValue(row, "op_kind"), "_toss_row_effect.op_kind")),
+      beforeRow: parseRowValue(row, "before_json")
+        ? parseJson(parseRowValue(row, "before_json"), "_toss_row_effect.before_json")
+        : null,
+      afterRow: parseRowValue(row, "after_json")
+        ? parseJson(parseRowValue(row, "after_json"), "_toss_row_effect.after_json")
+        : null,
+      beforeHash: parseNullableString(parseRowValue(row, "before_hash"), "_toss_row_effect.before_hash"),
+      afterHash: parseNullableString(parseRowValue(row, "after_hash"), "_toss_row_effect.after_hash"),
+    });
+    const effects = rowEffectsByCommit.get(commitId) ?? [];
+    effects.push(effect);
+    rowEffectsByCommit.set(commitId, effects);
+  }
+
+  const schemaEffectRows = rowsFrom(await executor.execute({
+    sql: `
+      SELECT se.commit_id, se.table_name, se.before_json, se.after_json
+      FROM _toss_schema_effect se
+      JOIN _toss_commit c ON c.commit_id = se.commit_id
+      WHERE c.seq > ? AND c.seq <= ?
+      ORDER BY c.seq ASC, se.effect_index ASC
+    `,
+    args: [fromSeqExclusive, toSeqInclusive],
+  }));
+  const schemaEffectsByCommit = new Map<string, SchemaEffect[]>();
+  for (const row of schemaEffectRows) {
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_schema_effect.commit_id");
+    const effect = SchemaEffect.parse({
+      tableName: parseString(parseRowValue(row, "table_name"), "_toss_schema_effect.table_name"),
+      beforeTable: parseRowValue(row, "before_json")
+        ? parseJson(parseRowValue(row, "before_json"), "_toss_schema_effect.before_json")
+        : null,
+      afterTable: parseRowValue(row, "after_json")
+        ? parseJson(parseRowValue(row, "after_json"), "_toss_schema_effect.after_json")
+        : null,
+    });
+    const effects = schemaEffectsByCommit.get(commitId) ?? [];
+    effects.push(effect);
+    schemaEffectsByCommit.set(commitId, effects);
+  }
+
+  return commits.map((commit) => ({
+    commit,
+    parentIds: parentIdsByCommit.get(commit.commitId) ?? [],
+    operations: operationsByCommit.get(commit.commitId) ?? [],
+    rowEffects: rowEffectsByCommit.get(commit.commitId) ?? [],
+    schemaEffects: schemaEffectsByCommit.get(commit.commitId) ?? [],
+  }));
 }
 
 export async function fetchCommitsAfter(

@@ -1117,6 +1117,55 @@ describe("sync with Turso protocol", () => {
     });
   });
 
+  testWithTmp("tampered remote integer payload is classified as SYNC_DIVERGED", async () => {
+    const source = createTestContext();
+    const replica = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDb({ dbPath: source.dbPath });
+    await initDb({ dbPath: replica.dbPath });
+
+    const createPlan = await writePlanFile(source.dir, "create-int-tamper.json", {
+      message: "create tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "tasks",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+
+    await withDbPath(source.dbPath, async () => {
+      await connect(currentDb(), { platform: "libsql", url: remoteUrl });
+      await applyPlan(currentDb(), createPlan);
+      await push(currentDb());
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb.query("UPDATE _toss_commit SET seq = '1abc' WHERE seq = 1").run();
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(replica.dbPath, async () => {
+      await connect(currentDb(), { platform: "libsql", url: remoteUrl });
+      try {
+        await pull(currentDb());
+        throw new Error("pull should fail on tampered integer payload");
+      } catch (error) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
+          expect(error.code).toBe("SYNC_DIVERGED");
+        }
+      }
+      const currentStatus = status(currentDb());
+      expect(currentStatus.headCommit).toBeNull();
+      expect(currentStatus.sync.state).toBe("conflict");
+    });
+  });
+
   testWithTmp("non-fast-forward push fails with SYNC_NON_FAST_FORWARD", async () => {
     const a = createTestContext();
     const b = createTestContext();
@@ -1337,6 +1386,18 @@ describe("sync with Turso protocol", () => {
       expect(readAuthToken("libsql")).toBeUndefined();
       const status = await remoteStatus(currentDb());
       expect(status.hasAuthToken).toBe(false);
+    });
+  });
+
+  testWithTmp("remoteStatus reports libsql token even before connect", async () => {
+    const local = createTestContext();
+    await initDb({ dbPath: local.dbPath });
+
+    await withDbPath(local.dbPath, async () => {
+      writeAuthToken("libsql", "token-for-status");
+      const status = await remoteStatus(currentDb());
+      expect(status.config).toBeNull();
+      expect(status.hasAuthToken).toBe(true);
     });
   });
 

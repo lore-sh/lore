@@ -352,7 +352,7 @@ export async function remoteStatus(db: Database) {
       localHead,
       remoteHead: null,
       pendingCommits: localPending,
-      hasAuthToken: readAuthToken("turso") !== undefined,
+      hasAuthToken: readAuthToken("turso") !== undefined || readAuthToken("libsql") !== undefined,
       projectionHead: null,
       projectionLagCommits: null,
       projectionError: null,
