@@ -1,4 +1,4 @@
-import type { Client, ResultSet, Row, Transaction } from "@libsql/client";
+import type { Client, Transaction } from "@libsql/client";
 import { listUserTables, type Database } from "./db";
 import { CodedError } from "./error";
 import { sha256Hex } from "./hash";
@@ -10,7 +10,11 @@ function parseRowRecord(value: unknown, label: string): Record<string, unknown> 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object row`);
   }
-  return value as Record<string, unknown>;
+  const row: Record<string, unknown> = {};
+  for (const [key, cell] of Object.entries(value)) {
+    row[key] = cell;
+  }
+  return row;
 }
 
 function parseStringLike(value: unknown, label: string): string {
@@ -25,8 +29,8 @@ function parseStringLike(value: unknown, label: string): string {
 
 function parseInteger(value: unknown, label: string): number {
   if (typeof value === "number") {
-    if (!Number.isInteger(value)) {
-      throw new Error(`${label} must be an integer`);
+    if (!Number.isInteger(value) || !Number.isSafeInteger(value)) {
+      throw new Error(`${label} must be a safe integer`);
     }
     return value;
   }
@@ -41,7 +45,11 @@ function parseInteger(value: unknown, label: string): number {
   if (!/^[+-]?\d+$/.test(normalized)) {
     throw new Error(`${label} must be an integer`);
   }
-  return Number(normalized);
+  const asNumber = Number(normalized);
+  if (!Number.isInteger(asNumber) || !Number.isSafeInteger(asNumber)) {
+    throw new Error(`${label} must be a safe integer`);
+  }
+  return asNumber;
 }
 
 function parseStorageClass(value: unknown, label: string): StorageClass {
@@ -53,10 +61,6 @@ function parseStorageClass(value: unknown, label: string): StorageClass {
 
 function isVisibleColumn(hidden: number): boolean {
   return hidden === 0 || hidden === 2 || hidden === 3;
-}
-
-function rowsFrom(result: ResultSet): Row[] {
-  return result.rows as Row[];
 }
 
 function columnsFromPragmaRows(rows: Array<Record<string, unknown>>, tableName: string): string[] {
@@ -150,48 +154,21 @@ function encodeStateRow(
   return encoded;
 }
 
-function localPrimaryKeyColumns(db: Database, tableName: string): string[] {
-  const rows = db.$client
-    .query<Record<string, unknown>, []>(`PRAGMA table_info(${pragmaLiteral(tableName)})`)
-    .all()
-    .map((row) => parseRowRecord(row, `PRAGMA table_info(${tableName})`));
-  return primaryKeysFromPragmaRows(rows, tableName);
-}
-
-function localVisibleColumns(db: Database, tableName: string): string[] {
-  const rows = db.$client
-    .query<Record<string, unknown>, []>(`PRAGMA table_xinfo(${pragmaLiteral(tableName)})`)
-    .all()
-    .map((row) => parseRowRecord(row, `PRAGMA table_xinfo(${tableName})`));
-  return columnsFromPragmaRows(rows, tableName);
-}
-
-async function remotePrimaryKeyColumns(executor: Client | Transaction, tableName: string): Promise<string[]> {
-  const result = await executor.execute(`PRAGMA table_info(${pragmaLiteral(tableName)})`);
-  const rows = rowsFrom(result).map((row) => parseRowRecord(row, `PRAGMA table_info(${tableName})`));
-  return primaryKeysFromPragmaRows(rows, tableName);
-}
-
-async function remoteVisibleColumns(executor: Client | Transaction, tableName: string): Promise<string[]> {
-  const result = await executor.execute(`PRAGMA table_xinfo(${pragmaLiteral(tableName)})`);
-  const rows = rowsFrom(result).map((row) => parseRowRecord(row, `PRAGMA table_xinfo(${tableName})`));
-  return columnsFromPragmaRows(rows, tableName);
-}
-
-async function listRemoteUserTables(executor: Client | Transaction): Promise<string[]> {
-  const result = await executor.execute({
-    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
-  });
-  return rowsFrom(result).map((row) => parseStringLike(parseRowRecord(row, "sqlite_master").name, "sqlite_master.name"));
-}
-
 export function stateHashForDb(db: Database): string {
   const tables = listUserTables(db);
   const state: Record<string, Array<Record<string, string>>> = {};
 
   for (const tableName of tables) {
-    const pkColumns = localPrimaryKeyColumns(db, tableName);
-    const columns = localVisibleColumns(db, tableName);
+    const pkRows = db.$client
+      .query<Record<string, unknown>, []>(`PRAGMA table_info(${pragmaLiteral(tableName)})`)
+      .all()
+      .map((row) => parseRowRecord(row, `PRAGMA table_info(${tableName})`));
+    const pkColumns = primaryKeysFromPragmaRows(pkRows, tableName);
+    const columnRows = db.$client
+      .query<Record<string, unknown>, []>(`PRAGMA table_xinfo(${pragmaLiteral(tableName)})`)
+      .all()
+      .map((row) => parseRowRecord(row, `PRAGMA table_xinfo(${tableName})`));
+    const columns = columnsFromPragmaRows(columnRows, tableName);
     const { sql, quoteAliases, hexAliases, typeAliases } = buildStateSelectSql(tableName, columns, pkColumns);
     const rows = db.$client
       .query<Record<string, unknown>, []>(sql)
@@ -205,15 +182,22 @@ export function stateHashForDb(db: Database): string {
 }
 
 export async function stateHashForRemote(executor: Client | Transaction): Promise<string> {
-  const tables = await listRemoteUserTables(executor);
+  const tableResult = await executor.execute({
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+  });
+  const tables = tableResult.rows.map((row) => parseStringLike(parseRowRecord(row, "sqlite_master").name, "sqlite_master.name"));
   const state: Record<string, Array<Record<string, string>>> = {};
 
   for (const tableName of tables) {
-    const pkColumns = await remotePrimaryKeyColumns(executor, tableName);
-    const columns = await remoteVisibleColumns(executor, tableName);
+    const pkResult = await executor.execute(`PRAGMA table_info(${pragmaLiteral(tableName)})`);
+    const pkRows = pkResult.rows.map((row) => parseRowRecord(row, `PRAGMA table_info(${tableName})`));
+    const pkColumns = primaryKeysFromPragmaRows(pkRows, tableName);
+    const columnResult = await executor.execute(`PRAGMA table_xinfo(${pragmaLiteral(tableName)})`);
+    const columnRows = columnResult.rows.map((row) => parseRowRecord(row, `PRAGMA table_xinfo(${tableName})`));
+    const columns = columnsFromPragmaRows(columnRows, tableName);
     const { sql, quoteAliases, hexAliases, typeAliases } = buildStateSelectSql(tableName, columns, pkColumns);
     const result = await executor.execute(sql);
-    const rows = rowsFrom(result)
+    const rows = result.rows
       .map((row) => parseRowRecord(row, `state row ${tableName}`))
       .map((row) => encodeStateRow(row, columns, quoteAliases, hexAliases, typeAliases));
     state[tableName] = rows;
