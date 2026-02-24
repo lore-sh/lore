@@ -1,8 +1,10 @@
 import { useState } from "react";
-import type { CommitSummary } from "@toss/core";
+import type { history } from "@toss/core";
 import { formatRelativeTime } from "../lib/time";
 import { summarizeHistoryEntry } from "../lib/commit-render";
 import { CommitDetail } from "./commit-detail";
+
+type CommitSummary = ReturnType<typeof history>[number];
 
 interface CommitEntryProps {
   commit: CommitSummary;

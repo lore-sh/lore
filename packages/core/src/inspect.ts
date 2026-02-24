@@ -10,125 +10,10 @@ import {
   quoteIdentifier,
 } from "./sql";
 
-export interface TableInfoRow {
-  cid: number;
-  name: string;
-  type: string;
-  notnull: number;
-  dflt_value: string | null;
-  pk: number;
-}
-
-interface TableListRow {
-  schema: string;
-  name: string;
-  type: string;
-  ncol: number;
-  wr: number;
-  strict: number;
-}
-
-interface TableXInfoRow {
-  cid: number;
-  name: string;
-  type: string;
-  notnull: number;
-  dflt_value: string | null;
-  pk: number;
-  hidden: number;
-}
-
-interface ForeignKeyRow {
-  id: number;
-  seq: number;
-  table: string;
-  from: string;
-  to: string | null;
-  on_update: string;
-  on_delete: string;
-  match: string;
-}
-
-interface IndexListRow {
-  seq: number;
-  name: string;
-  unique: number;
-  origin: "c" | "u" | "pk";
-  partial: number;
-}
-
-interface IndexXInfoRow {
-  seqno: number;
-  cid: number;
-  name: string | null;
-  desc: number;
-  coll: string | null;
-  key: number;
-}
-
-export interface SchemaColumnDescriptor {
-  definitionSql: string | null;
-  cid: number;
-  name: string;
-  type: string;
-  notNull: boolean;
-  defaultValue: string | null;
-  primaryKey: boolean;
-  hidden: number;
-}
-
-export interface SchemaForeignKeyDescriptor {
-  id: number;
-  refTable: string;
-  onUpdate: string;
-  onDelete: string;
-  match: string;
-  mappings: Array<{ seq: number; from: string; to: string | null }>;
-}
-
-export interface SchemaIndexDescriptor {
-  name: string;
-  unique: boolean;
-  origin: "c" | "u" | "pk";
-  partial: boolean;
-  sql: string | null;
-  columns: Array<{
-    seqno: number;
-    cid: number;
-    name: string | null;
-    desc: number;
-    coll: string | null;
-    key: number;
-  }>;
-}
-
-export interface SchemaTriggerDescriptor {
-  name: string;
-  sql: string | null;
-}
-
-export interface SchemaTableDescriptor {
-  tableSql: string | null;
-  table: string;
-  options: {
-    withoutRowid: boolean;
-    strict: boolean;
-  };
-  columns: SchemaColumnDescriptor[];
-  foreignKeys: SchemaForeignKeyDescriptor[];
-  indexes: SchemaIndexDescriptor[];
-  checks: string[];
-  triggers: SchemaTriggerDescriptor[];
-}
-
-export interface SchemaDescriptor {
-  tables: SchemaTableDescriptor[];
-}
-
 const MAX_PAGE_SIZE = 500;
 const DEFAULT_PAGE_SIZE = 50;
 
-export function schemaHashFromDescriptor(descriptor: SchemaDescriptor): string {
+export function hashSchema(descriptor: ReturnType<typeof describeSchema>): string {
   return sha256Hex(descriptor.tables);
 }
 
@@ -155,19 +40,28 @@ export function normalizeRow(row: Record<string, unknown>): JsonObject {
   return output;
 }
 
-export function tableInfo(db: Database, table: string): TableInfoRow[] {
-  return db.$client.query<TableInfoRow, []>(`PRAGMA table_info(${quoteIdentifier(table, { unsafe: true })})`).all();
+export function tableInfo(db: Database, table: string) {
+  return db.$client
+    .query<{
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+      pk: number;
+    }, []>(`PRAGMA table_info(${quoteIdentifier(table, { unsafe: true })})`)
+    .all();
 }
 
-export function primaryKeyColumns(db: Database, table: string): string[] {
+export function primaryKeys(db: Database, table: string): string[] {
   return tableInfo(db, table)
     .filter((column) => column.pk > 0)
     .sort((a, b) => a.pk - b.pk)
     .map((column) => column.name);
 }
 
-export function assertTableHasPrimaryKey(db: Database, table: string): string[] {
-  const pkColumns = primaryKeyColumns(db, table);
+export function assertPrimaryKey(db: Database, table: string): string[] {
+  const pkColumns = primaryKeys(db, table);
   if (pkColumns.length === 0) {
     throw new CodedError("NO_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
   }
@@ -183,9 +77,30 @@ export function tableDDL(db: Database, table: string): string | null {
   return row?.sql ?? null;
 }
 
-function tableForeignKeys(db: Database, table: string): SchemaForeignKeyDescriptor[] {
-  const rows = db.$client.query<ForeignKeyRow, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`).all();
-  const grouped = new Map<number, SchemaForeignKeyDescriptor>();
+function tableForeignKeys(db: Database, table: string) {
+  const rows = db.$client
+    .query<{
+      id: number;
+      seq: number;
+      table: string;
+      from: string;
+      to: string | null;
+      on_update: string;
+      on_delete: string;
+      match: string;
+    }, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`)
+    .all();
+  const grouped = new Map<
+    number,
+    {
+      id: number;
+      refTable: string;
+      onUpdate: string;
+      onDelete: string;
+      match: string;
+      mappings: Array<{ seq: number; from: string; to: string | null }>;
+    }
+  >();
   for (const row of rows) {
     const entry = grouped.get(row.id);
     if (entry) {
@@ -206,9 +121,18 @@ function tableForeignKeys(db: Database, table: string): SchemaForeignKeyDescript
     .sort((a, b) => a.id - b.id);
 }
 
-export function describeSchema(db: Database): SchemaDescriptor {
+export function describeSchema(db: Database) {
   const tableNames = listUserTables(db);
-  const tableList = db.$client.query<TableListRow, []>("PRAGMA table_list").all();
+  const tableList = db.$client
+    .query<{
+      schema: string;
+      name: string;
+      type: string;
+      ncol: number;
+      wr: number;
+      strict: number;
+    }, []>("PRAGMA table_list")
+    .all();
   const tableOptions = new Map(
     tableList
       .filter((row) => row.schema === "main" && row.type === "table")
@@ -224,7 +148,15 @@ export function describeSchema(db: Database): SchemaDescriptor {
       table,
       options: tableOptions.get(table) ?? { withoutRowid: false, strict: false },
       columns: db.$client
-        .query<TableXInfoRow, []>(`PRAGMA table_xinfo(${pragmaLiteral(table)})`)
+        .query<{
+          cid: number;
+          name: string;
+          type: string;
+          notnull: number;
+          dflt_value: string | null;
+          pk: number;
+          hidden: number;
+        }, []>(`PRAGMA table_xinfo(${pragmaLiteral(table)})`)
         .all()
         .map((column) => ({
           definitionSql: columnDefs.get(column.name.toLowerCase()) ?? null,
@@ -239,14 +171,27 @@ export function describeSchema(db: Database): SchemaDescriptor {
         .sort((a, b) => a.cid - b.cid),
       foreignKeys: tableForeignKeys(db, table),
       indexes: db.$client
-        .query<IndexListRow, []>(`PRAGMA index_list(${pragmaLiteral(table)})`)
+        .query<{
+          seq: number;
+          name: string;
+          unique: number;
+          origin: "c" | "u" | "pk";
+          partial: number;
+        }, []>(`PRAGMA index_list(${pragmaLiteral(table)})`)
         .all()
         .map((index) => {
           const indexSqlRow = db.$client
             .query<{ sql: string | null }, [string]>("SELECT sql FROM sqlite_master WHERE type='index' AND name=? LIMIT 1")
             .get(index.name);
           const indexColumns = db.$client
-            .query<IndexXInfoRow, []>(`PRAGMA index_xinfo(${pragmaLiteral(index.name)})`)
+            .query<{
+              seqno: number;
+              cid: number;
+              name: string | null;
+              desc: number;
+              coll: string | null;
+              key: number;
+            }, []>(`PRAGMA index_xinfo(${pragmaLiteral(index.name)})`)
             .all()
             .map((entry) => ({
               seqno: entry.seqno,
@@ -284,14 +229,14 @@ export function describeSchema(db: Database): SchemaDescriptor {
 }
 
 export function schemaHash(db: Database): string {
-  return schemaHashFromDescriptor(describeSchema(db));
+  return hashSchema(describeSchema(db));
 }
 
 export function stateHash(db: Database): string {
   const tables = listUserTables(db);
   const state: Record<string, JsonObject[]> = {};
   for (const table of tables) {
-    const pkColumns = assertTableHasPrimaryKey(db, table);
+    const pkColumns = assertPrimaryKey(db, table);
     const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
     const rows = db.$client
       .query<Record<string, unknown>, []>(`SELECT * FROM ${quoteIdentifier(table, { unsafe: true })} ORDER BY ${orderBy}`)
@@ -338,7 +283,7 @@ export function getAllRows(db: Database, table: string): JsonObject[] {
 }
 
 export function pkFromRow(db: Database, table: string, row: Record<string, unknown>): Record<string, JsonPrimitive> {
-  const pkColumns = assertTableHasPrimaryKey(db, table);
+  const pkColumns = assertPrimaryKey(db, table);
   const pk: Record<string, JsonPrimitive> = {};
   for (const column of pkColumns) {
     const value = row[column];
@@ -369,7 +314,7 @@ export function countRows(db: Database, tableName: string): number {
   );
 }
 
-export function isVisibleColumn(hidden: number): boolean {
+export function isVisible(hidden: number): boolean {
   return hidden === 0 || hidden === 2 || hidden === 3;
 }
 

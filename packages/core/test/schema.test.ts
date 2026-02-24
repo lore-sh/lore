@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { schema, initDb, openDb, CodedError } from "../src";
+import { describeDb, initDb, openDb, CodedError } from "../src";
 import { schemaHash } from "../src/inspect";
 import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
@@ -38,7 +38,7 @@ describe("schema", () => {
     const expectedHash = schemaHash(expectedDb);
     expectedDb.$client.close(false);
 
-    const dbSchema = schema(currentDb());
+    const dbSchema = describeDb(currentDb());
     expect(dbSchema.schemaHash).toBe(expectedHash);
     expect(dbSchema.tables.length).toBeGreaterThanOrEqual(2);
 
@@ -63,7 +63,7 @@ describe("schema", () => {
     direct.run("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)");
     direct.close(false);
 
-    const dbSchema = schema(currentDb(), { table: "notes" });
+    const dbSchema = describeDb(currentDb(), { table: "notes" });
     expect(dbSchema.tables).toHaveLength(1);
     expect(dbSchema.tables[0]?.name).toBe("notes");
   });
@@ -77,11 +77,11 @@ describe("schema", () => {
     direct.run('CREATE TABLE "ä" (id INTEGER PRIMARY KEY)');
     direct.close(false);
 
-    const upper = schema(currentDb(), { table: "Ä" });
+    const upper = describeDb(currentDb(), { table: "Ä" });
     expect(upper.tables).toHaveLength(1);
     expect(upper.tables[0]?.name).toBe("Ä");
 
-    const lower = schema(currentDb(), { table: "ä" });
+    const lower = describeDb(currentDb(), { table: "ä" });
     expect(lower.tables).toHaveLength(1);
     expect(lower.tables[0]?.name).toBe("ä");
   });
@@ -95,11 +95,11 @@ describe("schema", () => {
     direct.run('CREATE TABLE "Task List" (id INTEGER PRIMARY KEY)');
     direct.close(false);
 
-    const dashed = schema(currentDb(), { table: "foo-bar" });
+    const dashed = describeDb(currentDb(), { table: "foo-bar" });
     expect(dashed.tables).toHaveLength(1);
     expect(dashed.tables[0]?.name).toBe("Foo-Bar");
 
-    const spaced = schema(currentDb(), { table: "task list" });
+    const spaced = describeDb(currentDb(), { table: "task list" });
     expect(spaced.tables).toHaveLength(1);
     expect(spaced.tables[0]?.name).toBe("Task List");
   });
@@ -109,7 +109,7 @@ describe("schema", () => {
     await initDb({ dbPath });
 
     try {
-      schema(currentDb(), { table: "missing_table" });
+      describeDb(currentDb(), { table: "missing_table" });
       throw new Error("schema should throw for missing table");
     } catch (error) {
       expect(CodedError.is(error)).toBe(true);

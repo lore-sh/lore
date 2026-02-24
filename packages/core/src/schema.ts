@@ -1,51 +1,50 @@
 import { sql } from "drizzle-orm";
 import { check, foreignKey, index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { z } from "zod";
 
-export type JsonPrimitive = string | number | boolean | null;
-export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export const JsonPrimitive = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+export type JsonPrimitive = z.infer<typeof JsonPrimitive>;
 
-export interface JsonObject {
-  [key: string]: JsonValue;
-}
+type JsonValueShape =
+  | z.infer<typeof JsonPrimitive>
+  | { [key: string]: JsonValueShape }
+  | JsonValueShape[];
 
-export type SqlStorageClass = "null" | "integer" | "real" | "text" | "blob";
+export const JsonValue: z.ZodType<JsonValueShape> = z.lazy(() =>
+  z.union([JsonPrimitive, z.record(z.string(), JsonValue), z.array(JsonValue)]),
+);
+export type JsonValue = z.infer<typeof JsonValue>;
+
+export const JsonObject = z.record(z.string(), JsonValue);
+export type JsonObject = z.infer<typeof JsonObject>;
+
+export const SqlStorageClass = z.enum(["null", "integer", "real", "text", "blob"]);
+export type SqlStorageClass = z.infer<typeof SqlStorageClass>;
 
 export function isSqlStorageClass(value: unknown): value is SqlStorageClass {
-  return value === "null" || value === "integer" || value === "real" || value === "text" || value === "blob";
+  return SqlStorageClass.safeParse(value).success;
 }
 
-export interface EncodedCell {
-  storageClass: SqlStorageClass;
-  sqlLiteral: string;
-}
+export const EncodedCell = z.object({
+  storageClass: SqlStorageClass,
+  sqlLiteral: z.string(),
+});
+export type EncodedCell = z.infer<typeof EncodedCell>;
 
-export interface EncodedRow {
-  [column: string]: EncodedCell;
-}
+export const EncodedRow = z.record(z.string(), EncodedCell);
+export type EncodedRow = z.infer<typeof EncodedRow>;
 
-export interface TableSecondaryObject {
-  type: "index" | "trigger";
-  name: string;
-  sql: string;
-}
+export const TableSecondaryObject = z
+  .object({
+    type: z.enum(["index", "trigger"]),
+    name: z.string(),
+    sql: z.string(),
+  })
+  .strict();
+export type TableSecondaryObject = z.infer<typeof TableSecondaryObject>;
 
-export interface ColumnDefinition {
-  name: string;
-  type: string;
-  notNull?: boolean | undefined;
-  primaryKey?: boolean | undefined;
-  unique?: boolean | undefined;
-  default?:
-    | {
-        kind: "literal";
-        value: JsonPrimitive;
-      }
-    | {
-        kind: "sql";
-        expr: "CURRENT_TIMESTAMP" | "CURRENT_DATE" | "CURRENT_TIME";
-      }
-    | undefined;
-}
+export const CommitKind = z.enum(["apply", "revert"]);
+export type CommitKind = z.infer<typeof CommitKind>;
 
 const nowDefault = sql`(unixepoch() * 1000)`;
 const commitKindValues = ["apply", "revert"] as const;
@@ -291,31 +290,3 @@ export const SnapshotTable = sqliteTable(
     check("chk_toss_snapshot_sha256_len", sql`length(${table.fileSha256}) = 64`),
   ],
 );
-
-export type Meta = typeof MetaTable.$inferSelect;
-export type MetaInsert = typeof MetaTable.$inferInsert;
-
-export type Commit = typeof CommitTable.$inferSelect;
-export type CommitInsert = typeof CommitTable.$inferInsert;
-export type CommitKind = Commit["kind"];
-
-export type CommitParent = typeof CommitParentTable.$inferSelect;
-export type CommitParentInsert = typeof CommitParentTable.$inferInsert;
-
-export type Ref = typeof RefTable.$inferSelect;
-export type RefInsert = typeof RefTable.$inferInsert;
-
-export type Reflog = typeof ReflogTable.$inferSelect;
-export type ReflogInsert = typeof ReflogTable.$inferInsert;
-
-export type Op = typeof OpTable.$inferSelect;
-export type OpInsert = typeof OpTable.$inferInsert;
-
-export type RowEffectRow = typeof RowEffectTable.$inferSelect;
-export type RowEffectInsert = typeof RowEffectTable.$inferInsert;
-
-export type SchemaEffectRow = typeof SchemaEffectTable.$inferSelect;
-export type SchemaEffectInsert = typeof SchemaEffectTable.$inferInsert;
-
-export type SnapshotRow = typeof SnapshotTable.$inferSelect;
-export type SnapshotRowInsert = typeof SnapshotTable.$inferInsert;

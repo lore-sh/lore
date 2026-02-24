@@ -9,7 +9,7 @@ import {
   query,
 } from "../src";
 import { executeOperation } from "../src/operation";
-import type { RestoreTableOperation } from "../src";
+import type { Operation } from "../src";
 import * as engineSchema from "../src/schema";
 import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
@@ -196,7 +196,7 @@ describe("applyPlan", () => {
 
   testWithTmp("restore_table malformed row value fails with INVALID_OPERATION instead of TypeError", () => {
     const db = drizzle({ connection: ":memory:", schema: engineSchema });
-    const operation: RestoreTableOperation = {
+    const operation: Operation = {
       type: "restore_table",
       table: "users",
       ddlSql: "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",

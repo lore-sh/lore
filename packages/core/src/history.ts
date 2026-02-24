@@ -2,41 +2,11 @@ import { eq, sql } from "drizzle-orm";
 import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, setMetaValue, type Database } from "./db";
 import {
   computeCommitId,
-  getCommitReplayInput,
+  readCommit,
   listCommits,
 } from "./commit";
 import { normalizePage, normalizePageSize } from "./inspect";
 import { type CommitKind, CommitTable, OpTable, RowEffectTable, SchemaEffectTable } from "./schema";
-
-export interface CommitSummary {
-  commitId: string;
-  seq: number;
-  kind: CommitKind;
-  message: string;
-  createdAt: number;
-  parentIds: string[];
-  operationCount: number;
-  rowEffectCount: number;
-  schemaEffectCount: number;
-  affectedTables: string[];
-}
-
-export interface HistoryOptions {
-  limit?: number | undefined;
-  page?: number | undefined;
-  kind?: CommitKind | undefined;
-  table?: string | undefined;
-}
-
-export interface VerifyResult {
-  ok: boolean;
-  mode: "quick" | "full";
-  chainValid: boolean;
-  quickCheck: string;
-  integrityCheck?: string | undefined;
-  issues: string[];
-  checkedAt: string;
-}
 
 const ARRAY_SEPARATOR = "\u001f";
 
@@ -44,7 +14,15 @@ function splitCsv(value: string): string[] {
   return value.length === 0 ? [] : value.split(ARRAY_SEPARATOR);
 }
 
-export function commitHistory(db: Database, options: HistoryOptions = {}): CommitSummary[] {
+export function history(
+  db: Database,
+  options: {
+    limit?: number | undefined;
+    page?: number | undefined;
+    kind?: CommitKind | undefined;
+    table?: string | undefined;
+  } = {},
+) {
   const pageSize = normalizePageSize(options.limit);
   const page = normalizePage(options.page);
   const offset = (page - 1) * pageSize;
@@ -158,7 +136,7 @@ export function commitHistory(db: Database, options: HistoryOptions = {}): Commi
   }));
 }
 
-export function estimateCommitSizeBytes(db: Database, commitId: string): number {
+export function commitSize(db: Database, commitId: string): number {
   const opBytes = db
     .select({ n: sql<number>`coalesce(sum(length(${OpTable.opJson})), 0)` })
     .from(OpTable)
@@ -187,7 +165,7 @@ export function estimateCommitSizeBytes(db: Database, commitId: string): number 
   return opBytes + rowEffectBytes + schemaEffectBytes + commitMessageBytes;
 }
 
-export function estimateHistorySizeBytes(db: Database): number {
+export function historySize(db: Database): number {
   const opBytes = db
     .select({ n: sql<number>`coalesce(sum(length(${OpTable.opJson})), 0)` })
     .from(OpTable)
@@ -211,14 +189,29 @@ export function estimateHistorySizeBytes(db: Database): number {
   return opBytes + rowEffectBytes + schemaEffectBytes + commitMessageBytes;
 }
 
-export function verify(db: Database, options: { full?: boolean } = {}): VerifyResult {
+export function verify(db: Database, options: { full?: boolean } = {}) {
   const mode = options.full ? "full" : "quick";
   const issues: string[] = [];
 
   const commits = listCommits(db, false);
   for (const commit of commits) {
-    const replay = getCommitReplayInput(db, commit.commitId);
-    const expected = computeCommitId(replay.commit, replay.parentIds, replay.operations, replay.rowEffects, replay.schemaEffects);
+    const replay = readCommit(db, commit.commitId);
+    const expected = computeCommitId({
+      seq: replay.commit.seq,
+      kind: replay.commit.kind,
+      message: replay.commit.message,
+      createdAt: replay.commit.createdAt,
+      schemaHashBefore: replay.commit.schemaHashBefore,
+      schemaHashAfter: replay.commit.schemaHashAfter,
+      stateHashAfter: replay.commit.stateHashAfter,
+      planHash: replay.commit.planHash,
+      revertible: replay.commit.revertible,
+      revertTargetId: replay.commit.revertTargetId,
+      parentIds: replay.parentIds,
+      operations: replay.operations,
+      rowEffects: replay.rowEffects,
+      schemaEffects: replay.schemaEffects,
+    });
     if (expected !== commit.commitId) {
       issues.push(`Commit hash mismatch: ${commit.commitId}`);
     }

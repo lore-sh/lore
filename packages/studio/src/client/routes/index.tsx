@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import type { CommitSummary, TableOverview } from "@toss/core";
+import type { history, tableOverview } from "@toss/core";
 import { CommitEntry } from "../components/commit-entry";
 import { TableRow } from "../components/table-row";
 import { formatBytes, formatRelativeTime } from "../lib/time";
@@ -15,6 +15,9 @@ function dbLabel(path: string): string {
 function totalRows(rowCounts: number[]): number {
   return rowCounts.reduce((sum, count) => sum + count, 0);
 }
+
+type CommitSummary = ReturnType<typeof history>[number];
+type TableOverview = ReturnType<typeof tableOverview>[number];
 
 function ActivitySection({ history }: { history: CommitSummary[] }) {
   return (

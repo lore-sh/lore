@@ -4,27 +4,6 @@ import { CodedError } from "./error";
 import { resolveHomeDir } from "./db";
 import type { RemotePlatform } from "./sync";
 
-export interface RemoteConfig {
-  platform: RemotePlatform;
-  url: string;
-}
-
-interface ConfigFile {
-  remote?: {
-    platform?: unknown;
-    url?: unknown;
-  };
-}
-
-interface CredentialEntry {
-  token?: unknown;
-}
-
-interface CredentialsFile {
-  turso?: CredentialEntry;
-  libsql?: CredentialEntry;
-}
-
 function resolveTossDirPath(): string {
   return resolve(resolveHomeDir(), ".toss");
 }
@@ -83,15 +62,17 @@ export function parseRemotePlatform(value: unknown, fieldPath = "platform"): Rem
   throw new CodedError("CONFIG", `${fieldPath} must be one of: turso, libsql`);
 }
 
-function parseRemoteConfigFromUnknown(value: unknown): RemoteConfig | null {
+function parseRemoteConfigFromUnknown(value: unknown) {
   if (!isRecord(value)) {
     throw new CodedError("CONFIG", "config.json root must be an object");
   }
-  const parsed = value as ConfigFile;
-  if (!parsed.remote) {
+  const remote = value.remote;
+  if (remote === undefined) {
     return null;
   }
-  const remote = parsed.remote;
+  if (!isRecord(remote)) {
+    throw new CodedError("CONFIG", "remote must be an object");
+  }
   return {
     platform: parseRemotePlatform(remote.platform, "remote.platform"),
     url: parseNonEmptyString(remote.url, "remote.url"),
@@ -105,18 +86,23 @@ function parseToken(value: unknown, fieldPath: string): string | undefined {
   return parseNonEmptyString(value, fieldPath);
 }
 
-function parseCredentialsFromUnknown(value: unknown): CredentialsFile {
+function parseCredentialsFromUnknown(value: unknown): {
+  turso?: Record<string, unknown> | undefined;
+  libsql?: Record<string, unknown> | undefined;
+} {
   if (!isRecord(value)) {
     throw new CodedError("CONFIG", "credentials.json root must be an object");
   }
-  const parsed = value as CredentialsFile;
-  if (parsed.turso !== undefined && !isRecord(parsed.turso)) {
+  if (value.turso !== undefined && !isRecord(value.turso)) {
     throw new CodedError("CONFIG", "credentials.turso must be an object");
   }
-  if (parsed.libsql !== undefined && !isRecord(parsed.libsql)) {
+  if (value.libsql !== undefined && !isRecord(value.libsql)) {
     throw new CodedError("CONFIG", "credentials.libsql must be an object");
   }
-  return parsed;
+  return {
+    turso: value.turso as Record<string, unknown> | undefined,
+    libsql: value.libsql as Record<string, unknown> | undefined,
+  };
 }
 
 function chmodCredentials(path: string): void {
@@ -133,7 +119,7 @@ function chmodCredentials(path: string): void {
   }
 }
 
-export function readRemoteConfig(): RemoteConfig | null {
+export function readRemoteConfig() {
   const parsed = readJsonFile(resolveConfigPath());
   if (parsed === null) {
     return null;
@@ -141,7 +127,7 @@ export function readRemoteConfig(): RemoteConfig | null {
   return parseRemoteConfigFromUnknown(parsed);
 }
 
-export function writeRemoteConfig(remote: RemoteConfig): void {
+export function writeRemoteConfig(remote: { platform: RemotePlatform; url: string }): void {
   const platform = parseRemotePlatform(remote.platform, "remote.platform");
   writeJsonFile(resolveConfigPath(), {
     remote: {
@@ -151,7 +137,10 @@ export function writeRemoteConfig(remote: RemoteConfig): void {
   });
 }
 
-function readCredentials(): CredentialsFile {
+function readCredentials(): {
+  turso?: Record<string, unknown> | undefined;
+  libsql?: Record<string, unknown> | undefined;
+} {
   const parsed = readJsonFile(resolveCredentialsPath());
   if (parsed === null) {
     return {};
@@ -159,13 +148,13 @@ function readCredentials(): CredentialsFile {
   return parseCredentialsFromUnknown(parsed);
 }
 
-function writeCredentials(credentials: CredentialsFile): void {
+function writeCredentials(credentials: ReturnType<typeof readCredentials>): void {
   const path = resolveCredentialsPath();
   writeJsonFile(path, credentials);
   chmodCredentials(path);
 }
 
-function tokenFromEntry(entry: CredentialEntry | undefined, fieldPath: string): string | undefined {
+function tokenFromEntry(entry: Record<string, unknown> | undefined, fieldPath: string): string | undefined {
   if (!entry) {
     return undefined;
   }

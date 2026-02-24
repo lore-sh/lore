@@ -2,7 +2,7 @@ import { createClient, type Client, type InArgs, type ResultSet, type Row, type 
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate as migrateLibsql } from "drizzle-orm/libsql/migrator";
 import { basename, resolve } from "node:path";
-import type { CommitBundle } from "./commit";
+import type { readCommit } from "./commit";
 import { readAuthToken } from "./config";
 import {
   COMMIT_PARENT_TABLE,
@@ -23,7 +23,7 @@ import {
 import { CodedError } from "./error";
 import type { RowEffect, SchemaEffect } from "./effect";
 import { canonicalJson, sha256Hex } from "./hash";
-import { schemaHashFromDescriptor } from "./inspect";
+import { hashSchema } from "./inspect";
 import type { Operation } from "./operation";
 import type { EncodedCell, EncodedRow } from "./schema";
 import {
@@ -34,7 +34,7 @@ import {
   quoteIdentifier,
   rewriteCreateTableName,
 } from "./sql";
-import type { RemoteHead, SyncConfig } from "./sync";
+import type { RemotePlatform } from "./sync";
 
 const ENGINE_MIGRATION_DIR = resolve(import.meta.dir, "../migration");
 const REMOTE_REQUIRED_READ_TABLES = [
@@ -49,19 +49,8 @@ const REMOTE_REQUIRED_READ_TABLES = [
 
 const SQLITE_SEQUENCE_TABLE = "sqlite_sequence";
 
-export type RemoteReadState = "initialized" | "empty";
-
-export interface RemoteProjectionStatus {
-  projectionHead: string | null;
-  projectionLagCommits: number;
-  projectionError: string | null;
-}
-
-interface SqlExecutor {
-  execute(stmt: string | { sql: string; args?: InArgs }, args?: InArgs): Promise<ResultSet>;
-}
-
 type ReplayDirection = "forward" | "inverse";
+type Replay = ReturnType<typeof readCommit>;
 
 function parseRemoteRow(row: Row): Record<string, unknown> {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
@@ -246,7 +235,10 @@ export function normalizeToken(token: string | null | undefined): string | undef
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-export function authTokenForPlatform(config: SyncConfig, override?: string | null): string | undefined {
+export function authTokenForPlatform(
+  config: { platform: RemotePlatform; remoteUrl: string; remoteDbName: string | null },
+  override?: string | null,
+): string | undefined {
   if (override === null) {
     return undefined;
   }
@@ -257,7 +249,10 @@ export function authTokenForPlatform(config: SyncConfig, override?: string | nul
   return readAuthToken(config.platform);
 }
 
-export function openRemoteClient(config: SyncConfig, authTokenOverride?: string | null): Client {
+export function openRemoteClient(
+  config: { platform: RemotePlatform; remoteUrl: string; remoteDbName: string | null },
+  authTokenOverride?: string | null,
+): Client {
   const authToken = authTokenForPlatform(config, authTokenOverride);
   return createClient(authToken ? { url: config.remoteUrl, authToken } : { url: config.remoteUrl });
 }
@@ -266,7 +261,7 @@ function rowsFrom(result: ResultSet): Row[] {
   return result.rows as Row[];
 }
 
-async function remoteTableExists(executor: SqlExecutor, tableName: string): Promise<boolean> {
+async function remoteTableExists(executor: Client | Transaction, tableName: string): Promise<boolean> {
   const result = await executor.execute({
     sql: "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
     args: [tableName],
@@ -274,7 +269,7 @@ async function remoteTableExists(executor: SqlExecutor, tableName: string): Prom
   return rowsFrom(result).length > 0;
 }
 
-export async function detectRemoteReadState(client: Client): Promise<RemoteReadState> {
+export async function detectRemoteReadState(client: Client): Promise<"initialized" | "empty"> {
   const existing = new Set<string>();
   for (const tableName of REMOTE_REQUIRED_READ_TABLES) {
     if (await remoteTableExists(client, tableName)) {
@@ -301,7 +296,7 @@ function metaInsertStatement(key: string, value: string): { sql: string; args: I
   };
 }
 
-async function getRemoteMetaValue(executor: SqlExecutor, key: string): Promise<string | null> {
+async function getRemoteMetaValue(executor: Client | Transaction, key: string): Promise<string | null> {
   const result = await executor.execute({
     sql: "SELECT value FROM _toss_meta WHERE key = ? LIMIT 1",
     args: [key],
@@ -313,7 +308,7 @@ async function getRemoteMetaValue(executor: SqlExecutor, key: string): Promise<s
   return parseString(parseRowValue(row, "value"), "_toss_meta.value");
 }
 
-async function setRemoteMetaValue(executor: SqlExecutor, key: string, value: string): Promise<void> {
+async function setRemoteMetaValue(executor: Client | Transaction, key: string, value: string): Promise<void> {
   await executor.execute({
     sql: `
       INSERT INTO _toss_meta(key, value)
@@ -324,7 +319,7 @@ async function setRemoteMetaValue(executor: SqlExecutor, key: string, value: str
   });
 }
 
-async function writeMaterializedCheckpoint(executor: SqlExecutor, commitId: string | null): Promise<void> {
+async function writeMaterializedCheckpoint(executor: Client | Transaction, commitId: string | null): Promise<void> {
   await setRemoteMetaValue(executor, LAST_MATERIALIZED_COMMIT_META_KEY, commitId ?? "");
   await setRemoteMetaValue(executor, LAST_MATERIALIZED_AT_META_KEY, String(Date.now()));
   await setRemoteMetaValue(executor, LAST_MATERIALIZED_ERROR_META_KEY, "");
@@ -359,7 +354,7 @@ export async function ensureRemoteInitialized(client: Client): Promise<void> {
   );
 }
 
-export async function fetchRemoteHead(executor: SqlExecutor): Promise<RemoteHead> {
+export async function remoteHead(executor: Client | Transaction) {
   const result = await executor.execute({
     sql: `
       SELECT r.commit_id AS commit_id, c.seq AS seq
@@ -384,7 +379,7 @@ export async function fetchRemoteHead(executor: SqlExecutor): Promise<RemoteHead
   };
 }
 
-export async function remoteHasCommit(executor: SqlExecutor, commitId: string): Promise<boolean> {
+export async function remoteHasCommit(executor: Client | Transaction, commitId: string): Promise<boolean> {
   const result = await executor.execute({
     sql: "SELECT 1 AS ok FROM _toss_commit WHERE commit_id = ? LIMIT 1",
     args: [commitId],
@@ -392,7 +387,7 @@ export async function remoteHasCommit(executor: SqlExecutor, commitId: string): 
   return rowsFrom(result).length > 0;
 }
 
-export async function remoteCommitSeq(executor: SqlExecutor, commitId: string): Promise<number | null> {
+export async function remoteCommitSeq(executor: Client | Transaction, commitId: string): Promise<number | null> {
   const result = await executor.execute({
     sql: "SELECT seq AS seq FROM _toss_commit WHERE commit_id = ? LIMIT 1",
     args: [commitId],
@@ -404,7 +399,7 @@ export async function remoteCommitSeq(executor: SqlExecutor, commitId: string): 
   return parseInteger(parseRowValue(row, "seq"), "_toss_commit.seq");
 }
 
-async function listRemoteUserTables(executor: SqlExecutor): Promise<string[]> {
+async function listRemoteUserTables(executor: Client | Transaction): Promise<string[]> {
   const result = await executor.execute({
     sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
   });
@@ -441,7 +436,7 @@ function normalizeStateRow(row: Record<string, unknown>): Record<string, string 
   return out;
 }
 
-async function remotePrimaryKeyColumns(executor: SqlExecutor, tableName: string): Promise<string[]> {
+async function remotePrimaryKeyColumns(executor: Client | Transaction, tableName: string): Promise<string[]> {
   const result = await executor.execute(`PRAGMA table_info(${pragmaLiteral(tableName)})`);
   const pkColumns = rowsFrom(result)
     .map((row) => ({
@@ -457,7 +452,7 @@ async function remotePrimaryKeyColumns(executor: SqlExecutor, tableName: string)
   return pkColumns;
 }
 
-async function remoteStateHash(executor: SqlExecutor): Promise<string> {
+async function remoteStateHash(executor: Client | Transaction): Promise<string> {
   const tables = await listRemoteUserTables(executor);
   const state: Record<string, Array<Record<string, string | number | boolean | null>>> = {};
   for (const tableName of tables) {
@@ -469,7 +464,7 @@ async function remoteStateHash(executor: SqlExecutor): Promise<string> {
   return sha256Hex(state);
 }
 
-async function remoteSchemaHash(executor: SqlExecutor): Promise<string> {
+async function remoteSchemaHash(executor: Client | Transaction): Promise<string> {
   const tables = await listRemoteUserTables(executor);
   const tableListResult = await executor.execute("PRAGMA table_list");
   const tableOptions = new Map<string, { withoutRowid: boolean; strict: boolean }>();
@@ -485,7 +480,7 @@ async function remoteSchemaHash(executor: SqlExecutor): Promise<string> {
     tableOptions.set(name, { withoutRowid, strict });
   }
 
-  const descriptors: Parameters<typeof schemaHashFromDescriptor>[0]["tables"] = [];
+  const descriptors: Parameters<typeof hashSchema>[0]["tables"] = [];
   for (const tableName of tables) {
     const tableDdlResult = await executor.execute({
       sql: "SELECT sql FROM sqlite_master WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
@@ -622,34 +617,22 @@ async function remoteSchemaHash(executor: SqlExecutor): Promise<string> {
     });
   }
 
-  return schemaHashFromDescriptor({ tables: descriptors });
+  return hashSchema({ tables: descriptors });
 }
 
-interface CommitHashes {
-  schemaHashAfter: string;
-  stateHashAfter: string;
-}
-
-async function fetchCommitHashes(executor: SqlExecutor, commitId: string): Promise<CommitHashes | null> {
+async function verifyProjectionAtCommit(executor: Client | Transaction, commitId: string): Promise<void> {
   const result = await executor.execute({
     sql: "SELECT schema_hash_after, state_hash_after FROM _toss_commit WHERE commit_id = ? LIMIT 1",
     args: [commitId],
   });
   const row = rowsFrom(result)[0];
   if (!row) {
-    return null;
+    throw projectionFailure(`checkpoint commit is missing from canonical history: ${commitId}`);
   }
-  return {
+  const expected = {
     schemaHashAfter: parseString(parseRowValue(row, "schema_hash_after"), "_toss_commit.schema_hash_after"),
     stateHashAfter: parseString(parseRowValue(row, "state_hash_after"), "_toss_commit.state_hash_after"),
   };
-}
-
-async function verifyProjectionAtCommit(executor: SqlExecutor, commitId: string): Promise<void> {
-  const expected = await fetchCommitHashes(executor, commitId);
-  if (!expected) {
-    throw projectionFailure(`checkpoint commit is missing from canonical history: ${commitId}`);
-  }
   const actualSchemaHash = await remoteSchemaHash(executor);
   if (actualSchemaHash !== expected.schemaHashAfter) {
     throw projectionFailure(
@@ -664,7 +647,7 @@ async function verifyProjectionAtCommit(executor: SqlExecutor, commitId: string)
   }
 }
 
-async function remoteTableColumns(executor: SqlExecutor, tableName: string): Promise<string[]> {
+async function remoteTableColumns(executor: Client | Transaction, tableName: string): Promise<string[]> {
   const result = await executor.execute(`PRAGMA table_info(${quoteIdentifier(tableName, { unsafe: true })})`);
   const names = rowsFrom(result).map((row) =>
     parseString(parseRowValue(row, "name"), `PRAGMA table_info(${tableName}).name`),
@@ -743,7 +726,7 @@ function encodeRowFromRemote(
   return encoded;
 }
 
-async function fetchObservedRowByPk(executor: SqlExecutor, tableName: string, pk: Record<string, string>): Promise<EncodedRow | null> {
+async function fetchObservedRowByPk(executor: Client | Transaction, tableName: string, pk: Record<string, string>): Promise<EncodedRow | null> {
   if (!(await remoteTableExists(executor, tableName))) {
     if (isSystemSideEffectTable(tableName)) {
       return null;
@@ -766,7 +749,7 @@ async function fetchObservedRowByPk(executor: SqlExecutor, tableName: string, pk
   return encodeRowFromRemote(parseRemoteRow(row), columns, quoteAliases, hexAliases, typeAliases);
 }
 
-async function insertEncodedRow(executor: SqlExecutor, tableName: string, row: EncodedRow): Promise<void> {
+async function insertEncodedRow(executor: Client | Transaction, tableName: string, row: EncodedRow): Promise<void> {
   const columns = Object.keys(row).sort((a, b) => a.localeCompare(b));
   if (columns.length === 0) {
     throw projectionFailure(`Cannot insert empty encoded row for table ${tableName}`);
@@ -785,7 +768,7 @@ async function insertEncodedRow(executor: SqlExecutor, tableName: string, row: E
 }
 
 async function updateEncodedRow(
-  executor: SqlExecutor,
+  executor: Client | Transaction,
   tableName: string,
   pk: Record<string, string>,
   row: EncodedRow,
@@ -808,11 +791,11 @@ async function updateEncodedRow(
   );
 }
 
-async function deleteByPk(executor: SqlExecutor, tableName: string, pk: Record<string, string>): Promise<void> {
+async function deleteByPk(executor: Client | Transaction, tableName: string, pk: Record<string, string>): Promise<void> {
   await executor.execute(`DELETE FROM ${quoteIdentifier(tableName, { unsafe: true })} WHERE ${buildPkWhereClause(pk)}`);
 }
 
-async function referencedTables(executor: SqlExecutor, tableName: string): Promise<string[]> {
+async function referencedTables(executor: Client | Transaction, tableName: string): Promise<string[]> {
   if (!(await remoteTableExists(executor, tableName))) {
     return [];
   }
@@ -824,7 +807,7 @@ async function referencedTables(executor: SqlExecutor, tableName: string): Promi
   return Array.from(refs).sort((a, b) => a.localeCompare(b));
 }
 
-async function missingReferencedTables(executor: SqlExecutor, tableName: string): Promise<string[]> {
+async function missingReferencedTables(executor: Client | Transaction, tableName: string): Promise<string[]> {
   const refs = await referencedTables(executor, tableName);
   const missing: string[] = [];
   for (const ref of refs) {
@@ -835,37 +818,9 @@ async function missingReferencedTables(executor: SqlExecutor, tableName: string)
   return missing;
 }
 
-function effectRowMode(
-  effect: RowEffect,
-  direction: ReplayDirection,
-): { expectedCurrent: EncodedRow | null; target: EncodedRow | null; opLabel: string } {
-  if (direction === "forward") {
-    if (effect.opKind === "insert") {
-      return { expectedCurrent: null, target: effect.afterRow, opLabel: "insert" };
-    }
-    if (effect.opKind === "update") {
-      return { expectedCurrent: effect.beforeRow, target: effect.afterRow, opLabel: "update" };
-    }
-    return { expectedCurrent: effect.beforeRow, target: null, opLabel: "delete" };
-  }
-
-  if (effect.opKind === "insert") {
-    return { expectedCurrent: effect.afterRow, target: null, opLabel: "inverse-delete" };
-  }
-  if (effect.opKind === "update") {
-    return { expectedCurrent: effect.afterRow, target: effect.beforeRow, opLabel: "inverse-update" };
-  }
-  return { expectedCurrent: null, target: effect.beforeRow, opLabel: "inverse-insert" };
-}
-
-interface DroppedTrigger {
-  name: string;
-  sql: string;
-}
-
-async function dropTriggersForTables(executor: SqlExecutor, effects: RowEffect[]): Promise<DroppedTrigger[]> {
+async function dropTriggersForTables(executor: Client | Transaction, effects: RowEffect[]) {
   const touched = Array.from(new Set(effects.map((effect) => effect.tableName))).sort((a, b) => a.localeCompare(b));
-  const dropped: DroppedTrigger[] = [];
+  const dropped: Array<{ name: string; sql: string }> = [];
   for (const tableName of touched) {
     const result = await executor.execute({
       sql: "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC",
@@ -881,14 +836,8 @@ async function dropTriggersForTables(executor: SqlExecutor, effects: RowEffect[]
   return dropped;
 }
 
-async function restoreDroppedTriggers(executor: SqlExecutor, dropped: DroppedTrigger[]): Promise<void> {
-  for (const trigger of dropped) {
-    await executor.execute(trigger.sql);
-  }
-}
-
 async function applySystemRowEffectReconciled(
-  executor: SqlExecutor,
+  executor: Client | Transaction,
   tableName: string,
   pk: Record<string, string>,
   target: EncodedRow | null,
@@ -912,8 +861,8 @@ async function applySystemRowEffectReconciled(
   await updateEncodedRow(executor, tableName, pk, target);
 }
 
-async function applyRowEffectsWithOptions(
-  executor: SqlExecutor,
+async function applyRowEffects(
+  executor: Client | Transaction,
   effects: RowEffect[],
   direction: ReplayDirection,
   options: {
@@ -934,7 +883,21 @@ async function applyRowEffectsWithOptions(
   try {
     const ordered = direction === "forward" ? filtered : filtered.toReversed();
     for (const effect of ordered) {
-      const { expectedCurrent, target, opLabel } = effectRowMode(effect, direction);
+      const forward = direction === "forward";
+      const before = effect.beforeRow;
+      const after = effect.afterRow;
+      const rowMode = effect.opKind === "insert"
+        ? (forward
+          ? { expectedCurrent: null, target: after, opLabel: "insert" }
+          : { expectedCurrent: after, target: null, opLabel: "inverse-delete" })
+        : effect.opKind === "update"
+        ? (forward
+          ? { expectedCurrent: before, target: after, opLabel: "update" }
+          : { expectedCurrent: after, target: before, opLabel: "inverse-update" })
+        : (forward
+          ? { expectedCurrent: before, target: null, opLabel: "delete" }
+          : { expectedCurrent: null, target: before, opLabel: "inverse-insert" });
+      const { expectedCurrent, target, opLabel } = rowMode;
       const isSystem = isSystemSideEffectTable(effect.tableName);
       if (isSystem && systemPolicy === "reconcile") {
         await applySystemRowEffectReconciled(executor, effect.tableName, effect.pk, target);
@@ -960,7 +923,9 @@ async function applyRowEffectsWithOptions(
     }
   } finally {
     if (droppedTriggers) {
-      await restoreDroppedTriggers(executor, droppedTriggers);
+      for (const trigger of droppedTriggers) {
+        await executor.execute(trigger.sql);
+      }
     }
   }
 }
@@ -1045,7 +1010,7 @@ function orderSchemaEffectsForReplay(effects: SchemaEffect[], direction: ReplayD
 }
 
 async function captureSqliteSequenceSnapshot(
-  executor: SqlExecutor,
+  executor: Client | Transaction,
   tableName: string,
 ): Promise<{ seqLiteral: string } | null> {
   if (!(await remoteTableExists(executor, SQLITE_SEQUENCE_TABLE))) {
@@ -1063,7 +1028,7 @@ async function captureSqliteSequenceSnapshot(
 }
 
 async function restoreSqliteSequenceSnapshot(
-  executor: SqlExecutor,
+  executor: Client | Transaction,
   tableName: string,
   snapshot: { seqLiteral: string } | null,
 ): Promise<void> {
@@ -1085,7 +1050,7 @@ function encodeCellSqlLiteral(cell: EncodedCell | undefined, label: string): str
 }
 
 async function restoreTableSnapshot(
-  executor: SqlExecutor,
+  executor: Client | Transaction,
   tableName: string,
   snapshot: NonNullable<SchemaEffect["afterTable"]>,
 ): Promise<void> {
@@ -1126,7 +1091,7 @@ async function restoreTableSnapshot(
   }
 }
 
-async function applySingleSchemaEffect(executor: SqlExecutor, effect: SchemaEffect, direction: ReplayDirection): Promise<void> {
+async function applySingleSchemaEffect(executor: Client | Transaction, effect: SchemaEffect, direction: ReplayDirection): Promise<void> {
   const target = direction === "forward" ? effect.afterTable : effect.beforeTable;
   if (!target) {
     await executor.execute(`DROP TABLE ${quoteIdentifier(effect.tableName, { unsafe: true })}`);
@@ -1135,7 +1100,7 @@ async function applySingleSchemaEffect(executor: SqlExecutor, effect: SchemaEffe
   await restoreTableSnapshot(executor, effect.tableName, target);
 }
 
-async function canApplyUserRowEffectNow(executor: SqlExecutor, effect: RowEffect): Promise<boolean> {
+async function canApplyUserRowEffectNow(executor: Client | Transaction, effect: RowEffect): Promise<boolean> {
   if (isSystemSideEffectTable(effect.tableName)) {
     return false;
   }
@@ -1145,8 +1110,8 @@ async function canApplyUserRowEffectNow(executor: SqlExecutor, effect: RowEffect
   return (await missingReferencedTables(executor, effect.tableName)).length === 0;
 }
 
-async function applyUserRowAndSchemaEffects(
-  executor: SqlExecutor,
+async function applyEffects(
+  executor: Client | Transaction,
   rowEffects: RowEffect[],
   schemaEffects: SchemaEffect[],
   direction: ReplayDirection,
@@ -1160,7 +1125,7 @@ async function applyUserRowAndSchemaEffects(
 
   while (pendingRows.length > 0 || schemaIndex < orderedSchemas.length) {
     while (pendingRows.length > 0 && (await canApplyUserRowEffectNow(executor, pendingRows[0]!))) {
-      await applyRowEffectsWithOptions(executor, [pendingRows.shift()!], direction, {
+      await applyRowEffects(executor, [pendingRows.shift()!], direction, {
         disableTableTriggers: options.disableTableTriggers,
         includeUserEffects: true,
         includeSystemEffects: false,
@@ -1193,7 +1158,7 @@ async function applyUserRowAndSchemaEffects(
       );
     }
 
-    await applyRowEffectsWithOptions(executor, [blocked], direction, {
+    await applyRowEffects(executor, [blocked], direction, {
       disableTableTriggers: options.disableTableTriggers,
       includeUserEffects: true,
       includeSystemEffects: false,
@@ -1202,7 +1167,7 @@ async function applyUserRowAndSchemaEffects(
   }
 }
 
-async function assertNoForeignKeyViolations(executor: SqlExecutor, context: string): Promise<void> {
+async function assertForeignKeys(executor: Client | Transaction, context: string): Promise<void> {
   const result = await executor.execute("PRAGMA foreign_key_check");
   const rows = rowsFrom(result);
   if (rows.length === 0) {
@@ -1216,7 +1181,7 @@ async function assertNoForeignKeyViolations(executor: SqlExecutor, context: stri
   throw projectionFailure(`${context}: foreign_key_check failed at ${table} rowid=${rowid} parent=${parent} fk=${fkid}`);
 }
 
-async function assertStructuralIntegrity(executor: SqlExecutor, context: string): Promise<void> {
+async function assertStructuralIntegrity(executor: Client | Transaction, context: string): Promise<void> {
   const result = await executor.execute("PRAGMA quick_check(1)");
   const row = rowsFrom(result)[0];
   if (!row) {
@@ -1230,7 +1195,7 @@ async function assertStructuralIntegrity(executor: SqlExecutor, context: string)
   throw projectionFailure(`${context}: quick_check returned ${String(first)}`);
 }
 
-async function rebuildProjectionFromCanonicalHistory(executor: SqlExecutor, headSeqInclusive: number): Promise<void> {
+async function rebuildProjectionFromCanonicalHistory(executor: Client | Transaction, headSeqInclusive: number): Promise<void> {
   const userTables = await listRemoteUserTables(executor);
 
   await executor.execute("PRAGMA foreign_keys=OFF");
@@ -1245,85 +1210,85 @@ async function rebuildProjectionFromCanonicalHistory(executor: SqlExecutor, head
   await setRemoteMetaValue(executor, LAST_MATERIALIZED_COMMIT_META_KEY, "");
   await setRemoteMetaValue(executor, LAST_MATERIALIZED_ERROR_META_KEY, "");
 
-  const replayInputs = await fetchRemoteReplayInputsInSeqRange(executor, 0, headSeqInclusive);
+  const replayInputs = await fetchCommitRange(executor, 0, headSeqInclusive);
   for (const replay of replayInputs) {
-    await materializeSingleCommit(executor, replay);
-    await writeMaterializedCheckpoint(executor, replay.commitId);
+    await materializeCommit(executor, replay);
+    await writeMaterializedCheckpoint(executor, replay.commit.commitId);
   }
   if (replayInputs.length === 0) {
     await writeMaterializedCheckpoint(executor, null);
   }
 }
 
-export async function materializeSingleCommit(executor: SqlExecutor, replay: CommitBundle): Promise<void> {
+export async function materializeCommit(executor: Client | Transaction, replay: Replay): Promise<void> {
   await runProjectionStep(async () => {
     const beforeSchemaHash = await remoteSchemaHash(executor);
     if (beforeSchemaHash !== replay.commit.schemaHashBefore) {
       throw projectionFailure(
-        `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.commit.schemaHashBefore}, got ${beforeSchemaHash}`,
+        `schema_hash_before mismatch for replay ${replay.commit.commitId}: expected ${replay.commit.schemaHashBefore}, got ${beforeSchemaHash}`,
       );
     }
 
     const computedPlanHash = sha256Hex(replay.operations);
     if (computedPlanHash !== replay.commit.planHash) {
       throw projectionFailure(
-        `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.commit.planHash}, got ${computedPlanHash}`,
+        `plan_hash mismatch for replay ${replay.commit.commitId}: expected ${replay.commit.planHash}, got ${computedPlanHash}`,
       );
     }
 
-    await applyUserRowAndSchemaEffects(executor, replay.rowEffects, replay.schemaEffects, "forward", {
+    await applyEffects(executor, replay.rowEffects, replay.schemaEffects, "forward", {
       disableTableTriggers: true,
     });
-    await applyRowEffectsWithOptions(executor, replay.rowEffects, "forward", {
+    await applyRowEffects(executor, replay.rowEffects, "forward", {
       disableTableTriggers: true,
       includeUserEffects: false,
       includeSystemEffects: true,
       systemPolicy: "reconcile",
     });
-    await assertNoForeignKeyViolations(executor, `replay ${replay.commitId}`);
-    await assertStructuralIntegrity(executor, `replay ${replay.commitId}`);
+    await assertForeignKeys(executor, `replay ${replay.commit.commitId}`);
+    await assertStructuralIntegrity(executor, `replay ${replay.commit.commitId}`);
 
     const afterSchemaHash = await remoteSchemaHash(executor);
     if (afterSchemaHash !== replay.commit.schemaHashAfter) {
       throw projectionFailure(
-        `schema_hash_after mismatch for replay ${replay.commitId}: expected ${replay.commit.schemaHashAfter}, got ${afterSchemaHash}`,
+        `schema_hash_after mismatch for replay ${replay.commit.commitId}: expected ${replay.commit.schemaHashAfter}, got ${afterSchemaHash}`,
       );
     }
 
     const afterStateHash = await remoteStateHash(executor);
     if (afterStateHash !== replay.commit.stateHashAfter) {
       throw projectionFailure(
-        `state_hash_after mismatch for replay ${replay.commitId}: expected ${replay.commit.stateHashAfter}, got ${afterStateHash}`,
+        `state_hash_after mismatch for replay ${replay.commit.commitId}: expected ${replay.commit.stateHashAfter}, got ${afterStateHash}`,
       );
     }
-  }, `replay ${replay.commitId}`);
+  }, `replay ${replay.commit.commitId}`);
 }
 
-export async function materializeRemoteToHead(client: Client): Promise<void> {
+export async function materializeToHead(client: Client): Promise<void> {
   const tx = await client.transaction("write");
   try {
     await tx.execute("PRAGMA foreign_keys=ON");
     await tx.execute("PRAGMA defer_foreign_keys=ON");
 
-    const remoteHead = await fetchRemoteHead(tx);
-    const checkpoint = remoteHead.commitId
+    const head = await remoteHead(tx);
+    const checkpoint = head.commitId
       ? normalizeMetaString(await getRemoteMetaValue(tx, LAST_MATERIALIZED_COMMIT_META_KEY))
       : null;
     const checkpointSeq = checkpoint ? await remoteCommitSeq(tx, checkpoint) : null;
-    const needsRebuild = !remoteHead.commitId || !checkpoint || checkpointSeq === null || checkpointSeq > remoteHead.seq;
+    const needsRebuild = !head.commitId || !checkpoint || checkpointSeq === null || checkpointSeq > head.seq;
 
     if (needsRebuild) {
-      await runProjectionStep(() => rebuildProjectionFromCanonicalHistory(tx, remoteHead.seq), "rebuild projection");
+      await runProjectionStep(() => rebuildProjectionFromCanonicalHistory(tx, head.seq), "rebuild projection");
       await tx.commit();
       return;
     }
 
     await runProjectionStep(() => verifyProjectionAtCommit(tx, checkpoint), `verify checkpoint ${checkpoint}`);
 
-    const replayInputs = await fetchRemoteInputsAfterSeq(tx, checkpointSeq, remoteHead);
+    const replayInputs = await fetchCommitsAfter(tx, checkpointSeq, head);
     for (const replay of replayInputs) {
-      await materializeSingleCommit(tx, replay);
-      await writeMaterializedCheckpoint(tx, replay.commitId);
+      await materializeCommit(tx, replay);
+      await writeMaterializedCheckpoint(tx, replay.commit.commitId);
     }
 
     await setRemoteMetaValue(tx, LAST_MATERIALIZED_AT_META_KEY, String(Date.now()));
@@ -1348,15 +1313,15 @@ export async function materializeRemoteToHead(client: Client): Promise<void> {
   }
 }
 
-export async function fetchRemoteProjectionStatus(
-  executor: SqlExecutor,
-  remoteHeadInput?: RemoteHead,
-): Promise<RemoteProjectionStatus> {
-  const remoteHead = remoteHeadInput ?? (await fetchRemoteHead(executor));
+export async function projectionStatus(
+  executor: Client | Transaction,
+  remoteHeadInput?: Awaited<ReturnType<typeof remoteHead>>,
+) {
+  const head = remoteHeadInput ?? (await remoteHead(executor));
   const projectionHead = normalizeMetaString(await getRemoteMetaValue(executor, LAST_MATERIALIZED_COMMIT_META_KEY));
   const recordedError = normalizeMetaString(await getRemoteMetaValue(executor, LAST_MATERIALIZED_ERROR_META_KEY));
 
-  if (!remoteHead.commitId) {
+  if (!head.commitId) {
     return {
       projectionHead,
       projectionLagCommits: 0,
@@ -1369,20 +1334,20 @@ export async function fetchRemoteProjectionStatus(
     projectionSeq = await remoteCommitSeq(executor, projectionHead);
   }
 
-  const projectionAheadOfHead = projectionSeq !== null && projectionSeq > remoteHead.seq;
+  const projectionAheadOfHead = projectionSeq !== null && projectionSeq > head.seq;
   let projectionLagCommits: number;
   if (projectionSeq === null) {
-    projectionLagCommits = remoteHead.seq;
+    projectionLagCommits = head.seq;
   } else if (projectionAheadOfHead) {
     projectionLagCommits = 0;
   } else {
-    projectionLagCommits = remoteHead.seq - projectionSeq;
+    projectionLagCommits = head.seq - projectionSeq;
   }
   let projectionError = projectionHead && projectionSeq === null
     ? `Materialization checkpoint is missing from canonical history: ${projectionHead}`
     : recordedError;
   if (projectionAheadOfHead) {
-    projectionError = `Materialization checkpoint is ahead of remote HEAD: checkpoint=${projectionHead} seq=${projectionSeq} head=${remoteHead.commitId} seq=${remoteHead.seq}`;
+    projectionError = `Materialization checkpoint is ahead of remote HEAD: checkpoint=${projectionHead} seq=${projectionSeq} head=${head.commitId} seq=${head.seq}`;
   } else if (projectionHead && projectionSeq !== null) {
     try {
       await verifyProjectionAtCommit(executor, projectionHead);
@@ -1398,7 +1363,7 @@ export async function fetchRemoteProjectionStatus(
   };
 }
 
-async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Promise<void> {
+async function writeToRemote(tx: Transaction, replay: Replay): Promise<void> {
   await tx.execute({
     sql: `
       INSERT INTO _toss_commit(
@@ -1410,7 +1375,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Pr
       ON CONFLICT(commit_id) DO NOTHING
     `,
     args: [
-      replay.commitId,
+      replay.commit.commitId,
       replay.commit.seq,
       replay.commit.kind,
       replay.commit.message,
@@ -1432,7 +1397,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Pr
         VALUES (?, ?, ?)
         ON CONFLICT(commit_id, ord) DO NOTHING
       `,
-      args: [replay.commitId, replay.parentIds[i]!, i],
+      args: [replay.commit.commitId, replay.parentIds[i]!, i],
     });
   }
 
@@ -1444,7 +1409,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Pr
         VALUES (?, ?, ?, ?)
         ON CONFLICT(commit_id, op_index) DO NOTHING
       `,
-      args: [replay.commitId, i, operation.type, canonicalJson(operation)],
+      args: [replay.commit.commitId, i, operation.type, canonicalJson(operation)],
     });
   }
 
@@ -1462,7 +1427,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Pr
         ON CONFLICT(commit_id, effect_index) DO NOTHING
       `,
       args: [
-        replay.commitId,
+        replay.commit.commitId,
         i,
         effect.tableName,
         canonicalJson(effect.pk),
@@ -1486,7 +1451,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Pr
         ON CONFLICT(commit_id, effect_index) DO NOTHING
       `,
       args: [
-        replay.commitId,
+        replay.commit.commitId,
         i,
         effect.tableName,
         effect.beforeTable ? canonicalJson(effect.beforeTable) : null,
@@ -1498,7 +1463,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Pr
 
 export async function pushCommit(
   client: Client,
-  replay: CommitBundle,
+  replay: Replay,
   expectedRemoteHead: string | null,
 ): Promise<void> {
   const tx = await client.transaction("write");
@@ -1506,7 +1471,7 @@ export async function pushCommit(
     await tx.execute("PRAGMA foreign_keys=ON");
     await tx.execute("PRAGMA defer_foreign_keys=ON");
 
-    const currentHead = await fetchRemoteHead(tx);
+    const currentHead = await remoteHead(tx);
     if (currentHead.commitId !== expectedRemoteHead) {
       throw new CodedError(
         "SYNC_NON_FAST_FORWARD",
@@ -1514,11 +1479,11 @@ export async function pushCommit(
       );
     }
 
-    await insertReplayIntoRemote(tx, replay);
+    await writeToRemote(tx, replay);
     await runProjectionStep(async () => {
-      await materializeSingleCommit(tx, replay);
-      await writeMaterializedCheckpoint(tx, replay.commitId);
-    }, `materialize pushed commit ${replay.commitId}`);
+      await materializeCommit(tx, replay);
+      await writeMaterializedCheckpoint(tx, replay.commit.commitId);
+    }, `materialize pushed commit ${replay.commit.commitId}`);
 
     const update = await tx.execute({
       sql: `
@@ -1526,7 +1491,7 @@ export async function pushCommit(
         SET commit_id = ?, updated_at = ?
         WHERE name = ? AND ((? IS NULL AND commit_id IS NULL) OR commit_id = ?)
       `,
-      args: [replay.commitId, replay.commit.createdAt, MAIN_REF_NAME, expectedRemoteHead, expectedRemoteHead],
+      args: [replay.commit.commitId, replay.commit.createdAt, MAIN_REF_NAME, expectedRemoteHead, expectedRemoteHead],
     });
     if (update.rowsAffected !== 1) {
       throw new CodedError(
@@ -1543,7 +1508,7 @@ export async function pushCommit(
       args: [
         MAIN_REF_NAME,
         expectedRemoteHead,
-        replay.commitId,
+        replay.commit.commitId,
         replay.commit.kind === "revert" ? "revert" : "apply",
         Date.now(),
       ],
@@ -1563,7 +1528,7 @@ export async function pushCommit(
   }
 }
 
-async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): Promise<CommitBundle> {
+async function fetchCommit(executor: Client | Transaction, commitId: string): Promise<Replay> {
   const commitResult = await executor.execute({
     sql: `
       SELECT
@@ -1607,7 +1572,7 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
 
   const rowEffectsResult = await executor.execute({
     sql: `
-      SELECT table_name, pk_json, op_kind, before_json, after_json
+      SELECT table_name, pk_json, op_kind, before_json, after_json, before_hash, after_hash
       FROM _toss_row_effect
       WHERE commit_id = ?
       ORDER BY effect_index ASC
@@ -1624,6 +1589,8 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
     afterRow: parseRowValue(row, "after_json")
       ? parseJson<RowEffect["afterRow"]>(parseRowValue(row, "after_json"), "_toss_row_effect.after_json")
       : null,
+    beforeHash: parseNullableString(parseRowValue(row, "before_hash"), "_toss_row_effect.before_hash"),
+    afterHash: parseNullableString(parseRowValue(row, "after_hash"), "_toss_row_effect.after_hash"),
   }));
 
   const schemaEffectsResult = await executor.execute({
@@ -1646,12 +1613,13 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
   }));
 
   return {
-    commitId: parseString(parseRowValue(commitRow, "commit_id"), "_toss_commit.commit_id"),
     commit: {
+      commitId: parseString(parseRowValue(commitRow, "commit_id"), "_toss_commit.commit_id"),
       seq: parseInteger(parseRowValue(commitRow, "seq"), "_toss_commit.seq"),
       kind: parseCommitKind(parseString(parseRowValue(commitRow, "kind"), "_toss_commit.kind")),
       message: parseString(parseRowValue(commitRow, "message"), "_toss_commit.message"),
       createdAt: parseInteger(parseRowValue(commitRow, "created_at"), "_toss_commit.created_at"),
+      parentCount: parseInteger(parseRowValue(commitRow, "parent_count"), "_toss_commit.parent_count"),
       schemaHashBefore: parseString(parseRowValue(commitRow, "schema_hash_before"), "_toss_commit.schema_hash_before"),
       schemaHashAfter: parseString(parseRowValue(commitRow, "schema_hash_after"), "_toss_commit.schema_hash_after"),
       stateHashAfter: parseString(parseRowValue(commitRow, "state_hash_after"), "_toss_commit.state_hash_after"),
@@ -1666,11 +1634,11 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
   };
 }
 
-async function fetchRemoteReplayInputsInSeqRange(
-  executor: SqlExecutor,
+async function fetchCommitRange(
+  executor: Client | Transaction,
   fromSeqExclusive: number,
   toSeqInclusive: number,
-): Promise<CommitBundle[]> {
+): Promise<Replay[]> {
   if (toSeqInclusive <= fromSeqExclusive) {
     return [];
   }
@@ -1684,21 +1652,21 @@ async function fetchRemoteReplayInputsInSeqRange(
     args: [fromSeqExclusive, toSeqInclusive],
   });
   const commitIds = rowsFrom(result).map((row) => parseString(parseRowValue(row, "commit_id"), "_toss_commit.commit_id"));
-  const replayInputs: CommitBundle[] = [];
+  const replayInputs: Replay[] = [];
   for (const commitId of commitIds) {
-    replayInputs.push(await fetchRemoteReplayInput(executor, commitId));
+    replayInputs.push(await fetchCommit(executor, commitId));
   }
   return replayInputs;
 }
 
-export async function fetchRemoteInputsAfterSeq(
-  executor: SqlExecutor,
+export async function fetchCommitsAfter(
+  executor: Client | Transaction,
   fromSeqExclusive: number,
-  remoteHeadInput?: RemoteHead,
-): Promise<CommitBundle[]> {
-  const remoteHead = remoteHeadInput ?? (await fetchRemoteHead(executor));
-  if (!remoteHead.commitId) {
+  remoteHeadInput?: Awaited<ReturnType<typeof remoteHead>>,
+): Promise<Replay[]> {
+  const head = remoteHeadInput ?? (await remoteHead(executor));
+  if (!head.commitId) {
     return [];
   }
-  return fetchRemoteReplayInputsInSeqRange(executor, fromSeqExclusive, remoteHead.seq);
+  return fetchCommitRange(executor, fromSeqExclusive, head.seq);
 }

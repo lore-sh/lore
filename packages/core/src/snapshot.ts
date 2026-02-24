@@ -17,9 +17,9 @@ import {
 } from "./db";
 import { CommitTable, RefTable, SnapshotTable } from "./schema";
 import * as schema from "./schema";
-import type { Commit } from "./schema";
+import type { Commit } from "./commit";
 import { CodedError } from "./error";
-import { loadCommitReplayInputs, replayCommitExactly } from "./commit";
+import { readCommitsAfter, replayCommit } from "./commit";
 import { quoteIdentifier } from "./sql";
 
 async function hashFile(path: string): Promise<string> {
@@ -128,7 +128,7 @@ export async function promotePrepared(preparedDbPath: string, dbPath: string): P
 function resolveSnapshotForRecovery(
   dbPath: string,
   commitId: string,
-): { snapshotPath: string; replayCommits: ReturnType<typeof loadCommitReplayInputs> } {
+): { snapshotPath: string; replayCommits: ReturnType<typeof readCommitsAfter> } {
   const db = openDb(dbPath);
   try {
     const snapshot = db
@@ -146,7 +146,7 @@ function resolveSnapshotForRecovery(
     }
     return {
       snapshotPath: snapshot.filePath,
-      replayCommits: loadCommitReplayInputs(db, snapshot.seq),
+      replayCommits: readCommitsAfter(db, snapshot.seq),
     };
   } finally {
     db.$client.close(false);
@@ -170,7 +170,7 @@ export async function recover(
     assertInitialized(replayDb);
     for (const replay of replayCommits) {
       runInDeferredTransaction(replayDb, () => {
-        replayCommitExactly(replayDb, replay, { errorCode: "RECOVER_FAILED" });
+        replayCommit(replayDb, replay, { errorCode: "RECOVER_FAILED" });
       });
     }
     replayDb.$client.close(false);

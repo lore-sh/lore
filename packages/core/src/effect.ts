@@ -1,55 +1,40 @@
+import { z } from "zod";
 import { listUserTables, tableExists, type Database } from "./db";
 import { CodedError, type ErrorCode } from "./error";
 import { canonicalJson, sha256Hex } from "./hash";
-import { primaryKeyColumns, tableDDL, tableInfo } from "./inspect";
-import { executeOperation, type RestoreTableOperation } from "./operation";
-import { isSqlStorageClass, type EncodedCell, type EncodedRow, type TableSecondaryObject } from "./schema";
+import { primaryKeys, tableDDL, tableInfo } from "./inspect";
+import { executeOperation, type Operation } from "./operation";
+import { EncodedRow, TableSecondaryObject, isSqlStorageClass, type EncodedCell } from "./schema";
 import { quoteIdentifier } from "./sql";
 
-export interface RowEffect {
-  tableName: string;
-  pk: Record<string, string>;
-  opKind: "insert" | "update" | "delete";
-  beforeRow: EncodedRow | null;
-  afterRow: EncodedRow | null;
-}
+export const RowEffect = z.object({
+  tableName: z.string(),
+  pk: z.record(z.string(), z.string()),
+  opKind: z.enum(["insert", "update", "delete"]),
+  beforeRow: EncodedRow.nullable(),
+  afterRow: EncodedRow.nullable(),
+  beforeHash: z.string().nullable(),
+  afterHash: z.string().nullable(),
+});
+export type RowEffect = z.infer<typeof RowEffect>;
 
-export interface TableSnapshot {
-  tableName: string;
-  ddlSql: string;
-  rows: EncodedRow[];
-  secondaryObjects: TableSecondaryObject[];
-  references: string[];
-}
+export const TableSnapshot = z.object({
+  tableName: z.string(),
+  ddlSql: z.string(),
+  rows: z.array(EncodedRow),
+  secondaryObjects: z.array(TableSecondaryObject),
+  references: z.array(z.string()),
+});
+export type TableSnapshot = z.infer<typeof TableSnapshot>;
 
-export interface SchemaEffect {
-  tableName: string;
-  beforeTable: TableSnapshot | null;
-  afterTable: TableSnapshot | null;
-}
+export const SchemaEffect = z.object({
+  tableName: z.string(),
+  beforeTable: TableSnapshot.nullable(),
+  afterTable: TableSnapshot.nullable(),
+});
+export type SchemaEffect = z.infer<typeof SchemaEffect>;
 
-interface CapturedRowEntry {
-  pk: Record<string, string>;
-  row: EncodedRow;
-  rowHash: string;
-}
-
-interface CapturedTableState {
-  snapshot: TableSnapshot;
-  schemaSignature: string;
-  rowsByPk: Map<string, CapturedRowEntry>;
-  keyColumns: string[];
-}
-
-export interface CapturedObservedState {
-  tables: Map<string, CapturedTableState>;
-}
-
-function pkKey(pk: Record<string, string>): string {
-  return canonicalJson(pk);
-}
-
-export function toPkWhereClause(pk: Record<string, string>): string {
+export function pkWhere(pk: Record<string, string>): string {
   const keys = Object.keys(pk).sort((a, b) => a.localeCompare(b));
   if (keys.length === 0) {
     throw new CodedError("REVERT_FAILED", "PK predicate must not be empty");
@@ -142,27 +127,15 @@ export function isSystemTable(table: string): boolean {
   return table === "sqlite_sequence";
 }
 
-function observedTableNames(db: Database): string[] {
-  const names = listUserTables(db);
-  if (tableExists(db, "sqlite_sequence")) {
-    names.push("sqlite_sequence");
+function captureTableState(db: Database, table: string) {
+  const keyColumns = primaryKeys(db, table);
+  if (keyColumns.length === 0) {
+    if (isSystemTable(table)) {
+      keyColumns.push("name");
+    } else {
+      throw new CodedError("NO_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
+    }
   }
-  return names.sort((a, b) => a.localeCompare(b));
-}
-
-function keyColumnsForObservedTable(db: Database, table: string): string[] {
-  const pkColumns = primaryKeyColumns(db, table);
-  if (pkColumns.length > 0) {
-    return pkColumns;
-  }
-  if (isSystemTable(table)) {
-    return ["name"];
-  }
-  throw new CodedError("NO_PRIMARY_KEY", `Table ${table} must define PRIMARY KEY for tracked operations`);
-}
-
-function captureTableState(db: Database, table: string): CapturedTableState {
-  const keyColumns = keyColumnsForObservedTable(db, table);
 
   const ddlSql = tableDDL(db, table) ?? (isSystemTable(table) ? "CREATE TABLE sqlite_sequence(name,seq)" : null);
   if (!ddlSql) {
@@ -193,7 +166,7 @@ function captureTableState(db: Database, table: string): CapturedTableState {
   const rowsRaw = db.$client.query<Record<string, unknown>, []>(buildRowSelectSql(table, columns, keyColumns, null)).all();
 
   const rows: EncodedRow[] = [];
-  const rowsByPk = new Map<string, CapturedRowEntry>();
+  const rowsByPk = new Map<string, { pk: Record<string, string>; row: EncodedRow; rowHash: string }>();
   for (const raw of rowsRaw) {
     const row = encodeRowFromResult(raw, columns, quoteAliases, hexAliases, typeAliases);
     const pk: Record<string, string> = {};
@@ -210,7 +183,7 @@ function captureTableState(db: Database, table: string): CapturedTableState {
       }
       pk[pkColumn] = cell.sqlLiteral;
     }
-    const key = pkKey(pk);
+    const key = canonicalJson(pk);
     if (rowsByPk.has(key)) {
       throw new CodedError(
         "APPLY_FAILED",
@@ -237,26 +210,23 @@ function captureTableState(db: Database, table: string): CapturedTableState {
   return { snapshot, schemaSignature, rowsByPk, keyColumns };
 }
 
-export function captureObservedState(db: Database): CapturedObservedState {
-  const tables = observedTableNames(db);
-  const captured = new Map<string, CapturedTableState>();
+export function captureState(db: Database) {
+  const tables = listUserTables(db);
+  if (tableExists(db, "sqlite_sequence")) {
+    tables.push("sqlite_sequence");
+  }
+  tables.sort((a, b) => a.localeCompare(b));
+  const captured = new Map<string, ReturnType<typeof captureTableState>>();
   for (const table of tables) {
     captured.set(table, captureTableState(db, table));
   }
   return { tables: captured };
 }
 
-function schemaChanged(beforeTable: CapturedTableState | undefined, afterTable: CapturedTableState | undefined): boolean {
-  if (!beforeTable || !afterTable) {
-    return beforeTable !== afterTable;
-  }
-  return beforeTable.schemaSignature !== afterTable.schemaSignature;
-}
-
-export function diffObservedState(
-  before: CapturedObservedState,
-  after: CapturedObservedState,
-): { rowEffects: RowEffect[]; schemaEffects: SchemaEffect[] } {
+export function diffState(
+  before: ReturnType<typeof captureState>,
+  after: ReturnType<typeof captureState>,
+) {
   const names = Array.from(new Set([...before.tables.keys(), ...after.tables.keys()])).sort((a, b) =>
     a.localeCompare(b),
   );
@@ -269,7 +239,9 @@ export function diffObservedState(
   for (const tableName of names) {
     const beforeTable = before.tables.get(tableName);
     const afterTable = after.tables.get(tableName);
-    const hasSchemaChange = schemaChanged(beforeTable, afterTable);
+    const hasSchemaChange = !beforeTable || !afterTable
+      ? beforeTable !== afterTable
+      : beforeTable.schemaSignature !== afterTable.schemaSignature;
 
     if (hasSchemaChange && !isSystemTable(tableName)) {
       schemaEffects.push({
@@ -283,8 +255,8 @@ export function diffObservedState(
     const refs = afterTable?.snapshot.references ?? beforeTable?.snapshot.references ?? [];
     tableRefs.set(tableName, refs);
 
-    const beforeRows = beforeTable?.rowsByPk ?? new Map<string, CapturedRowEntry>();
-    const afterRows = afterTable?.rowsByPk ?? new Map<string, CapturedRowEntry>();
+    const beforeRows = beforeTable?.rowsByPk ?? new Map<string, { pk: Record<string, string>; row: EncodedRow; rowHash: string }>();
+    const afterRows = afterTable?.rowsByPk ?? new Map<string, { pk: Record<string, string>; row: EncodedRow; rowHash: string }>();
     const pkKeys = Array.from(new Set([...beforeRows.keys(), ...afterRows.keys()])).sort((a, b) => a.localeCompare(b));
     const bucket: RowBucket = { inserts: [], updates: [], deletes: [] };
 
@@ -299,6 +271,8 @@ export function diffObservedState(
           opKind: "insert",
           beforeRow: null,
           afterRow: afterEntry.row,
+          beforeHash: null,
+          afterHash: afterEntry.rowHash,
         });
         continue;
       }
@@ -310,6 +284,8 @@ export function diffObservedState(
           opKind: "delete",
           beforeRow: beforeEntry.row,
           afterRow: null,
+          beforeHash: beforeEntry.rowHash,
+          afterHash: null,
         });
         continue;
       }
@@ -321,6 +297,8 @@ export function diffObservedState(
           opKind: "update",
           beforeRow: beforeEntry.row,
           afterRow: afterEntry.row,
+          beforeHash: beforeEntry.rowHash,
+          afterHash: afterEntry.rowHash,
         });
       }
     }
@@ -394,7 +372,7 @@ export function rowHash(row: EncodedRow | null): string | null {
   return sha256Hex(row);
 }
 
-export function getObservedRowByPk(db: Database, table: string, pk: Record<string, string>): EncodedRow | null {
+export function readRow(db: Database, table: string, pk: Record<string, string>): EncodedRow | null {
   if (!tableExists(db, table)) {
     if (isSystemTable(table)) {
       return null;
@@ -409,7 +387,7 @@ export function getObservedRowByPk(db: Database, table: string, pk: Record<strin
   const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
   const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
   const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
-  const whereClause = toPkWhereClause(pk);
+  const whereClause = pkWhere(pk);
   const sql = `${buildRowSelectSql(table, columns, keyColumns, whereClause)} LIMIT 1`;
   const row = db.$client.query<Record<string, unknown>, []>(sql).get();
   if (!row) {
@@ -450,11 +428,11 @@ function updateEncodedRow(db: Database, table: string, pk: Record<string, string
       return `${quoteIdentifier(column, { unsafe: true })} = ${cell.sqlLiteral}`;
     })
     .join(", ");
-  db.$client.run(`UPDATE ${quoteIdentifier(table, { unsafe: true })} SET ${setSql} WHERE ${toPkWhereClause(pk)}`);
+  db.$client.run(`UPDATE ${quoteIdentifier(table, { unsafe: true })} SET ${setSql} WHERE ${pkWhere(pk)}`);
 }
 
 function deleteByPk(db: Database, table: string, pk: Record<string, string>): void {
-  db.$client.run(`DELETE FROM ${quoteIdentifier(table, { unsafe: true })} WHERE ${toPkWhereClause(pk)}`);
+  db.$client.run(`DELETE FROM ${quoteIdentifier(table, { unsafe: true })} WHERE ${pkWhere(pk)}`);
 }
 
 function referencedTables(db: Database, table: string): string[] {
@@ -469,31 +447,7 @@ function missingReferencedTables(db: Database, table: string): string[] {
   return referencedTables(db, table).filter((refTable) => !tableExists(db, refTable));
 }
 
-function effectRowMode(
-  effect: RowEffect,
-  direction: "forward" | "inverse",
-): { expectedCurrent: EncodedRow | null; target: EncodedRow | null; opLabel: string } {
-  const forward = direction === "forward";
-  const before = effect.beforeRow;
-  const after = effect.afterRow;
-
-  switch (effect.opKind) {
-    case "insert":
-      return forward
-        ? { expectedCurrent: null, target: after, opLabel: "insert" }
-        : { expectedCurrent: after, target: null, opLabel: "inverse-delete" };
-    case "update":
-      return forward
-        ? { expectedCurrent: before, target: after, opLabel: "update" }
-        : { expectedCurrent: after, target: before, opLabel: "inverse-update" };
-    case "delete":
-      return forward
-        ? { expectedCurrent: before, target: null, opLabel: "delete" }
-        : { expectedCurrent: null, target: before, opLabel: "inverse-insert" };
-  }
-}
-
-export function applyRowEffectsWithOptions(
+export function applyRowEffects(
   db: Database,
   effects: RowEffect[],
   direction: "forward" | "inverse",
@@ -513,13 +467,27 @@ export function applyRowEffectsWithOptions(
   const droppedTriggers = options.disableTableTriggers ? dropTriggersForTables(db, filtered) : null;
   const ordered = direction === "forward" ? filtered : filtered.toReversed();
   for (const effect of ordered) {
-    const { expectedCurrent, target, opLabel } = effectRowMode(effect, direction);
+    const forward = direction === "forward";
+    const before = effect.beforeRow;
+    const after = effect.afterRow;
+    const rowMode = effect.opKind === "insert"
+      ? (forward
+        ? { expectedCurrent: null, target: after, opLabel: "insert" }
+        : { expectedCurrent: after, target: null, opLabel: "inverse-delete" })
+      : effect.opKind === "update"
+      ? (forward
+        ? { expectedCurrent: before, target: after, opLabel: "update" }
+        : { expectedCurrent: after, target: before, opLabel: "inverse-update" })
+      : (forward
+        ? { expectedCurrent: before, target: null, opLabel: "delete" }
+        : { expectedCurrent: null, target: before, opLabel: "inverse-insert" });
+    const { expectedCurrent, target, opLabel } = rowMode;
     const isSystem = isSystemTable(effect.tableName);
     if (isSystem && systemPolicy === "reconcile") {
       applySystemRowEffectReconciled(db, effect.tableName, effect.pk, target);
       continue;
     }
-    const current = getObservedRowByPk(db, effect.tableName, effect.pk);
+    const current = readRow(db, effect.tableName, effect.pk);
     const currentHash = rowHash(current);
     const expectedHash = rowHash(expectedCurrent);
     if (currentHash !== expectedHash) {
@@ -560,7 +528,7 @@ function applySystemRowEffectReconciled(
   if (!exists) {
     throw new CodedError("REVERT_FAILED", `System table does not exist for reconciled effect: ${table}`);
   }
-  const current = getObservedRowByPk(db, table, pk);
+  const current = readRow(db, table, pk);
   if (!current) {
     insertEncodedRow(db, table, target);
     return;
@@ -568,17 +536,12 @@ function applySystemRowEffectReconciled(
   updateEncodedRow(db, table, pk, target);
 }
 
-interface DroppedTrigger {
-  name: string;
-  sql: string;
-}
-
-function dropTriggersForTables(db: Database, effects: RowEffect[]): DroppedTrigger[] {
+function dropTriggersForTables(db: Database, effects: RowEffect[]) {
   const touched = Array.from(new Set(effects.map((effect) => effect.tableName))).sort((a, b) => a.localeCompare(b));
-  const dropped: DroppedTrigger[] = [];
+  const dropped: Array<{ name: string; sql: string }> = [];
   for (const table of touched) {
     const rows = db.$client
-      .query<DroppedTrigger, [string]>(
+      .query<{ name: string; sql: string }, [string]>(
         "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=? AND sql IS NOT NULL ORDER BY name ASC",
       )
       .all(table);
@@ -590,7 +553,7 @@ function dropTriggersForTables(db: Database, effects: RowEffect[]): DroppedTrigg
   return dropped;
 }
 
-function restoreDroppedTriggers(db: Database, dropped: DroppedTrigger[]): void {
+function restoreDroppedTriggers(db: Database, dropped: Array<{ name: string; sql: string }>): void {
   for (const trigger of dropped) {
     db.$client.run(trigger.sql);
   }
@@ -602,7 +565,7 @@ function applySingleSchemaEffect(db: Database, effect: SchemaEffect, direction: 
     executeOperation(db, { type: "drop_table", table: effect.tableName });
     return;
   }
-  const restore: RestoreTableOperation = {
+  const restore: Operation = {
     type: "restore_table",
     table: effect.tableName,
     ddlSql: snapshot.ddlSql,
@@ -655,7 +618,7 @@ function canApplyUserRowEffectNow(db: Database, effect: RowEffect): boolean {
   return missingReferencedTables(db, effect.tableName).length === 0;
 }
 
-export function applyUserRowAndSchemaEffects(
+export function applyEffects(
   db: Database,
   rowEffects: RowEffect[],
   schemaEffects: SchemaEffect[],
@@ -672,7 +635,7 @@ export function applyUserRowAndSchemaEffects(
 
   while (pendingRows.length > 0 || schemaIndex < orderedSchemas.length) {
     while (pendingRows.length > 0 && canApplyUserRowEffectNow(db, pendingRows[0]!)) {
-      applyRowEffectsWithOptions(db, [pendingRows.shift()!], direction, {
+      applyRowEffects(db, [pendingRows.shift()!], direction, {
         disableTableTriggers: options.disableTableTriggers,
         includeUserEffects: true,
         includeSystemEffects: false,
@@ -708,7 +671,7 @@ export function applyUserRowAndSchemaEffects(
         `Observed row effect blocked by missing referenced table(s): ${blocked.tableName} -> ${missingRefs.join(", ")}`,
       );
     }
-    applyRowEffectsWithOptions(db, [blocked], direction, {
+    applyRowEffects(db, [blocked], direction, {
       disableTableTriggers: options.disableTableTriggers,
       includeUserEffects: true,
       includeSystemEffects: false,
@@ -717,14 +680,7 @@ export function applyUserRowAndSchemaEffects(
   }
 }
 
-export function applySchemaEffects(db: Database, effects: SchemaEffect[], direction: "forward" | "inverse"): void {
-  const ordered = orderSchemaEffectsForReplay(effects, direction);
-  for (const effect of ordered) {
-    applySingleSchemaEffect(db, effect, direction);
-  }
-}
-
-export function assertNoForeignKeyViolations(db: Database, errorCode: ErrorCode, context: string): void {
+export function assertForeignKeys(db: Database, errorCode: ErrorCode, context: string): void {
   const rows = db.$client.query<{
     table: string;
     rowid: number;

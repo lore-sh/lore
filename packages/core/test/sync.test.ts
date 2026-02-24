@@ -5,7 +5,7 @@ import {
   autoSync,
   clone,
   connect,
-  getSyncConfig,
+  syncConfig,
   remoteStatus,
   status,
   initDb,
@@ -904,7 +904,7 @@ describe("sync with Turso protocol", () => {
           expect(error.code).toBe("CONFIG");
         }
       }
-      expect(getSyncConfig()).toBeNull();
+      expect(syncConfig()).toBeNull();
     });
   });
 
@@ -1279,7 +1279,7 @@ describe("sync with Turso protocol", () => {
       expect(verification.ok).toBe(true);
       const rows = query(currentDb(), "SELECT id, title FROM books");
       expect(rows).toEqual([{ id: 1, title: "Deep Work" }]);
-      expect(getSyncConfig()?.platform).toBe("libsql");
+      expect(syncConfig()?.platform).toBe("libsql");
     });
   });
 
@@ -1314,7 +1314,7 @@ describe("sync with Turso protocol", () => {
         dbPath: cloneCtx.dbPath,
         forceNew: true,
       });
-      expect(getSyncConfig()?.platform).toBe("turso");
+      expect(syncConfig()?.platform).toBe("turso");
     });
   });
 

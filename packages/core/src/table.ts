@@ -3,101 +3,15 @@ import { CodedError } from "./error";
 import {
   countRows,
   describeSchema,
-  isVisibleColumn,
+  isVisible,
   normalizePage,
   normalizePageSize,
   normalizeRow,
-  schemaHashFromDescriptor,
-  type SchemaForeignKeyDescriptor,
-  type SchemaIndexDescriptor,
-  type SchemaTableDescriptor,
-  type SchemaTriggerDescriptor,
+  hashSchema,
 } from "./inspect";
-import type { JsonObject } from "./schema";
 import { asciiCaseFold, quoteIdentifier } from "./sql";
 
-export interface TableOverview {
-  name: string;
-  rowCount: number;
-  columnCount: number;
-  lastUpdatedAt: number | null;
-}
-
-export interface TableColumn {
-  name: string;
-  type: string;
-  notNull: boolean;
-  primaryKey: boolean;
-  unique: boolean;
-  defaultValue: string | null;
-}
-
-export interface TablePage {
-  table: string;
-  page: number;
-  pageSize: number;
-  totalRows: number;
-  totalPages: number;
-  sortBy: string | null;
-  sortDir: "asc" | "desc";
-  filters: Record<string, string>;
-  columns: TableColumn[];
-  rows: JsonObject[];
-}
-
-export interface TableQueryOptions {
-  table: string;
-  page?: number | undefined;
-  pageSize?: number | undefined;
-  sortBy?: string | undefined;
-  sortDir?: "asc" | "desc" | undefined;
-  filters?: Record<string, string> | undefined;
-}
-
-export interface SchemaOptions {
-  table?: string | undefined;
-}
-
-export interface SchemaColumn {
-  definitionSql: string | null;
-  cid: number;
-  name: string;
-  type: string;
-  notNull: boolean;
-  defaultValue: string | null;
-  primaryKey: boolean;
-  unique: boolean;
-  hidden: boolean;
-}
-
-export interface SchemaTable {
-  tableSql: string | null;
-  name: string;
-  options: {
-    withoutRowid: boolean;
-    strict: boolean;
-  };
-  columns: SchemaColumn[];
-  foreignKeys: SchemaForeignKeyDescriptor[];
-  indexes: SchemaIndexDescriptor[];
-  checks: string[];
-  triggers: SchemaTriggerDescriptor[];
-  rowCount: number;
-}
-
-export interface DbSchema {
-  dbPath: string;
-  generatedAt: string;
-  schemaHash: string;
-  tables: SchemaTable[];
-}
-
-interface OrderTerm {
-  key: string;
-  sql: string;
-}
-
-export function resolveTableName(db: Database, requestedTable: string): string {
+export function resolveTable(db: Database, requestedTable: string): string {
   const table = requestedTable.trim();
   if (table.length === 0) {
     throw new CodedError("INVALID_OPERATION", "Table name is required");
@@ -118,7 +32,7 @@ export function resolveTableName(db: Database, requestedTable: string): string {
   throw new CodedError("NOT_FOUND", `Table not found: ${requestedTable}`);
 }
 
-export function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
+export function uniqueColumnNames(table: ReturnType<typeof describeSchema>["tables"][number]): Set<string> {
   const names = new Set<string>();
   const primaryKeyColumns = table.columns.filter((column) => column.primaryKey);
   if (primaryKeyColumns.length === 1) {
@@ -136,13 +50,17 @@ export function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
   return names;
 }
 
-function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, sortDir: "asc" | "desc"): string {
-  const terms: OrderTerm[] = [];
+function orderClause(
+  table: ReturnType<typeof describeSchema>["tables"][number],
+  sortBy: string | undefined,
+  sortDir: "asc" | "desc",
+): string {
+  const terms: Array<{ key: string; sql: string }> = [];
   const primaryKeyColumns = table.columns
     .filter((column) => column.primaryKey)
     .sort((left, right) => left.cid - right.cid)
     .map((column) => column.name);
-  const visibleColumns = table.columns.filter((c) => isVisibleColumn(c.hidden)).map((c) => c.name);
+  const visibleColumns = table.columns.filter((c) => isVisible(c.hidden)).map((c) => c.name);
 
   if (primaryKeyColumns.length > 0) {
     for (const column of primaryKeyColumns) {
@@ -188,9 +106,14 @@ function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, s
   return ` ORDER BY ${orderedTerms.join(", ")}`;
 }
 
-export function schema(db: Database, options: SchemaOptions = {}): DbSchema {
+export function describeDb(
+  db: Database,
+  options: {
+    table?: string | undefined;
+  } = {},
+) {
   const descriptor = describeSchema(db);
-  const selectedTable = options.table ? resolveTableName(db, options.table) : null;
+  const selectedTable = options.table ? resolveTable(db, options.table) : null;
   const tables = descriptor.tables
     .filter((table) => selectedTable === null || table.table === selectedTable)
     .map((table) => {
@@ -208,7 +131,7 @@ export function schema(db: Database, options: SchemaOptions = {}): DbSchema {
           defaultValue: column.defaultValue,
           primaryKey: column.primaryKey,
           unique: unique.has(column.name),
-          hidden: !isVisibleColumn(column.hidden),
+          hidden: !isVisible(column.hidden),
         })),
         foreignKeys: table.foreignKeys,
         indexes: table.indexes,
@@ -221,12 +144,12 @@ export function schema(db: Database, options: SchemaOptions = {}): DbSchema {
   return {
     dbPath: db.$client.filename,
     generatedAt: new Date().toISOString(),
-    schemaHash: schemaHashFromDescriptor(descriptor),
+    schemaHash: hashSchema(descriptor),
     tables,
   };
 }
 
-export function tableOverview(db: Database): TableOverview[] {
+export function tableOverview(db: Database) {
   const tableNames = listUserTables(db);
   return tableNames.map((name) => {
     const column = db.$client
@@ -257,16 +180,26 @@ export function tableOverview(db: Database): TableOverview[] {
   });
 }
 
-export function queryTable(db: Database, options: TableQueryOptions): TablePage {
-  const tableName = resolveTableName(db, options.table);
+export function queryTable(
+  db: Database,
+  options: {
+    table: string;
+    page?: number | undefined;
+    pageSize?: number | undefined;
+    sortBy?: string | undefined;
+    sortDir?: "asc" | "desc" | undefined;
+    filters?: Record<string, string> | undefined;
+  },
+) {
+  const tableName = resolveTable(db, options.table);
   const descriptor = describeSchema(db);
   const table = descriptor.tables.find((entry) => entry.table === tableName);
   if (!table) {
     throw new CodedError("NOT_FOUND", `Table not found: ${tableName}`);
   }
   const unique = uniqueColumnNames(table);
-  const columns: TableColumn[] = table.columns
-    .filter((column) => isVisibleColumn(column.hidden))
+  const columns = table.columns
+    .filter((column) => isVisible(column.hidden))
     .map((column) => ({
       name: column.name,
       type: column.type,

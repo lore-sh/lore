@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
-  commitHistory,
-  estimateCommitSizeBytes,
-  estimateHistorySizeBytes,
-  getCommitById,
-  getCommitOperations,
-  getRowEffectsByCommitId,
-  getSchemaEffectsByCommitId,
+  history,
+  commitSize,
+  historySize,
+  findCommit,
+  commitOperations,
+  commitRowEffects,
+  decodeRowEffects,
+  commitSchemaEffects,
   initDb,
   status,
   verify,
@@ -38,12 +39,12 @@ async function seedTaskHistory(dir: string): Promise<void> {
 }
 
 describe("history domain", () => {
-  testWithTmp("commitHistory and commit detail APIs expose commit domain objects", async () => {
+  testWithTmp("history and commit detail APIs expose commit domain objects", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });
     await seedTaskHistory(dir);
 
-    const summaries = commitHistory(currentDb());
+    const summaries = history(currentDb());
     expect(summaries).toHaveLength(2);
     expect(summaries[0]?.message).toBe("insert task");
 
@@ -53,18 +54,18 @@ describe("history domain", () => {
       throw new Error("expected latest commit id");
     }
 
-    const commit = getCommitById(currentDb(), latestId);
+    const commit = findCommit(currentDb(), latestId);
     expect(commit).not.toBeNull();
-    expect(getCommitOperations(currentDb(), latestId)).toHaveLength(1);
+    expect(commitOperations(currentDb(), latestId)).toHaveLength(1);
 
-    const rowEffects = getRowEffectsByCommitId(currentDb(), latestId);
+    const rowEffects = decodeRowEffects(commitRowEffects(currentDb(), latestId));
     expect(rowEffects).toHaveLength(1);
     expect(rowEffects[0]?.tableName).toBe("tasks");
-    const schemaEffects = getSchemaEffectsByCommitId(currentDb(), latestId);
+    const schemaEffects = commitSchemaEffects(currentDb(), latestId);
     expect(schemaEffects).toHaveLength(0);
   });
 
-  testWithTmp("commitHistory filters by historical table names even after drop", async () => {
+  testWithTmp("history filters by historical table names even after drop", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });
 
@@ -86,25 +87,25 @@ describe("history domain", () => {
     await applyPlan(currentDb(), createPlanPath);
     await applyPlan(currentDb(), dropPlanPath);
 
-    const filtered = commitHistory(currentDb(), { table: "INVOICES" });
+    const filtered = history(currentDb(), { table: "INVOICES" });
     expect(filtered.length).toBeGreaterThan(0);
-    expect(commitHistory(currentDb(), { table: "missing_table" })).toEqual([]);
+    expect(history(currentDb(), { table: "missing_table" })).toEqual([]);
   });
 
-  testWithTmp("estimateCommitSizeBytes and estimateHistorySizeBytes return non-zero values for populated history", async () => {
+  testWithTmp("commitSize and historySize return non-zero values for populated history", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });
     await seedTaskHistory(dir);
 
-    const latestCommit = commitHistory(currentDb(), { limit: 1 })[0];
+    const latestCommit = history(currentDb(), { limit: 1 })[0];
     if (!latestCommit) {
       throw new Error("expected latest commit");
     }
 
-    const latestSize = estimateCommitSizeBytes(currentDb(), latestCommit.commitId);
-    const historySize = estimateHistorySizeBytes(currentDb());
+    const latestSize = commitSize(currentDb(), latestCommit.commitId);
+    const totalHistorySize = historySize(currentDb());
     expect(latestSize).toBeGreaterThan(0);
-    expect(historySize).toBeGreaterThanOrEqual(latestSize);
+    expect(totalHistorySize).toBeGreaterThanOrEqual(latestSize);
   });
 
   testWithTmp("verify stores last_verified_ok and reports tampering", async () => {

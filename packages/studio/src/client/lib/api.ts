@@ -1,14 +1,13 @@
 import type {
   Commit,
-  CommitSummary,
+  describeDb,
   EncodedRow,
   Operation,
-  RevertConflicts,
-  RevertResult,
-  SchemaTable,
-  Status,
-  TableOverview,
-  TablePage,
+  history,
+  queryTable,
+  revert,
+  status,
+  tableOverview,
 } from "@toss/core";
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import type { StudioApi, StudioApiError } from "../../server/app";
@@ -28,6 +27,13 @@ const revertCommitEndpoint = client.api.commits[":id"].revert.$post;
 type TableRowsQueryRequest = InferRequestType<typeof tableRowsQueryEndpoint>;
 type CommitsRequest = InferRequestType<typeof commitsEndpoint>;
 type RevertConflictPayload = InferResponseType<typeof revertCommitEndpoint, 409>;
+type CommitSummary = ReturnType<typeof history>[number];
+type RevertResult = ReturnType<typeof revert>;
+type RevertConflicts = Extract<RevertResult, { ok: false }>;
+type SchemaTable = ReturnType<typeof describeDb>["tables"][number];
+type Status = ReturnType<typeof status>;
+type TableOverview = ReturnType<typeof tableOverview>[number];
+type TablePage = ReturnType<typeof queryTable>;
 
 type TableRowsQueryJson = TableRowsQueryRequest["json"];
 type CommitQueryRaw = NonNullable<CommitsRequest["query"]>;

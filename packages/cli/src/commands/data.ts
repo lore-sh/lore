@@ -3,16 +3,17 @@ import {
   apply,
   autoSync,
   check,
-  commitSizeWarning,
-  type CheckIssue,
-  type CheckResult,
-  type CheckSummary,
+  sizeWarning,
   type Database,
-  schema,
+  describeDb,
   parsePlan,
   query,
 } from "@toss/core";
 import { printTable, toJson, summarizeCommit } from "../format";
+
+type CheckResult = ReturnType<typeof check>;
+type CheckIssue = CheckResult["errors"][number];
+type CheckSummary = CheckResult["summary"];
 
 export function parseSinglePlanRef(command: "plan" | "apply", args: string[]): string {
   if (args.length === 0) {
@@ -78,7 +79,7 @@ export function parseSchemaArgs(args: string[]): { table?: string | undefined } 
 
 export function runSchema(db: Database, args: string[]): void {
   const { table } = parseSchemaArgs(args);
-  console.log(toJson(schema(db, { table })));
+  console.log(toJson(describeDb(db, { table })));
 }
 
 export function validateSchemaArgs(args: string[]): void {
@@ -114,7 +115,7 @@ export async function runApply(db: Database, args: string[]): Promise<void> {
   const plan = parsePlan(payload);
   const commit = await apply(db, plan);
   const sync = await autoSync(db);
-  const warning = commitSizeWarning(db, commit.commitId);
+  const warning = sizeWarning(db, commit.commitId);
   console.log(
     toJson({
       status: "ok",

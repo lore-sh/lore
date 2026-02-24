@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { schema, commitHistory, resolveTableName, tableOverview, queryTable, type Database } from "@toss/core";
+import { describeDb, history, resolveTable, tableOverview, queryTable, type Database } from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { positiveIntSchema, tableParamSchema, validationError } from "./shared";
@@ -90,7 +90,7 @@ export function createTableRoutes(db: Database) {
       }),
       (c) => {
         const param = c.req.valid("param");
-        return c.json(schema(db, { table: param.name }).tables[0], 200);
+        return c.json(describeDb(db, { table: param.name }).tables[0], 200);
       },
     )
     .get(
@@ -108,10 +108,10 @@ export function createTableRoutes(db: Database) {
       (c) => {
         const param = c.req.valid("param");
         const query = c.req.valid("query");
-        const tableName = resolveTableName(db, param.name);
+        const tableName = resolveTable(db, param.name);
 
         return c.json(
-          commitHistory(db, {
+          history(db, {
             table: tableName,
             limit: query.limit,
             page: query.page,

@@ -26,11 +26,6 @@ export const ERROR_CODES = {
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES];
 export type ErrorCategory = "client" | "not_found" | "conflict" | "internal";
 
-export interface ErrorMeta {
-  readonly category: ErrorCategory;
-  readonly httpStatus: 400 | 404 | 409 | 500;
-}
-
 export const ERROR_META = {
   CONFIG: { category: "client", httpStatus: 400 },
   NOT_INITIALIZED: { category: "client", httpStatus: 400 },
@@ -54,7 +49,13 @@ export const ERROR_META = {
   SYNC_AUTH_FAILED: { category: "client", httpStatus: 400 },
   SYNC_UNREACHABLE: { category: "internal", httpStatus: 500 },
   INTERNAL: { category: "internal", httpStatus: 500 },
-} as const satisfies Record<ErrorCode, ErrorMeta>;
+} as const satisfies Record<
+  ErrorCode,
+  {
+    readonly category: ErrorCategory;
+    readonly httpStatus: 400 | 404 | 409 | 500;
+  }
+>;
 
 export function isErrorCode(code: unknown): code is ErrorCode {
   return typeof code === "string" && Object.hasOwn(ERROR_CODES, code);
@@ -100,7 +101,7 @@ export interface HttpProblem {
   code: ErrorCode;
 }
 
-export function httpStatusFromError(code: ErrorCode): ErrorMeta["httpStatus"] {
+export function httpStatusFromError(code: ErrorCode): 400 | 404 | 409 | 500 {
   return ERROR_META[code].httpStatus;
 }
 
@@ -114,4 +115,3 @@ export function toHttpProblem(error: CodedError, instance: string): HttpProblem 
     code: error.code,
   };
 }
-

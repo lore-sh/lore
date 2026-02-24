@@ -1,5 +1,7 @@
-import type { CommitSummary, EncodedCell, EncodedRow, Operation } from "@toss/core";
+import type { EncodedCell, EncodedRow, Operation, history } from "@toss/core";
 import type { CommitDetailPayload } from "./api";
+
+type CommitSummary = ReturnType<typeof history>[number];
 
 export interface RenderedLine {
   kind: "add" | "remove" | "neutral";

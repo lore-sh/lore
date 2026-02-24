@@ -49,15 +49,6 @@ export const PRESERVED_META_DEFAULTS = [
 ] as const;
 const MIGRATIONS_DIR = resolve(import.meta.dir, "../migration");
 
-export interface OpenDbOptions {
-  busyTimeoutMs?: number | undefined;
-}
-
-export interface InitDbOptions {
-  dbPath?: string;
-  forceNew?: boolean;
-}
-
 export function isEnoent(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
@@ -112,7 +103,12 @@ function assertDatabaseFileExists(dbPath: string): void {
   }
 }
 
-function applyPragmas(db: Database, options: OpenDbOptions = {}): void {
+function applyPragmas(
+  db: Database,
+  options: {
+    busyTimeoutMs?: number | undefined;
+  } = {},
+): void {
   db.$client.run("PRAGMA foreign_keys=ON");
   db.$client.run(`PRAGMA busy_timeout=${Math.max(0, Math.floor(options.busyTimeoutMs ?? 5000))}`);
   db.$client.run("PRAGMA journal_mode=WAL");
@@ -120,7 +116,12 @@ function applyPragmas(db: Database, options: OpenDbOptions = {}): void {
   db.$client.run("PRAGMA optimize=0x10002");
 }
 
-export function openDb(pathFromArg?: string, options: OpenDbOptions = {}): Database {
+export function openDb(
+  pathFromArg?: string,
+  options: {
+    busyTimeoutMs?: number | undefined;
+  } = {},
+): Database {
   const dbPath = resolveDbPath(pathFromArg);
   assertDatabaseFileExists(dbPath);
   const db = drizzle({ connection: { source: dbPath }, schema });
@@ -157,7 +158,12 @@ function initializeStorage(db: Database): void {
     .run();
 }
 
-export async function initDb(options: InitDbOptions = {}): Promise<{ path: string }> {
+export async function initDb(
+  options: {
+    dbPath?: string;
+    forceNew?: boolean;
+  } = {},
+): Promise<{ path: string }> {
   const dbPath = resolveDbPath(options.dbPath);
   ensureDatabaseDirectory(dbPath);
   if (options.forceNew) {

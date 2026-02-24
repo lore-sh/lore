@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { runInSavepoint, tableExists, type Database } from "./db";
 import { CodedError } from "./error";
-import { type TableInfoRow, whereClause } from "./inspect";
-import { isSqlStorageClass, type ColumnDefinition, type EncodedRow, type JsonPrimitive, type TableSecondaryObject } from "./schema";
+import { whereClause } from "./inspect";
+import { EncodedRow, JsonPrimitive, TableSecondaryObject, isSqlStorageClass } from "./schema";
 import {
   COLUMN_TYPE_PATTERN,
   IDENTIFIER_PATTERN,
@@ -14,92 +14,165 @@ import {
   rewriteDropCheckInCreateTable,
 } from "./sql";
 
-export interface CreateTableOperation {
-  type: "create_table";
-  table: string;
-  columns: ColumnDefinition[];
-}
+const whereSchema = z.record(z.string(), JsonPrimitive).refine((value) => Object.keys(value).length > 0, {
+  message: "where must not be empty",
+});
 
-export interface AddColumnOperation {
-  type: "add_column";
-  table: string;
-  column: ColumnDefinition;
-}
+export const ColumnDef = z
+  .object({
+    name: z.string().trim().min(1),
+    type: z.string().trim().min(1),
+    notNull: z.boolean().optional(),
+    primaryKey: z.boolean().optional(),
+    unique: z.boolean().optional(),
+    default: z
+      .discriminatedUnion("kind", [
+        z
+          .object({
+            kind: z.literal("literal"),
+            value: JsonPrimitive,
+          })
+          .strict(),
+        z
+          .object({
+            kind: z.literal("sql"),
+            expr: z.enum(["CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"]),
+          })
+          .strict(),
+      ])
+      .optional(),
+  })
+  .strict();
+export type ColumnDef = z.infer<typeof ColumnDef>;
 
-export interface InsertOperation {
-  type: "insert";
-  table: string;
-  values: Record<string, JsonPrimitive>;
-}
+const CreateTable = z
+  .object({
+    type: z.literal("create_table"),
+    table: z.string().trim().min(1),
+    columns: z.array(ColumnDef).min(1),
+  })
+  .strict();
+type CreateTable = z.infer<typeof CreateTable>;
 
-export interface DropTableOperation {
-  type: "drop_table";
-  table: string;
-}
+const AddColumn = z
+  .object({
+    type: z.literal("add_column"),
+    table: z.string().trim().min(1),
+    column: ColumnDef,
+  })
+  .strict();
+type AddColumn = z.infer<typeof AddColumn>;
 
-export interface DropColumnOperation {
-  type: "drop_column";
-  table: string;
-  column: string;
-}
+const Insert = z
+  .object({
+    type: z.literal("insert"),
+    table: z.string().trim().min(1),
+    values: z.record(z.string(), JsonPrimitive).refine((value) => Object.keys(value).length > 0, {
+      message: "insert values must not be empty",
+    }),
+  })
+  .strict();
+type Insert = z.infer<typeof Insert>;
 
-export interface AlterColumnTypeOperation {
-  type: "alter_column_type";
-  table: string;
-  column: string;
-  newType: string;
-}
+const DropTable = z
+  .object({
+    type: z.literal("drop_table"),
+    table: z.string().trim().min(1),
+  })
+  .strict();
+type DropTable = z.infer<typeof DropTable>;
 
-export interface AddCheckOperation {
-  type: "add_check";
-  table: string;
-  expression: string;
-}
+const DropColumn = z
+  .object({
+    type: z.literal("drop_column"),
+    table: z.string().trim().min(1),
+    column: z.string().trim().min(1),
+  })
+  .strict();
+type DropColumn = z.infer<typeof DropColumn>;
 
-export interface DropCheckOperation {
-  type: "drop_check";
-  table: string;
-  expression: string;
-}
+const AlterColumnType = z
+  .object({
+    type: z.literal("alter_column_type"),
+    table: z.string().trim().min(1),
+    column: z.string().trim().min(1),
+    newType: z.string().trim().min(1),
+  })
+  .strict();
+type AlterColumnType = z.infer<typeof AlterColumnType>;
 
-export interface RestoreTableOperation {
-  type: "restore_table";
-  table: string;
-  ddlSql: string;
-  rows: EncodedRow[] | null;
-  secondaryObjects?: TableSecondaryObject[] | undefined;
-}
+const AddCheck = z
+  .object({
+    type: z.literal("add_check"),
+    table: z.string().trim().min(1),
+    expression: z.string().trim().min(1),
+  })
+  .strict();
+type AddCheck = z.infer<typeof AddCheck>;
 
-export interface UpdateOperation {
-  type: "update";
-  table: string;
-  values: Record<string, JsonPrimitive>;
-  where: Record<string, JsonPrimitive>;
-}
+const DropCheck = z
+  .object({
+    type: z.literal("drop_check"),
+    table: z.string().trim().min(1),
+    expression: z.string().trim().min(1),
+  })
+  .strict();
+type DropCheck = z.infer<typeof DropCheck>;
 
-export interface DeleteOperation {
-  type: "delete";
-  table: string;
-  where: Record<string, JsonPrimitive>;
-}
+const RestoreTable = z
+  .object({
+    type: z.literal("restore_table"),
+    table: z.string().trim().min(1),
+    ddlSql: z.string().min(1),
+    rows: z.array(EncodedRow).nullable(),
+    secondaryObjects: z.array(TableSecondaryObject).optional(),
+  })
+  .strict();
+type RestoreTable = z.infer<typeof RestoreTable>;
 
-export type Operation =
-  | CreateTableOperation
-  | AddColumnOperation
-  | InsertOperation
-  | DropTableOperation
-  | DropColumnOperation
-  | AlterColumnTypeOperation
-  | AddCheckOperation
-  | DropCheckOperation
-  | RestoreTableOperation
-  | UpdateOperation
-  | DeleteOperation;
+const Update = z
+  .object({
+    type: z.literal("update"),
+    table: z.string().trim().min(1),
+    values: z.record(z.string(), JsonPrimitive).refine((value) => Object.keys(value).length > 0, {
+      message: "update values must not be empty",
+    }),
+    where: whereSchema,
+  })
+  .strict();
+type Update = z.infer<typeof Update>;
 
-export interface OperationPlan {
-  message: string;
-  operations: Operation[];
-}
+const Delete = z
+  .object({
+    type: z.literal("delete"),
+    table: z.string().trim().min(1),
+    where: whereSchema,
+  })
+  .strict();
+type Delete = z.infer<typeof Delete>;
+
+export const Operation = z.discriminatedUnion("type", [
+  CreateTable,
+  AddColumn,
+  Insert,
+  DropTable,
+  DropColumn,
+  AlterColumnType,
+  AddCheck,
+  DropCheck,
+  RestoreTable,
+  Update,
+  Delete,
+]);
+export type Operation = z.infer<typeof Operation>;
+
+export const Plan = z
+  .object({
+    message: z.string().trim().min(1),
+    operations: z.array(Operation).min(1),
+  })
+  .strict();
+export type Plan = z.infer<typeof Plan>;
 
 function serializeLiteral(value: string | number | boolean | null): string {
   if (value === null) {
@@ -122,7 +195,7 @@ function normalizeColumnType(value: string): string {
   return normalized;
 }
 
-function buildColumnSql(column: ColumnDefinition, forAddColumn = false): string {
+function buildColumnSql(column: ColumnDef, forAddColumn = false): string {
   const tokens = [quoteIdentifier(column.name), normalizeColumnType(column.type)];
 
   if (column.primaryKey) {
@@ -148,12 +221,12 @@ function buildColumnSql(column: ColumnDefinition, forAddColumn = false): string 
   return tokens.join(" ");
 }
 
-function executeCreateTable(db: Database, operation: CreateTableOperation): void {
+function executeCreateTable(db: Database, operation: CreateTable): void {
   const columns = operation.columns.map((column) => buildColumnSql(column)).join(", ");
   db.$client.run(`CREATE TABLE ${quoteIdentifier(operation.table)} (${columns})`);
 }
 
-function executeAddColumn(db: Database, operation: AddColumnOperation): void {
+function executeAddColumn(db: Database, operation: AddColumn): void {
   if (operation.column.default?.kind === "sql") {
     const row = db.$client.query<{ found: number }, []>(`SELECT 1 AS found FROM ${quoteIdentifier(operation.table)} LIMIT 1`).get();
     if (row) {
@@ -167,7 +240,7 @@ function executeAddColumn(db: Database, operation: AddColumnOperation): void {
   db.$client.run(`ALTER TABLE ${quoteIdentifier(operation.table)} ADD COLUMN ${column}`);
 }
 
-function executeInsert(db: Database, operation: InsertOperation): void {
+function executeInsert(db: Database, operation: Insert): void {
   const keys = Object.keys(operation.values);
   if (keys.length === 0) {
     throw new CodedError("INVALID_OPERATION", "insert values must not be empty");
@@ -186,7 +259,7 @@ function executeInsert(db: Database, operation: InsertOperation): void {
   db.$client.query(`INSERT INTO ${quoteIdentifier(operation.table)} (${columns}) VALUES (${placeholders})`).run(...values);
 }
 
-function executeUpdate(db: Database, operation: UpdateOperation): void {
+function executeUpdate(db: Database, operation: Update): void {
   const valueKeys = Object.keys(operation.values);
   if (valueKeys.length === 0) {
     throw new CodedError("INVALID_OPERATION", "update values must not be empty");
@@ -210,40 +283,31 @@ function executeUpdate(db: Database, operation: UpdateOperation): void {
   );
 }
 
-function executeDelete(db: Database, operation: DeleteOperation): void {
+function executeDelete(db: Database, operation: Delete): void {
   const where = whereClause(operation.where);
   db.$client.query(`DELETE FROM ${quoteIdentifier(operation.table)} WHERE ${where.clause}`).run(...where.bindings);
 }
 
-function executeDropTable(db: Database, operation: DropTableOperation): void {
+function executeDropTable(db: Database, operation: DropTable): void {
   db.$client.run(`DROP TABLE ${quoteIdentifier(operation.table)}`);
 }
 
-function executeDropColumn(db: Database, operation: DropColumnOperation): void {
+function executeDropColumn(db: Database, operation: DropColumn): void {
   db.$client.run(`ALTER TABLE ${quoteIdentifier(operation.table)} DROP COLUMN ${quoteIdentifier(operation.column)}`);
 }
 
-interface SecondaryObjectRow {
-  type: "index" | "trigger";
-  name: string;
-  sql: string;
-}
-
-interface MutableTableState {
-  tableInfo: TableInfoRow[];
-  resolvedTableName: string;
-  quotedTableName: string;
-  tableDdlSql: string;
-  secondaryObjects: SecondaryObjectRow[];
-}
-
-interface SqliteSequenceSnapshot {
-  seqLiteral: string;
-}
-
-function resolveMutableTableState(db: Database, table: string): MutableTableState {
+function resolveMutableTableState(db: Database, table: string) {
   const requestedTableName = quoteIdentifier(table);
-  const tableInfo = db.$client.query<TableInfoRow, []>(`PRAGMA table_info(${requestedTableName})`).all();
+  const tableInfo = db.$client
+    .query<{
+      cid: number;
+      name: string;
+      type: string;
+      notnull: number;
+      dflt_value: string | null;
+      pk: number;
+    }, []>(`PRAGMA table_info(${requestedTableName})`)
+    .all();
   if (tableInfo.length === 0) {
     throw new CodedError("INVALID_OPERATION", `Table does not exist: ${table}`);
   }
@@ -258,7 +322,7 @@ function resolveMutableTableState(db: Database, table: string): MutableTableStat
   }
 
   const secondaryObjects = db.$client
-    .query<SecondaryObjectRow, [string]>(`
+    .query<{ type: "index" | "trigger"; name: string; sql: string }, [string]>(`
       SELECT type, name, sql
       FROM sqlite_master
       WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
@@ -274,7 +338,7 @@ function resolveMutableTableState(db: Database, table: string): MutableTableStat
   };
 }
 
-function captureSqliteSequenceSnapshot(db: Database, tableName: string): SqliteSequenceSnapshot | null {
+function captureSqliteSequenceSnapshot(db: Database, tableName: string) {
   if (!tableExists(db, "sqlite_sequence")) {
     return null;
   }
@@ -289,7 +353,11 @@ function captureSqliteSequenceSnapshot(db: Database, tableName: string): SqliteS
   return { seqLiteral: row.seqLiteral };
 }
 
-function restoreSqliteSequenceSnapshot(db: Database, tableName: string, snapshot: SqliteSequenceSnapshot | null): void {
+function restoreSqliteSequenceSnapshot(
+  db: Database,
+  tableName: string,
+  snapshot: ReturnType<typeof captureSqliteSequenceSnapshot>,
+): void {
   if (!snapshot || !tableExists(db, "sqlite_sequence")) {
     return;
   }
@@ -299,7 +367,7 @@ function restoreSqliteSequenceSnapshot(db: Database, tableName: string, snapshot
 
 function rebuildTableWithRewrittenDdl(
   db: Database,
-  state: MutableTableState,
+  state: ReturnType<typeof resolveMutableTableState>,
   rewrittenDdl: string,
   options: { savepointName: string; selectList?: string | undefined },
 ): void {
@@ -322,19 +390,19 @@ function rebuildTableWithRewrittenDdl(
   });
 }
 
-function executeAddCheck(db: Database, operation: AddCheckOperation): void {
+function executeAddCheck(db: Database, operation: AddCheck): void {
   const state = resolveMutableTableState(db, operation.table);
   const rewrittenDdl = rewriteAddCheckInCreateTable(state.tableDdlSql, operation.expression);
   rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "toss_add_check" });
 }
 
-function executeDropCheck(db: Database, operation: DropCheckOperation): void {
+function executeDropCheck(db: Database, operation: DropCheck): void {
   const state = resolveMutableTableState(db, operation.table);
   const rewrittenDdl = rewriteDropCheckInCreateTable(state.tableDdlSql, operation.expression);
   rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "toss_drop_check" });
 }
 
-function executeRestoreTable(db: Database, operation: RestoreTableOperation): void {
+function executeRestoreTable(db: Database, operation: RestoreTable): void {
   const tmpTable = `__toss_restore_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTmp = quoteIdentifier(tmpTable);
   const quotedTable = quoteIdentifier(operation.table);
@@ -392,7 +460,7 @@ function executeRestoreTable(db: Database, operation: RestoreTableOperation): vo
   });
 }
 
-function executeAlterColumnType(db: Database, operation: AlterColumnTypeOperation): void {
+function executeAlterColumnType(db: Database, operation: AlterColumnType): void {
   const newType = normalizeColumnType(operation.newType);
   const state = resolveMutableTableState(db, operation.table);
 
@@ -461,144 +529,6 @@ export function executeOperation(db: Database, operation: Operation): void {
 export function executeReadSql(db: Database, sql: string): Record<string, unknown>[] {
   return db.$client.query<Record<string, unknown>, []>(sql).all();
 }
-
-const scalarValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-const columnDefaultSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("literal"),
-      value: scalarValueSchema,
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("sql"),
-      expr: z.enum(["CURRENT_TIMESTAMP", "CURRENT_DATE", "CURRENT_TIME"]),
-    })
-    .strict(),
-]);
-
-const columnSchema = z
-  .object({
-    name: z.string().trim().min(1),
-    type: z.string().trim().min(1),
-    notNull: z.boolean().optional(),
-    primaryKey: z.boolean().optional(),
-    unique: z.boolean().optional(),
-    default: columnDefaultSchema.optional(),
-  })
-  .strict();
-
-const createTableSchema = z
-  .object({
-    type: z.literal("create_table"),
-    table: z.string().trim().min(1),
-    columns: z.array(columnSchema).min(1),
-  })
-  .strict();
-
-const addColumnSchema = z
-  .object({
-    type: z.literal("add_column"),
-    table: z.string().trim().min(1),
-    column: columnSchema,
-  })
-  .strict();
-
-const insertSchema = z
-  .object({
-    type: z.literal("insert"),
-    table: z.string().trim().min(1),
-    values: z.record(z.string(), scalarValueSchema).refine((value) => Object.keys(value).length > 0, {
-      message: "insert values must not be empty",
-    }),
-  })
-  .strict();
-
-const whereSchema = z.record(z.string(), scalarValueSchema).refine((value) => Object.keys(value).length > 0, {
-  message: "where must not be empty",
-});
-
-const dropTableSchema = z
-  .object({
-    type: z.literal("drop_table"),
-    table: z.string().trim().min(1),
-  })
-  .strict();
-
-const dropColumnSchema = z
-  .object({
-    type: z.literal("drop_column"),
-    table: z.string().trim().min(1),
-    column: z.string().trim().min(1),
-  })
-  .strict();
-
-const alterColumnTypeSchema = z
-  .object({
-    type: z.literal("alter_column_type"),
-    table: z.string().trim().min(1),
-    column: z.string().trim().min(1),
-    newType: z.string().trim().min(1),
-  })
-  .strict();
-
-const addCheckSchema = z
-  .object({
-    type: z.literal("add_check"),
-    table: z.string().trim().min(1),
-    expression: z.string().trim().min(1),
-  })
-  .strict();
-
-const dropCheckSchema = z
-  .object({
-    type: z.literal("drop_check"),
-    table: z.string().trim().min(1),
-    expression: z.string().trim().min(1),
-  })
-  .strict();
-
-const updateSchema = z
-  .object({
-    type: z.literal("update"),
-    table: z.string().trim().min(1),
-    values: z.record(z.string(), scalarValueSchema).refine((value) => Object.keys(value).length > 0, {
-      message: "update values must not be empty",
-    }),
-    where: whereSchema,
-  })
-  .strict();
-
-const deleteSchema = z
-  .object({
-    type: z.literal("delete"),
-    table: z.string().trim().min(1),
-    where: whereSchema,
-  })
-  .strict();
-
-export const operationPlanSchema = z
-  .object({
-    message: z.string().trim().min(1),
-    operations: z
-      .array(
-        z.discriminatedUnion("type", [
-          createTableSchema,
-          addColumnSchema,
-          insertSchema,
-          dropTableSchema,
-          dropColumnSchema,
-          alterColumnTypeSchema,
-          addCheckSchema,
-          dropCheckSchema,
-          updateSchema,
-          deleteSchema,
-        ]),
-      )
-      .min(1),
-  })
-  .strict();
 
 function assertIdentifier(value: string, label: string): void {
   if (!IDENTIFIER_PATTERN.test(value)) {
@@ -732,7 +662,7 @@ function assertPredicate(
   }
 }
 
-function semanticValidation(plan: OperationPlan): void {
+function semanticValidation(plan: Plan): void {
   for (const operation of plan.operations) {
     assertIdentifier(operation.table, `${operation.type}.table`);
 
@@ -815,7 +745,7 @@ function semanticValidation(plan: OperationPlan): void {
   }
 }
 
-export function parsePlan(input: string): OperationPlan {
+export function parsePlan(input: string): Plan {
   let parsed: unknown;
   try {
     parsed = JSON.parse(input);
@@ -823,7 +753,7 @@ export function parsePlan(input: string): OperationPlan {
     throw new CodedError("INVALID_JSON", `Plan must be valid JSON: ${(error as Error).message}`);
   }
 
-  const result = operationPlanSchema.safeParse(parsed);
+  const result = Plan.safeParse(parsed);
   if (!result.success) {
     throw new CodedError("INVALID_PLAN", result.error.issues.map((issue) => issue.message).join("; "));
   }

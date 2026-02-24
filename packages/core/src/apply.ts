@@ -1,55 +1,24 @@
-import { appendCommitObserved } from "./commit";
+import { createCommit, type Commit } from "./commit";
 import { runInSavepoint, type Database } from "./db";
-import { captureObservedState, diffObservedState } from "./effect";
+import { captureState, diffState } from "./effect";
 import { CodedError } from "./error";
 import { schemaHash } from "./inspect";
-import { executeOperation, type Operation, type OperationPlan } from "./operation";
-import type { Commit } from "./schema";
+import { executeOperation, type Operation, type Plan } from "./operation";
 
-export interface CheckIssue {
-  code: string;
-  message: string;
-  operationIndex?: number | undefined;
-  operationType?: Operation["type"] | undefined;
-  table?: string | undefined;
-}
-
-export interface CheckSummary {
-  operations: number;
-  schemaOperations: number;
-  dataOperations: number;
-  destructiveOperations: number;
-  touchedTables: string[];
-  predicted: {
-    rowEffects: number;
-    schemaEffects: number;
-    tables: string[];
-  };
-}
-
-export interface CheckResult {
-  ok: boolean;
-  risk: "low" | "medium" | "high";
-  errors: CheckIssue[];
-  warnings: CheckIssue[];
-  summary: CheckSummary;
-  checkedAt: string;
-}
-
-export async function apply(db: Database, plan: OperationPlan): Promise<Commit> {
+export async function apply(db: Database, plan: Plan): Promise<Commit> {
   const commit = db.transaction(() => {
     const beforeSchemaHash = schemaHash(db);
-    const beforeObservedState = captureObservedState(db);
+    const beforeState = captureState(db);
     for (const operation of plan.operations) {
       executeOperation(db, operation);
     }
-    return appendCommitObserved(db, {
+    return createCommit(db, {
       operations: plan.operations,
       kind: "apply",
       message: plan.message,
       revertTargetId: null,
       beforeSchemaHash,
-      beforeObservedState,
+      beforeState,
     });
   }, { behavior: "immediate" });
 
@@ -79,7 +48,7 @@ const DESTRUCTIVE_OPERATION_TYPES = new Set<Operation["type"]>([
 
 function dryRunWithDb(db: Database, operations: Operation[]) {
   try {
-    const before = captureObservedState(db);
+    const before = captureState(db);
     const predicted = runInSavepoint(
       db,
       "toss_plan_check",
@@ -87,8 +56,8 @@ function dryRunWithDb(db: Database, operations: Operation[]) {
         for (const op of operations) {
           executeOperation(db, op);
         }
-        const after = captureObservedState(db);
-        const diff = diffObservedState(before, after);
+        const after = captureState(db);
+        const diff = diffState(before, after);
         return {
           rowEffects: diff.rowEffects.length,
           schemaEffects: diff.schemaEffects.length,
@@ -104,7 +73,7 @@ function dryRunWithDb(db: Database, operations: Operation[]) {
     );
     return { errors: [], predicted };
   } catch (error) {
-    const issue: CheckIssue = CodedError.is(error)
+    const issue = CodedError.is(error)
       ? { code: error.code, message: error.message }
       : error instanceof Error
       ? { code: "PLAN_CHECK_FAILED", message: error.message }
@@ -116,12 +85,18 @@ function dryRunWithDb(db: Database, operations: Operation[]) {
   }
 }
 
-export function check(db: Database, plan: OperationPlan): CheckResult {
+export function check(db: Database, plan: Plan) {
   const checkedAt = new Date().toISOString();
   let schemaOperations = 0;
   let destructiveOperations = 0;
   const touchedTables = new Set<string>();
-  const warnings: CheckIssue[] = [];
+  const warnings: Array<{
+    code: string;
+    message: string;
+    operationIndex?: number | undefined;
+    operationType?: Operation["type"] | undefined;
+    table?: string | undefined;
+  }> = [];
   for (let i = 0; i < plan.operations.length; i += 1) {
     const operation = plan.operations[i]!;
     touchedTables.add(operation.table);
@@ -140,7 +115,7 @@ export function check(db: Database, plan: OperationPlan): CheckResult {
     }
   }
   const { errors, predicted } = dryRunWithDb(db, plan.operations);
-  const summary: CheckSummary = {
+  const summary = {
     operations: plan.operations.length,
     schemaOperations,
     dataOperations: plan.operations.length - schemaOperations,
@@ -148,7 +123,7 @@ export function check(db: Database, plan: OperationPlan): CheckResult {
     touchedTables: Array.from(touchedTables).sort((a, b) => a.localeCompare(b)),
     predicted,
   };
-  let risk: CheckResult["risk"] = "low";
+  let risk: "low" | "medium" | "high" = "low";
   if (errors.length > 0 || destructiveOperations > 0) {
     risk = "high";
   } else if (schemaOperations > 0 || predicted.schemaEffects > 0) {

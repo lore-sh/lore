@@ -1,12 +1,11 @@
 import { existsSync } from "node:fs";
 import {
-  findCommitSeq,
-  getCommitById,
-  getCommitReplayInput,
-  getHeadCommit,
-  getHeadCommitId,
-  loadCommitReplayInputs,
-  replayCommitExactly,
+  commitSeq,
+  findCommit,
+  readCommit,
+  headCommit,
+  readCommitsAfter,
+  replayCommit,
 } from "./commit";
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import {
@@ -30,10 +29,10 @@ import {
   classifySyncBoundaryError,
   detectRemoteReadState,
   ensureRemoteInitialized,
-  fetchRemoteHead,
-  fetchRemoteInputsAfterSeq,
-  fetchRemoteProjectionStatus,
-  materializeRemoteToHead,
+  remoteHead,
+  fetchCommitsAfter,
+  projectionStatus,
+  materializeToHead,
   normalizeToken,
   openRemoteClient,
   parseRemoteDbName,
@@ -44,55 +43,9 @@ import {
 
 export type RemotePlatform = "turso" | "libsql";
 
-export interface SyncConfig {
-  platform: RemotePlatform;
-  remoteUrl: string;
-  remoteDbName: string | null;
-}
-
-export interface RemoteHead {
-  commitId: string | null;
-  seq: number;
-}
-
-export interface SyncConflict {
-  kind: "non_fast_forward" | "diverged";
-  message: string;
-  localHead: string | null;
-  remoteHead: string | null;
-}
-
-export type SyncState = "synced" | "pending" | "conflict" | "offline";
-
-export interface SyncResult {
-  action: "push" | "pull" | "sync" | "auto_sync" | "clone";
-  state: SyncState;
-  pushed: number;
-  pulled: number;
-  localHead: string | null;
-  remoteHead: string | null;
-  conflict?: SyncConflict | undefined;
-  error?: string | undefined;
-}
-
-export interface SyncStatus {
-  configured: boolean;
-  remotePlatform: RemotePlatform | null;
-  remoteUrl: string | null;
-  remoteDbName: string | null;
-  state: SyncState;
-  lastPushedCommit: string | null;
-  lastPulledCommit: string | null;
-  pendingCommits: number;
-  lastError: string | null;
-  projectionHead: string | null;
-  projectionLagCommits: number | null;
-  projectionError: string | null;
-}
-
 const COMMIT_SIZE_WARNING_THRESHOLD_BYTES = 256 * 1024;
 
-function readSyncConfig(): SyncConfig | null {
+export function syncConfig() {
   const remote = readRemoteConfig();
   if (!remote) {
     return null;
@@ -104,74 +57,28 @@ function readSyncConfig(): SyncConfig | null {
   };
 }
 
-function writeSyncState(db: Database, state: SyncState, error: string | null): void {
+function writeSyncState(db: Database, state: "synced" | "pending" | "conflict" | "offline", error: string | null): void {
   setMetaValue(db, LAST_SYNC_STATE_META_KEY, state);
   setMetaValue(db, LAST_SYNC_ERROR_META_KEY, error ?? "");
 }
 
-function writeLastPushedCommit(db: Database, commitId: string | null): void {
-  setMetaValue(db, LAST_PUSHED_COMMIT_META_KEY, commitId ?? "");
-}
-
-function writeLastPulledCommit(db: Database, commitId: string | null): void {
-  setMetaValue(db, LAST_PULLED_COMMIT_META_KEY, commitId ?? "");
-}
-
 function pendingCommitsFromHead(db: Database, lastPushedCommit: string | null): number {
-  const head = getHeadCommit(db);
+  const head = headCommit(db);
   if (!head) {
     return 0;
   }
   if (!lastPushedCommit) {
     return head.seq;
   }
-  const pushedSeq = findCommitSeq(db, lastPushedCommit);
+  const pushedSeq = commitSeq(db, lastPushedCommit);
   if (!pushedSeq) {
     return head.seq;
   }
   return Math.max(head.seq - pushedSeq, 0);
 }
 
-function buildSyncResult(
-  action: SyncResult["action"],
-  state: SyncState,
-  pushed: number,
-  pulled: number,
-  localHead: string | null,
-  remoteHead: string | null,
-  options: { conflict?: SyncConflict | undefined; error?: string | undefined } = {},
-): SyncResult {
-  return {
-    action,
-    state,
-    pushed,
-    pulled,
-    localHead,
-    remoteHead,
-    conflict: options.conflict,
-    error: options.error,
-  };
-}
-
-function syncStateFromPending(pending: number): SyncState {
-  return pending > 0 ? "pending" : "synced";
-}
-
-function statusStateForConfiguredDb(storedState: string | null, pendingCommits: number): SyncState {
-  if (storedState === "conflict") {
-    return "conflict";
-  }
-  if (storedState === "offline") {
-    return "offline";
-  }
-  if (pendingCommits > 0 || storedState === "pending") {
-    return "pending";
-  }
-  return "synced";
-}
-
-async function runPush(db: Database, action: SyncResult["action"]): Promise<SyncResult> {
-  const config = readSyncConfig();
+export async function push(db: Database) {
+  const config = syncConfig();
   if (!config) {
     writeSyncState(db, "offline", "Remote is not configured");
     throw new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured");
@@ -180,32 +87,41 @@ async function runPush(db: Database, action: SyncResult["action"]): Promise<Sync
   const client = openRemoteClient(config);
   try {
     await ensureRemoteInitialized(client);
-    await materializeRemoteToHead(client);
-    const remoteHeadBefore = await fetchRemoteHead(client);
+    await materializeToHead(client);
+    const remoteHeadBefore = await remoteHead(client);
 
-    if (remoteHeadBefore.commitId && !getCommitById(db, remoteHeadBefore.commitId)) {
+    if (remoteHeadBefore.commitId && !findCommit(db, remoteHeadBefore.commitId)) {
       const message = `Remote HEAD ${remoteHeadBefore.commitId} is unknown locally. Pull before push.`;
       writeSyncState(db, "conflict", message);
       throw new CodedError("SYNC_NON_FAST_FORWARD", message);
     }
 
-    const fromSeq = remoteHeadBefore.commitId ? (findCommitSeq(db, remoteHeadBefore.commitId) ?? 0) : 0;
-    const replays = loadCommitReplayInputs(db, fromSeq);
+    const fromSeq = remoteHeadBefore.commitId ? (commitSeq(db, remoteHeadBefore.commitId) ?? 0) : 0;
+    const replays = readCommitsAfter(db, fromSeq);
     let expectedRemoteHead = remoteHeadBefore.commitId;
     let pushed = 0;
     for (const replay of replays) {
       await pushCommit(client, replay, expectedRemoteHead);
-      expectedRemoteHead = replay.commitId;
+      expectedRemoteHead = replay.commit.commitId;
       pushed += 1;
     }
 
-    const localHeadAfter = getHeadCommitId(db);
-    const remoteHeadAfter = await fetchRemoteHead(client);
-    writeLastPushedCommit(db, remoteHeadAfter.commitId);
+    const localHeadAfter = headCommit(db)?.commitId ?? null;
+    const remoteHeadAfter = await remoteHead(client);
+    setMetaValue(db, LAST_PUSHED_COMMIT_META_KEY, remoteHeadAfter.commitId ?? "");
     const pending = pendingCommitsFromHead(db, remoteHeadAfter.commitId);
-    const state = syncStateFromPending(pending);
+    const state = pending > 0 ? "pending" : "synced";
     writeSyncState(db, state, null);
-    return buildSyncResult(action, state, pushed, 0, localHeadAfter, remoteHeadAfter.commitId);
+    return {
+      action: "push" as const,
+      state,
+      pushed,
+      pulled: 0,
+      localHead: localHeadAfter,
+      remoteHead: remoteHeadAfter.commitId,
+      conflict: undefined,
+      error: undefined,
+    };
   } catch (error) {
     const mapped = classifySyncBoundaryError(error);
     if (CodedError.hasCode(mapped, "SYNC_NON_FAST_FORWARD") || CodedError.hasCode(mapped, "SYNC_DIVERGED")) {
@@ -219,8 +135,8 @@ async function runPush(db: Database, action: SyncResult["action"]): Promise<Sync
   }
 }
 
-async function runPull(db: Database, action: SyncResult["action"]): Promise<SyncResult> {
-  const config = readSyncConfig();
+export async function pull(db: Database) {
+  const config = syncConfig();
   if (!config) {
     writeSyncState(db, "offline", "Remote is not configured");
     throw new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured");
@@ -228,57 +144,84 @@ async function runPull(db: Database, action: SyncResult["action"]): Promise<Sync
 
   const client = openRemoteClient(config);
   try {
-    const localHead = getHeadCommitId(db);
+    const localHead = headCommit(db)?.commitId ?? null;
     const remoteState = await detectRemoteReadState(client);
     if (remoteState === "empty") {
-      writeLastPulledCommit(db, null);
-      writeLastPushedCommit(db, null);
+      setMetaValue(db, LAST_PULLED_COMMIT_META_KEY, "");
+      setMetaValue(db, LAST_PUSHED_COMMIT_META_KEY, "");
       const pending = pendingCommitsFromHead(db, null);
-      const state = syncStateFromPending(pending);
+      const state = pending > 0 ? "pending" : "synced";
       writeSyncState(db, state, null);
-      return buildSyncResult(action, state, 0, 0, localHead, null);
+      return {
+        action: "pull" as const,
+        state,
+        pushed: 0,
+        pulled: 0,
+        localHead,
+        remoteHead: null,
+        conflict: undefined,
+        error: undefined,
+      };
     }
-    const remoteHead = await fetchRemoteHead(client);
+    const pulledRemoteHead = await remoteHead(client);
     let fromSeq = 0;
 
     if (localHead) {
       const remoteHasLocalHead = await remoteHasCommit(client, localHead);
       if (remoteHasLocalHead) {
         fromSeq = (await remoteCommitSeq(client, localHead)) ?? 0;
-      } else if (remoteHead.commitId && getCommitById(db, remoteHead.commitId)) {
+      } else if (pulledRemoteHead.commitId && findCommit(db, pulledRemoteHead.commitId)) {
         const pending = pendingCommitsFromHead(db, normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY)));
-        const state = syncStateFromPending(pending);
+        const state = pending > 0 ? "pending" : "synced";
         writeSyncState(db, state, null);
-        return buildSyncResult(action, state, 0, 0, localHead, remoteHead.commitId);
-      } else if (remoteHead.commitId !== null) {
-        const message = `Local HEAD ${localHead} is not present on remote, and remote HEAD ${remoteHead.commitId} is not present locally.`;
+        return {
+          action: "pull" as const,
+          state,
+          pushed: 0,
+          pulled: 0,
+          localHead,
+          remoteHead: pulledRemoteHead.commitId,
+          conflict: undefined,
+          error: undefined,
+        };
+      } else if (pulledRemoteHead.commitId !== null) {
+        const message = `Local HEAD ${localHead} is not present on remote, and remote HEAD ${pulledRemoteHead.commitId} is not present locally.`;
         writeSyncState(db, "conflict", message);
         throw new CodedError("SYNC_DIVERGED", message);
       }
     }
 
-    const replayInputs = await fetchRemoteInputsAfterSeq(client, fromSeq, remoteHead);
+    const replayInputs = await fetchCommitsAfter(client, fromSeq, pulledRemoteHead);
     let pulled = 0;
     for (const replay of replayInputs) {
-      if (getCommitById(db, replay.commitId)) {
+      if (findCommit(db, replay.commit.commitId)) {
         continue;
       }
       runInDeferredTransaction(db, () => {
-        replayCommitExactly(db, replay, { errorCode: "SYNC_DIVERGED" });
+        replayCommit(db, replay, { errorCode: "SYNC_DIVERGED" });
       });
       pulled += 1;
     }
 
-    const localHeadAfter = getHeadCommitId(db);
-    const remoteHeadAfter = await fetchRemoteHead(client);
-    writeLastPulledCommit(db, remoteHeadAfter.commitId);
+    const localHeadAfter = headCommit(db)?.commitId ?? null;
+    const remoteHeadAfter = await remoteHead(client);
+    setMetaValue(db, LAST_PULLED_COMMIT_META_KEY, remoteHeadAfter.commitId ?? "");
     if (localHeadAfter === remoteHeadAfter.commitId) {
-      writeLastPushedCommit(db, remoteHeadAfter.commitId);
+      setMetaValue(db, LAST_PUSHED_COMMIT_META_KEY, remoteHeadAfter.commitId ?? "");
     }
     const pending = pendingCommitsFromHead(db, normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY)));
-    const state = syncStateFromPending(pending);
+    const state = pending > 0 ? "pending" : "synced";
     writeSyncState(db, state, null);
-    return buildSyncResult(action, state, 0, pulled, localHeadAfter, remoteHeadAfter.commitId);
+    return {
+      action: "pull" as const,
+      state,
+      pushed: 0,
+      pulled,
+      localHead: localHeadAfter,
+      remoteHead: remoteHeadAfter.commitId,
+      conflict: undefined,
+      error: undefined,
+    };
   } catch (error) {
     const mapped = classifySyncBoundaryError(error);
     if (CodedError.hasCode(mapped, "SYNC_DIVERGED")) {
@@ -293,9 +236,9 @@ async function runPull(db: Database, action: SyncResult["action"]): Promise<Sync
 }
 
 function syncConfigFromInputs(options: {
-  platform: SyncConfig["platform"];
+  platform: RemotePlatform;
   url: string;
-}): SyncConfig {
+}) {
   const platform = parseRemotePlatform(options.platform);
   const trimmedUrl = options.url.trim();
   if (trimmedUrl.length === 0) {
@@ -311,13 +254,13 @@ function syncConfigFromInputs(options: {
 export async function connect(
   db: Database,
   options: {
-    platform: SyncConfig["platform"];
+    platform: RemotePlatform;
     url: string;
     authToken?: string | null | undefined;
   },
-): Promise<SyncConfig> {
+) {
   const config = syncConfigFromInputs(options);
-  const previousConfig = readSyncConfig();
+  const previousConfig = syncConfig();
   const previousIdentity = previousConfig ? `${previousConfig.platform}\u0000${previousConfig.remoteUrl}\u0000${previousConfig.remoteDbName ?? ""}` : null;
   const nextIdentity = `${config.platform}\u0000${config.remoteUrl}\u0000${config.remoteDbName ?? ""}`;
   const remoteChanged = previousIdentity !== nextIdentity;
@@ -335,8 +278,8 @@ export async function connect(
       clearAuthToken(config.platform);
     }
     if (remoteChanged) {
-      writeLastPushedCommit(db, null);
-      writeLastPulledCommit(db, null);
+      setMetaValue(db, LAST_PUSHED_COMMIT_META_KEY, "");
+      setMetaValue(db, LAST_PULLED_COMMIT_META_KEY, "");
     }
     writeSyncState(db, "pending", null);
     return config;
@@ -347,34 +290,27 @@ export async function connect(
   }
 }
 
-export function getSyncConfig(): SyncConfig | null {
-  return readSyncConfig();
-}
-
-export function push(db: Database): Promise<SyncResult> {
-  return runPush(db, "push");
-}
-
-export function pull(db: Database): Promise<SyncResult> {
-  return runPull(db, "pull");
-}
-
-export async function sync(db: Database, options: { action?: SyncResult["action"] } = {}): Promise<SyncResult> {
+export async function sync(
+  db: Database,
+  options: { action?: "push" | "pull" | "sync" | "auto_sync" | "clone" } = {},
+) {
   const action = options.action ?? "sync";
-  const pullResult = await runPull(db, action);
-  const pushResult = await runPush(db, action);
-  return buildSyncResult(
+  const pullResult = await pull(db);
+  const pushResult = await push(db);
+  return {
     action,
-    pushResult.state,
-    pushResult.pushed,
-    pullResult.pulled,
-    pushResult.localHead,
-    pushResult.remoteHead,
-  );
+    state: pushResult.state,
+    pushed: pushResult.pushed,
+    pulled: pullResult.pulled,
+    localHead: pushResult.localHead,
+    remoteHead: pushResult.remoteHead,
+    conflict: undefined,
+    error: undefined,
+  };
 }
 
-export async function autoSync(db: Database): Promise<SyncResult | null> {
-  const config = readSyncConfig();
+export async function autoSync(db: Database) {
+  const config = syncConfig();
   if (!config) {
     return null;
   }
@@ -382,11 +318,17 @@ export async function autoSync(db: Database): Promise<SyncResult | null> {
     return await sync(db, { action: "auto_sync" });
   } catch (error) {
     const mapped = classifySyncBoundaryError(error);
-    const localHead = getHeadCommitId(db);
+    const localHead = headCommit(db)?.commitId ?? null;
     const isConflict = CodedError.hasCode(mapped, "SYNC_NON_FAST_FORWARD") || CodedError.hasCode(mapped, "SYNC_DIVERGED");
-    const state: SyncState = isConflict ? "conflict" : "pending";
+    const state: "conflict" | "pending" = isConflict ? "conflict" : "pending";
     writeSyncState(db, state, mapped.message);
-    return buildSyncResult("auto_sync", state, 0, 0, localHead, null, {
+    return {
+      action: "auto_sync",
+      state,
+      pushed: 0,
+      pulled: 0,
+      localHead,
+      remoteHead: null,
       conflict: isConflict
         ? {
             kind: CodedError.hasCode(mapped, "SYNC_DIVERGED") ? "diverged" : "non_fast_forward",
@@ -396,22 +338,13 @@ export async function autoSync(db: Database): Promise<SyncResult | null> {
           }
         : undefined,
       error: mapped.message,
-    });
+    };
   }
 }
 
-export async function remoteStatus(db: Database): Promise<{
-  config: SyncConfig | null;
-  localHead: string | null;
-  remoteHead: RemoteHead | null;
-  pendingCommits: number;
-  hasAuthToken: boolean;
-  projectionHead: string | null;
-  projectionLagCommits: number | null;
-  projectionError: string | null;
-}> {
-  const config = readSyncConfig();
-  const localHead = getHeadCommitId(db);
+export async function remoteStatus(db: Database) {
+  const config = syncConfig();
+  const localHead = headCommit(db)?.commitId ?? null;
   const localPending = pendingCommitsFromHead(db, normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY)));
   if (!config) {
     return {
@@ -440,12 +373,12 @@ export async function remoteStatus(db: Database): Promise<{
         projectionError: null,
       };
     }
-    const remoteHead = await fetchRemoteHead(client);
-    const projection = await fetchRemoteProjectionStatus(client, remoteHead);
+    const statusRemoteHead = await remoteHead(client);
+    const projection = await projectionStatus(client, statusRemoteHead);
     return {
       config,
       localHead,
-      remoteHead,
+      remoteHead: statusRemoteHead,
       pendingCommits: localPending,
       hasAuthToken: authTokenForPlatform(config) !== undefined,
       projectionHead: projection.projectionHead,
@@ -460,12 +393,12 @@ export async function remoteStatus(db: Database): Promise<{
 }
 
 export async function clone(options: {
-  platform: SyncConfig["platform"];
+  platform: RemotePlatform;
   url: string;
   forceNew?: boolean | undefined;
   authToken?: string | null | undefined;
   dbPath?: string | undefined;
-}): Promise<{ dbPath: string; sync: SyncResult }> {
+}) {
   const targetDbPath = resolveDbPath(options.dbPath);
   const forceNew = options.forceNew ?? false;
   if (!forceNew && existsSync(targetDbPath)) {
@@ -479,21 +412,35 @@ export async function clone(options: {
       url: options.url,
       authToken: options.authToken,
     });
-    const sync = await runPull(db, "clone");
-    return { dbPath: initialized.path, sync };
+    const pulled = await pull(db);
+    return {
+      dbPath: initialized.path,
+      sync: {
+        ...pulled,
+        action: "clone" as const,
+      },
+    };
   } finally {
     db.$client.close(false);
   }
 }
 
-export function syncStatus(db: Database): SyncStatus {
-  const config = readSyncConfig();
+export function syncStatus(db: Database) {
+  const config = syncConfig();
   const lastPushedCommit = normalizeMetaString(getMetaValue(db, LAST_PUSHED_COMMIT_META_KEY));
   const lastPulledCommit = normalizeMetaString(getMetaValue(db, LAST_PULLED_COMMIT_META_KEY));
   const storedState = normalizeMetaString(getMetaValue(db, LAST_SYNC_STATE_META_KEY));
   const lastError = normalizeMetaString(getMetaValue(db, LAST_SYNC_ERROR_META_KEY));
   const pendingCommits = pendingCommitsFromHead(db, lastPushedCommit);
-  const state = config ? statusStateForConfiguredDb(storedState, pendingCommits) : "offline";
+  const state = config
+    ? storedState === "conflict"
+      ? "conflict"
+      : storedState === "offline"
+      ? "offline"
+      : pendingCommits > 0 || storedState === "pending"
+      ? "pending"
+      : "synced"
+    : "offline";
   return {
     configured: config !== null,
     remotePlatform: config?.platform ?? null,
@@ -510,8 +457,8 @@ export function syncStatus(db: Database): SyncStatus {
   };
 }
 
-export function commitSizeWarning(db: Database, commitId: string): string | null {
-  const replay = getCommitReplayInput(db, commitId);
+export function sizeWarning(db: Database, commitId: string): string | null {
+  const replay = readCommit(db, commitId);
   const payloadSize = canonicalJson({
     operations: replay.operations,
     rowEffects: replay.rowEffects,

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { getCommitCount, getHeadCommit } from "./commit";
+import { headCommit } from "./commit";
 import {
   LAST_VERIFIED_AT_META_KEY,
   LAST_VERIFIED_OK_META_KEY,
@@ -7,45 +7,22 @@ import {
   listUserTables,
   type Database,
 } from "./db";
-import { estimateCommitSizeBytes, estimateHistorySizeBytes } from "./history";
+import { commitSize, historySize } from "./history";
 import { countRows } from "./inspect";
-import { SnapshotTable, type Commit } from "./schema";
-import { syncStatus, type SyncStatus } from "./sync";
+import { CommitTable, SnapshotTable } from "./schema";
+import { syncStatus } from "./sync";
 
-export interface StorageEstimate {
-  commitCount: number;
-  estimatedHistoryBytes: number;
-  latestCommitEstimatedBytes: number | null;
-}
-
-export interface StatusTable {
-  name: string;
-  count: number;
-}
-
-export interface Status {
-  dbPath: string;
-  tableCount: number;
-  tables: StatusTable[];
-  headCommit: Commit | null;
-  snapshotCount: number;
-  lastVerifiedAt: string | null;
-  lastVerifiedOk: boolean | null;
-  sync: SyncStatus;
-  storage: StorageEstimate;
-}
-
-export function status(db: Database): Status {
+export function status(db: Database) {
   const tables = listUserTables(db).map((table) => ({
     name: table,
     count: countRows(db, table),
   }));
 
-  const head = getHeadCommit(db);
+  const head = headCommit(db);
   const snapshotCountRow = db.select({ c: sql<number>`count(*)` }).from(SnapshotTable).get();
   const verifiedOkRaw = getMetaValue(db, LAST_VERIFIED_OK_META_KEY);
-  const commitCount = getCommitCount(db);
-  const latestCommitEstimatedBytes = head ? estimateCommitSizeBytes(db, head.commitId) : null;
+  const commitCount = db.select({ n: sql<number>`count(*)` }).from(CommitTable).get()?.n ?? 0;
+  const latestCommitEstimatedBytes = head ? commitSize(db, head.commitId) : null;
 
   return {
     dbPath: db.$client.filename,
@@ -58,7 +35,7 @@ export function status(db: Database): Status {
     sync: syncStatus(db),
     storage: {
       commitCount,
-      estimatedHistoryBytes: estimateHistorySizeBytes(db),
+      estimatedHistoryBytes: historySize(db),
       latestCommitEstimatedBytes,
     },
   };
