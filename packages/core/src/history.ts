@@ -1,15 +1,12 @@
-import { and, asc, desc, eq, exists, sql, type SQL } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, setMetaValue, type Database } from "./db";
 import {
   computeCommitId,
-  getCommitOperations,
-  getCommitParentIds,
-  getRowEffectsByCommitId,
-  getSchemaEffectsByCommitId,
+  getCommitReplayInput,
   listCommits,
 } from "./commit";
 import { normalizePage, normalizePageSize } from "./inspect";
-import { type CommitKind, CommitParentTable, CommitTable, OpTable, RowEffectTable, SchemaEffectTable } from "./schema";
+import { type CommitKind, CommitTable, OpTable, RowEffectTable, SchemaEffectTable } from "./schema";
 
 export interface CommitSummary {
   commitId: string;
@@ -41,51 +38,10 @@ export interface VerifyResult {
   checkedAt: string;
 }
 
-function toCommitSummary(
-  db: Database,
-  row: {
-    commitId: string;
-    seq: number;
-    kind: CommitKind;
-    message: string;
-    createdAt: number;
-  },
-): CommitSummary {
-  const parentIds = db
-    .select({ parentCommitId: CommitParentTable.parentCommitId })
-    .from(CommitParentTable)
-    .where(eq(CommitParentTable.commitId, row.commitId))
-    .orderBy(asc(CommitParentTable.ord))
-    .all()
-    .map((entry) => entry.parentCommitId);
-  const rowEffects = db
-    .select({ tableName: RowEffectTable.tableName })
-    .from(RowEffectTable)
-    .where(eq(RowEffectTable.commitId, row.commitId))
-    .all();
-  const schemaEffects = db
-    .select({ tableName: SchemaEffectTable.tableName })
-    .from(SchemaEffectTable)
-    .where(eq(SchemaEffectTable.commitId, row.commitId))
-    .all();
-  const operationCount = db
-    .select({ c: sql<number>`count(*)` })
-    .from(OpTable)
-    .where(eq(OpTable.commitId, row.commitId))
-    .get()?.c ?? 0;
+const ARRAY_SEPARATOR = "\u001f";
 
-  const tableSet = new Set<string>();
-  for (const entry of rowEffects) tableSet.add(entry.tableName);
-  for (const entry of schemaEffects) tableSet.add(entry.tableName);
-
-  return {
-    ...row,
-    parentIds,
-    operationCount,
-    rowEffectCount: rowEffects.length,
-    schemaEffectCount: schemaEffects.length,
-    affectedTables: Array.from(tableSet).sort((a, b) => a.localeCompare(b)),
-  };
+function splitCsv(value: string): string[] {
+  return value.length === 0 ? [] : value.split(ARRAY_SEPARATOR);
 }
 
 export function commitHistory(db: Database, options: HistoryOptions = {}): CommitSummary[] {
@@ -95,46 +51,111 @@ export function commitHistory(db: Database, options: HistoryOptions = {}): Commi
   const kind = options.kind === "apply" || options.kind === "revert" ? options.kind : null;
   const table = options.table?.trim() || null;
 
-  const conditions: SQL[] = [];
+  const conditions: string[] = [];
+  const args: Array<string | number> = [];
   if (kind) {
-    conditions.push(eq(CommitTable.kind, kind));
+    conditions.push("c.kind = ?");
+    args.push(kind);
   }
   if (table) {
-    conditions.push(
-      sql`(
-        ${exists(
-          db.select({ n: sql<number>`1` }).from(RowEffectTable).where(
-            and(eq(RowEffectTable.commitId, CommitTable.commitId), sql`${RowEffectTable.tableName} = ${table} COLLATE NOCASE`),
-          ),
-        )}
-        OR
-        ${exists(
-          db.select({ n: sql<number>`1` }).from(SchemaEffectTable).where(
-            and(eq(SchemaEffectTable.commitId, CommitTable.commitId), sql`${SchemaEffectTable.tableName} = ${table} COLLATE NOCASE`),
-          ),
-        )}
-      )`,
-    );
+    conditions.push(`(
+      EXISTS (
+        SELECT 1
+        FROM _toss_row_effect re
+        WHERE re.commit_id = c.commit_id AND re.table_name = ? COLLATE NOCASE
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM _toss_schema_effect se
+        WHERE se.commit_id = c.commit_id AND se.table_name = ? COLLATE NOCASE
+      )
+    )`);
+    args.push(table, table);
   }
+  const whereSql = conditions.length === 0 ? "" : `WHERE ${conditions.join(" AND ")}`;
+  const rows = db.$client
+    .query<
+      {
+        commit_id: string;
+        seq: number;
+        kind: CommitKind;
+        message: string;
+        created_at: number;
+        parent_ids: string;
+        operation_count: number;
+        row_effect_count: number;
+        schema_effect_count: number;
+        affected_tables: string;
+      },
+      Array<string | number>
+    >(
+      `
+      SELECT
+        c.commit_id,
+        c.seq,
+        c.kind,
+        c.message,
+        c.created_at,
+        COALESCE((
+          SELECT group_concat(parent_commit_id, '${ARRAY_SEPARATOR}')
+          FROM (
+            SELECT cp.parent_commit_id
+            FROM _toss_commit_parent cp
+            WHERE cp.commit_id = c.commit_id
+            ORDER BY cp.ord
+          )
+        ), '') AS parent_ids,
+        (
+          SELECT COUNT(*)
+          FROM _toss_op o
+          WHERE o.commit_id = c.commit_id
+        ) AS operation_count,
+        (
+          SELECT COUNT(*)
+          FROM _toss_row_effect re
+          WHERE re.commit_id = c.commit_id
+        ) AS row_effect_count,
+        (
+          SELECT COUNT(*)
+          FROM _toss_schema_effect se
+          WHERE se.commit_id = c.commit_id
+        ) AS schema_effect_count,
+        COALESCE((
+          SELECT group_concat(table_name, '${ARRAY_SEPARATOR}')
+          FROM (
+            SELECT table_name
+            FROM (
+              SELECT re.table_name AS table_name
+              FROM _toss_row_effect re
+              WHERE re.commit_id = c.commit_id
+              UNION
+              SELECT se.table_name AS table_name
+              FROM _toss_schema_effect se
+              WHERE se.commit_id = c.commit_id
+            )
+            ORDER BY table_name COLLATE NOCASE
+          )
+        ), '') AS affected_tables
+      FROM _toss_commit c
+      ${whereSql}
+      ORDER BY c.seq DESC
+      LIMIT ? OFFSET ?
+      `,
+    )
+    .all(...args, pageSize, offset);
 
-  const where = conditions.length > 1 ? and(...conditions) : conditions[0];
-
-  const rows = db
-    .select({
-      commitId: CommitTable.commitId,
-      seq: CommitTable.seq,
-      kind: CommitTable.kind,
-      message: CommitTable.message,
-      createdAt: CommitTable.createdAt,
-    })
-    .from(CommitTable)
-    .where(where)
-    .orderBy(desc(CommitTable.seq))
-    .limit(pageSize)
-    .offset(offset)
-    .all();
-
-  return rows.map((row) => toCommitSummary(db, row));
+  return rows.map((row) => ({
+    commitId: row.commit_id,
+    seq: row.seq,
+    kind: row.kind,
+    message: row.message,
+    createdAt: row.created_at,
+    parentIds: splitCsv(row.parent_ids),
+    operationCount: row.operation_count,
+    rowEffectCount: row.row_effect_count,
+    schemaEffectCount: row.schema_effect_count,
+    affectedTables: splitCsv(row.affected_tables),
+  }));
 }
 
 export function estimateCommitSizeBytes(db: Database, commitId: string): number {
@@ -196,27 +217,12 @@ export function verify(db: Database, options: { full?: boolean } = {}): VerifyRe
 
   const commits = listCommits(db, false);
   for (const commit of commits) {
-    const parentIds = getCommitParentIds(db, commit.commitId);
-    const expected = computeCommitId({
-      seq: commit.seq,
-      kind: commit.kind,
-      message: commit.message,
-      createdAt: commit.createdAt,
-      parentIds,
-      schemaHashBefore: commit.schemaHashBefore,
-      schemaHashAfter: commit.schemaHashAfter,
-      stateHashAfter: commit.stateHashAfter,
-      planHash: commit.planHash,
-      revertible: commit.revertible,
-      revertTargetId: commit.revertTargetId,
-      operations: getCommitOperations(db, commit.commitId),
-      rowEffects: getRowEffectsByCommitId(db, commit.commitId),
-      schemaEffects: getSchemaEffectsByCommitId(db, commit.commitId),
-    });
+    const replay = getCommitReplayInput(db, commit.commitId);
+    const expected = computeCommitId(replay.commit, replay.parentIds, replay.operations, replay.rowEffects, replay.schemaEffects);
     if (expected !== commit.commitId) {
       issues.push(`Commit hash mismatch: ${commit.commitId}`);
     }
-    if (commit.parentCount !== parentIds.length) {
+    if (commit.parentCount !== replay.parentIds.length) {
       issues.push(`Parent count mismatch: ${commit.commitId}`);
     }
   }

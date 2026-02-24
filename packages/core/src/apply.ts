@@ -77,74 +77,7 @@ const DESTRUCTIVE_OPERATION_TYPES = new Set<Operation["type"]>([
   "delete",
 ]);
 
-function issueFromError(error: unknown): CheckIssue {
-  if (CodedError.is(error)) {
-    return { code: error.code, message: error.message };
-  }
-  if (error instanceof Error) {
-    return { code: "PLAN_CHECK_FAILED", message: error.message };
-  }
-  return { code: "PLAN_CHECK_FAILED", message: String(error) };
-}
-
-function classifyRisk(
-  errors: CheckIssue[],
-  summary: CheckSummary,
-): CheckResult["risk"] {
-  if (errors.length > 0 || summary.destructiveOperations > 0) {
-    return "high";
-  }
-  if (summary.schemaOperations > 0 || summary.predicted.schemaEffects > 0) {
-    return "medium";
-  }
-  return "low";
-}
-
-function uniqueSorted(values: string[]): string[] {
-  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
-}
-
-function summarizeOperations(operations: Operation[]): Omit<CheckSummary, "predicted"> {
-  let schemaOps = 0;
-  let destructiveOps = 0;
-  const tableSet = new Set<string>();
-  for (const op of operations) {
-    tableSet.add(op.table);
-    if (SCHEMA_OPERATION_TYPES.has(op.type)) schemaOps += 1;
-    if (DESTRUCTIVE_OPERATION_TYPES.has(op.type)) destructiveOps += 1;
-  }
-  return {
-    operations: operations.length,
-    schemaOperations: schemaOps,
-    dataOperations: operations.length - schemaOps,
-    destructiveOperations: destructiveOps,
-    touchedTables: Array.from(tableSet).sort((a, b) => a.localeCompare(b)),
-  };
-}
-
-function destructiveWarnings(operations: Operation[]): CheckIssue[] {
-  const warnings: CheckIssue[] = [];
-  for (let i = 0; i < operations.length; i++) {
-    const op = operations[i]!;
-    if (DESTRUCTIVE_OPERATION_TYPES.has(op.type)) {
-      warnings.push({
-        code: "DESTRUCTIVE_OPERATION",
-        message: `Operation ${i} (${op.type}) changes or removes existing data/schema.`,
-        operationIndex: i,
-        operationType: op.type,
-        table: op.table,
-      });
-    }
-  }
-  return warnings;
-}
-
-interface DryRunResult {
-  errors: CheckIssue[];
-  predicted: CheckSummary["predicted"];
-}
-
-function dryRunWithDb(db: Database, operations: Operation[]): DryRunResult {
+function dryRunWithDb(db: Database, operations: Operation[]) {
   try {
     const before = captureObservedState(db);
     const predicted = runInSavepoint(
@@ -159,18 +92,25 @@ function dryRunWithDb(db: Database, operations: Operation[]): DryRunResult {
         return {
           rowEffects: diff.rowEffects.length,
           schemaEffects: diff.schemaEffects.length,
-          tables: uniqueSorted([
+          tables: Array.from(
+            new Set([
             ...diff.rowEffects.map((e) => e.tableName),
             ...diff.schemaEffects.map((e) => e.tableName),
-          ]),
+            ]),
+          ).sort((a, b) => a.localeCompare(b)),
         };
       },
       { rollbackOnSuccess: true },
     );
     return { errors: [], predicted };
   } catch (error) {
+    const issue: CheckIssue = CodedError.is(error)
+      ? { code: error.code, message: error.message }
+      : error instanceof Error
+      ? { code: "PLAN_CHECK_FAILED", message: error.message }
+      : { code: "PLAN_CHECK_FAILED", message: String(error) };
     return {
-      errors: [issueFromError(error)],
+      errors: [issue],
       predicted: { rowEffects: 0, schemaEffects: 0, tables: [] },
     };
   }
@@ -178,16 +118,45 @@ function dryRunWithDb(db: Database, operations: Operation[]): DryRunResult {
 
 export function check(db: Database, plan: OperationPlan): CheckResult {
   const checkedAt = new Date().toISOString();
-
-  const warnings = destructiveWarnings(plan.operations);
-  const summaryBase = summarizeOperations(plan.operations);
+  let schemaOperations = 0;
+  let destructiveOperations = 0;
+  const touchedTables = new Set<string>();
+  const warnings: CheckIssue[] = [];
+  for (let i = 0; i < plan.operations.length; i += 1) {
+    const operation = plan.operations[i]!;
+    touchedTables.add(operation.table);
+    if (SCHEMA_OPERATION_TYPES.has(operation.type)) {
+      schemaOperations += 1;
+    }
+    if (DESTRUCTIVE_OPERATION_TYPES.has(operation.type)) {
+      destructiveOperations += 1;
+      warnings.push({
+        code: "DESTRUCTIVE_OPERATION",
+        message: `Operation ${i} (${operation.type}) changes or removes existing data/schema.`,
+        operationIndex: i,
+        operationType: operation.type,
+        table: operation.table,
+      });
+    }
+  }
   const { errors, predicted } = dryRunWithDb(db, plan.operations);
-
-  const summary: CheckSummary = { ...summaryBase, predicted };
+  const summary: CheckSummary = {
+    operations: plan.operations.length,
+    schemaOperations,
+    dataOperations: plan.operations.length - schemaOperations,
+    destructiveOperations,
+    touchedTables: Array.from(touchedTables).sort((a, b) => a.localeCompare(b)),
+    predicted,
+  };
+  const risk: CheckResult["risk"] = errors.length > 0 || destructiveOperations > 0
+    ? "high"
+    : schemaOperations > 0 || predicted.schemaEffects > 0
+    ? "medium"
+    : "low";
 
   return {
     ok: errors.length === 0,
-    risk: classifyRisk(errors, summary),
+    risk,
     errors,
     warnings,
     summary,

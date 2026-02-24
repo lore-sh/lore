@@ -17,6 +17,7 @@ import type { Operation } from "./operation";
 import {
   type Commit,
   type CommitKind,
+  type RowEffectRow,
   CommitParentTable,
   CommitTable,
   OpTable,
@@ -26,30 +27,15 @@ import {
   SchemaEffectTable,
 } from "./schema";
 
-export interface CommitEffects {
-  rows: CommitRowEffect[];
-  schemas: SchemaEffect[];
-}
+export type CommitPayload = Omit<Commit, "commitId" | "parentCount">;
 
-export interface CommitWriteInput {
-  seq: number;
-  kind: CommitKind;
-  message: string;
-  createdAt: number;
+export interface CommitBundle {
+  commitId: string;
+  commit: CommitPayload;
   parentIds: string[];
-  schemaHashBefore: string;
-  schemaHashAfter: string;
-  stateHashAfter: string;
-  planHash: string;
-  revertible: Commit["revertible"];
-  revertTargetId: string | null;
   operations: Operation[];
   rowEffects: RowEffect[];
   schemaEffects: SchemaEffect[];
-}
-
-export interface CommitReplayInput extends CommitWriteInput {
-  commitId: string;
 }
 
 export function getHeadCommitId(db: Database): string | null {
@@ -78,46 +64,61 @@ export function getNextCommitSeq(db: Database): number {
   return (row?.maxSeq ?? 0) + 1;
 }
 
-function commitHashPayload(input: CommitWriteInput): Record<string, unknown> {
-  const rowEffects = input.rowEffects.map((effect) => ({
-    tableName: effect.tableName,
-    pk: effect.pk,
-    opKind: effect.opKind,
-    beforeRow: effect.beforeRow,
-    afterRow: effect.afterRow,
-  }));
-  const schemaEffects = input.schemaEffects.map((effect) => ({
-    tableName: effect.tableName,
-    beforeTable: effect.beforeTable,
-    afterTable: effect.afterTable,
-  }));
+function commitHashPayload(
+  commit: CommitPayload,
+  parentIds: string[],
+  operations: Operation[],
+  rowEffects: RowEffect[],
+  schemaEffects: SchemaEffect[],
+): Record<string, unknown> {
   return {
-    seq: input.seq,
-    kind: input.kind,
-    message: input.message,
-    createdAt: input.createdAt,
-    parentIds: input.parentIds,
-    schemaHashBefore: input.schemaHashBefore,
-    schemaHashAfter: input.schemaHashAfter,
-    stateHashAfter: input.stateHashAfter,
-    planHash: input.planHash,
-    revertible: input.revertible,
-    revertTargetId: input.revertTargetId,
-    operations: input.operations,
-    rowEffects,
-    schemaEffects,
+    seq: commit.seq,
+    kind: commit.kind,
+    message: commit.message,
+    createdAt: commit.createdAt,
+    schemaHashBefore: commit.schemaHashBefore,
+    schemaHashAfter: commit.schemaHashAfter,
+    stateHashAfter: commit.stateHashAfter,
+    planHash: commit.planHash,
+    revertible: commit.revertible,
+    revertTargetId: commit.revertTargetId,
+    parentIds,
+    operations,
+    rowEffects: rowEffects.map((effect) => ({
+      tableName: effect.tableName,
+      pk: effect.pk,
+      opKind: effect.opKind,
+      beforeRow: effect.beforeRow,
+      afterRow: effect.afterRow,
+    })),
+    schemaEffects: schemaEffects.map((effect) => ({
+      tableName: effect.tableName,
+      beforeTable: effect.beforeTable,
+      afterTable: effect.afterTable,
+    })),
   };
 }
 
-export function computeCommitId(input: CommitWriteInput): string {
-  return sha256Hex(commitHashPayload(input));
+export function computeCommitId(
+  commit: CommitPayload,
+  parentIds: string[],
+  operations: Operation[],
+  rowEffects: RowEffect[],
+  schemaEffects: SchemaEffect[],
+): string {
+  return sha256Hex(commitHashPayload(commit, parentIds, operations, rowEffects, schemaEffects));
 }
 
-export function appendCommit(db: Database, input: CommitWriteInput): Commit {
-  return appendCommitExact(db, {
-    ...input,
-    commitId: computeCommitId(input),
-  });
+export function appendCommit(
+  db: Database,
+  commit: CommitPayload,
+  parentIds: string[],
+  operations: Operation[],
+  rowEffects: RowEffect[],
+  schemaEffects: SchemaEffect[],
+): Commit {
+  const commitId = computeCommitId(commit, parentIds, operations, rowEffects, schemaEffects);
+  return appendCommitExact(db, commitId, commit, parentIds, operations, rowEffects, schemaEffects);
 }
 
 export function appendCommitObserved(
@@ -137,36 +138,40 @@ export function appendCommitObserved(
   const createdAt = Date.now();
   const afterObservedState = captureObservedState(db);
   const captured = diffObservedState(input.beforeObservedState, afterObservedState);
-  const afterSchemaHash = schemaHash(db);
-  const afterStateHash = stateHash(db);
-  const planHash = sha256Hex(input.operations);
 
-  return appendCommit(db, {
-    seq,
-    kind: input.kind,
-    message: input.message,
-    createdAt,
+  return appendCommit(
+    db,
+    {
+      seq,
+      kind: input.kind,
+      message: input.message,
+      createdAt,
+      schemaHashBefore: input.beforeSchemaHash,
+      schemaHashAfter: schemaHash(db),
+      stateHashAfter: stateHash(db),
+      planHash: sha256Hex(input.operations),
+      revertible: 1,
+      revertTargetId: input.revertTargetId,
+    },
     parentIds,
-    schemaHashBefore: input.beforeSchemaHash,
-    schemaHashAfter: afterSchemaHash,
-    stateHashAfter: afterStateHash,
-    planHash,
-    revertible: 1,
-    revertTargetId: input.revertTargetId,
-    operations: input.operations,
-    rowEffects: captured.rowEffects,
-    schemaEffects: captured.schemaEffects,
-  });
+    input.operations,
+    captured.rowEffects,
+    captured.schemaEffects,
+  );
 }
 
 export function appendCommitExact(
   db: Database,
-  input: CommitReplayInput,
+  commitId: string,
+  commit: CommitPayload,
+  parentIds: string[],
+  operations: Operation[],
+  rowEffects: RowEffect[],
+  schemaEffects: SchemaEffect[],
   options: { errorCode?: ErrorCode } = {},
 ): Commit {
   const errorCode = options.errorCode ?? "RECOVER_FAILED";
-  const commitId = input.commitId;
-  const expected = computeCommitId(input);
+  const expected = computeCommitId(commit, parentIds, operations, rowEffects, schemaEffects);
   if (expected !== commitId) {
     throw new CodedError(errorCode, `Commit payload mismatch for replayed commit ${commitId}`);
   }
@@ -176,33 +181,24 @@ export function appendCommitExact(
   db.insert(CommitTable)
     .values({
       commitId,
-      seq: input.seq,
-      kind: input.kind,
-      message: input.message,
-      createdAt: input.createdAt,
-      parentCount: input.parentIds.length,
-      schemaHashBefore: input.schemaHashBefore,
-      schemaHashAfter: input.schemaHashAfter,
-      stateHashAfter: input.stateHashAfter,
-      planHash: input.planHash,
-      revertible: input.revertible,
-      revertTargetId: input.revertTargetId,
+      ...commit,
+      parentCount: parentIds.length,
     })
     .run();
 
-  for (let i = 0; i < input.parentIds.length; i += 1) {
-    db.insert(CommitParentTable).values({ commitId, parentCommitId: input.parentIds[i]!, ord: i }).run();
+  for (let i = 0; i < parentIds.length; i += 1) {
+    db.insert(CommitParentTable).values({ commitId, parentCommitId: parentIds[i]!, ord: i }).run();
   }
 
-  for (let i = 0; i < input.operations.length; i += 1) {
-    const operation = input.operations[i]!;
+  for (let i = 0; i < operations.length; i += 1) {
+    const operation = operations[i]!;
     db.insert(OpTable)
       .values({ commitId, opIndex: i, opType: operation.type, opJson: canonicalJson(operation) })
       .run();
   }
 
-  for (let i = 0; i < input.rowEffects.length; i += 1) {
-    const effect = input.rowEffects[i]!;
+  for (let i = 0; i < rowEffects.length; i += 1) {
+    const effect = rowEffects[i]!;
     const beforeJson = effect.beforeRow ? canonicalJson(effect.beforeRow) : null;
     const afterJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
     db.insert(RowEffectTable)
@@ -220,8 +216,8 @@ export function appendCommitExact(
       .run();
   }
 
-  for (let i = 0; i < input.schemaEffects.length; i += 1) {
-    const effect = input.schemaEffects[i]!;
+  for (let i = 0; i < schemaEffects.length; i += 1) {
+    const effect = schemaEffects[i]!;
     db.insert(SchemaEffectTable)
       .values({
         commitId,
@@ -234,7 +230,7 @@ export function appendCommitExact(
   }
 
   db.update(RefTable)
-    .set({ commitId, updatedAt: input.createdAt })
+    .set({ commitId, updatedAt: commit.createdAt })
     .where(eq(RefTable.name, MAIN_REF_NAME))
     .run();
 
@@ -243,8 +239,8 @@ export function appendCommitExact(
       refName: MAIN_REF_NAME,
       oldCommitId: oldHead,
       newCommitId: commitId,
-      reason: input.kind === "revert" ? "revert" : "apply",
-      createdAt: input.createdAt,
+      reason: commit.kind === "revert" ? "revert" : "apply",
+      createdAt: commit.createdAt,
     })
     .run();
 
@@ -295,27 +291,22 @@ export function getCommitCount(db: Database): number {
   return row?.c ?? 0;
 }
 
-export interface CommitRowEffect extends RowEffect {
-  beforeHash: string | null;
-  afterHash: string | null;
-}
-
-export function getRowEffectsByCommitId(db: Database, commitId: string): CommitRowEffect[] {
-  const rows = db
+export function getRowEffectsByCommitId(db: Database, commitId: string): RowEffectRow[] {
+  return db
     .select()
     .from(RowEffectTable)
     .where(eq(RowEffectTable.commitId, commitId))
     .orderBy(asc(RowEffectTable.effectIndex))
     .all();
+}
 
+export function decodeRowEffects(rows: RowEffectRow[]): RowEffect[] {
   return rows.map((row) => ({
     tableName: row.tableName,
-    pk: JSON.parse(row.pkJson) as Record<string, string>,
+    pk: JSON.parse(row.pkJson) as RowEffect["pk"],
     opKind: row.opKind,
     beforeRow: row.beforeJson ? (JSON.parse(row.beforeJson) as RowEffect["beforeRow"]) : null,
     afterRow: row.afterJson ? (JSON.parse(row.afterJson) as RowEffect["afterRow"]) : null,
-    beforeHash: row.beforeHash,
-    afterHash: row.afterHash,
   }));
 }
 
@@ -334,31 +325,33 @@ export function getSchemaEffectsByCommitId(db: Database, commitId: string): Sche
   }));
 }
 
-export function getCommitReplayInput(db: Database, commitId: string): CommitReplayInput {
-  const commit = getCommitById(db, commitId);
-  if (!commit) {
+export function getCommitReplayInput(db: Database, commitId: string): CommitBundle {
+  const commitRow = getCommitById(db, commitId);
+  if (!commitRow) {
     throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
   }
   return {
-    commitId: commit.commitId,
-    seq: commit.seq,
-    kind: commit.kind,
-    message: commit.message,
-    createdAt: commit.createdAt,
-    parentIds: getCommitParentIds(db, commit.commitId),
-    schemaHashBefore: commit.schemaHashBefore,
-    schemaHashAfter: commit.schemaHashAfter,
-    stateHashAfter: commit.stateHashAfter,
-    planHash: commit.planHash,
-    revertible: commit.revertible,
-    revertTargetId: commit.revertTargetId,
-    operations: getCommitOperations(db, commit.commitId),
-    rowEffects: getRowEffectsByCommitId(db, commit.commitId),
-    schemaEffects: getSchemaEffectsByCommitId(db, commit.commitId),
+    commitId: commitRow.commitId,
+    commit: {
+      seq: commitRow.seq,
+      kind: commitRow.kind,
+      message: commitRow.message,
+      createdAt: commitRow.createdAt,
+      schemaHashBefore: commitRow.schemaHashBefore,
+      schemaHashAfter: commitRow.schemaHashAfter,
+      stateHashAfter: commitRow.stateHashAfter,
+      planHash: commitRow.planHash,
+      revertible: commitRow.revertible,
+      revertTargetId: commitRow.revertTargetId,
+    },
+    parentIds: getCommitParentIds(db, commitRow.commitId),
+    operations: getCommitOperations(db, commitRow.commitId),
+    rowEffects: decodeRowEffects(getRowEffectsByCommitId(db, commitRow.commitId)),
+    schemaEffects: getSchemaEffectsByCommitId(db, commitRow.commitId),
   };
 }
 
-export function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitReplayInput[] {
+export function loadCommitReplayInputs(db: Database, fromSeqExclusive: number): CommitBundle[] {
   const commitRows = db
     .select({ commitId: CommitTable.commitId })
     .from(CommitTable)
@@ -380,23 +373,23 @@ export function findCommitSeq(db: Database, commitId: string): number | null {
 
 export function replayCommitExactly(
   db: Database,
-  replay: CommitReplayInput,
+  replay: CommitBundle,
   options: { errorCode?: ErrorCode } = {},
 ): void {
   const errorCode = options.errorCode ?? "RECOVER_FAILED";
   const beforeSchemaHash = schemaHash(db);
-  if (beforeSchemaHash !== replay.schemaHashBefore) {
+  if (beforeSchemaHash !== replay.commit.schemaHashBefore) {
     throw new CodedError(
       errorCode,
-      `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.schemaHashBefore}, got ${beforeSchemaHash}`,
+      `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.commit.schemaHashBefore}, got ${beforeSchemaHash}`,
     );
   }
 
   const computedPlanHash = sha256Hex(replay.operations);
-  if (computedPlanHash !== replay.planHash) {
+  if (computedPlanHash !== replay.commit.planHash) {
     throw new CodedError(
       errorCode,
-      `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.planHash}, got ${computedPlanHash}`,
+      `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.commit.planHash}, got ${computedPlanHash}`,
     );
   }
 
@@ -412,27 +405,29 @@ export function replayCommitExactly(
   assertNoForeignKeyViolations(db, errorCode, `replay ${replay.commitId}`);
 
   const afterSchemaHash = schemaHash(db);
-  if (afterSchemaHash !== replay.schemaHashAfter) {
+  if (afterSchemaHash !== replay.commit.schemaHashAfter) {
     throw new CodedError(
       errorCode,
-      `schema_hash_after mismatch for replay ${replay.commitId}: expected ${replay.schemaHashAfter}, got ${afterSchemaHash}`,
+      `schema_hash_after mismatch for replay ${replay.commitId}: expected ${replay.commit.schemaHashAfter}, got ${afterSchemaHash}`,
     );
   }
 
   const afterStateHash = stateHash(db);
-  if (afterStateHash !== replay.stateHashAfter) {
+  if (afterStateHash !== replay.commit.stateHashAfter) {
     throw new CodedError(
       errorCode,
-      `state_hash_after mismatch for replay ${replay.commitId}: expected ${replay.stateHashAfter}, got ${afterStateHash}`,
+      `state_hash_after mismatch for replay ${replay.commitId}: expected ${replay.commit.stateHashAfter}, got ${afterStateHash}`,
     );
   }
 
-  appendCommitExact(db, replay, { errorCode });
-}
-
-export function getCommitEffects(db: Database, commitId: string): CommitEffects {
-  return {
-    rows: getRowEffectsByCommitId(db, commitId),
-    schemas: getSchemaEffectsByCommitId(db, commitId),
-  };
+  appendCommitExact(
+    db,
+    replay.commitId,
+    replay.commit,
+    replay.parentIds,
+    replay.operations,
+    replay.rowEffects,
+    replay.schemaEffects,
+    { errorCode },
+  );
 }

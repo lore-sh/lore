@@ -5,8 +5,9 @@ import {
   estimateCommitSizeBytes,
   estimateHistorySizeBytes,
   getCommitById,
-  getCommitEffects,
   getCommitOperations,
+  getRowEffectsByCommitId,
+  getSchemaEffectsByCommitId,
   initDb,
   status,
   verify,
@@ -56,10 +57,11 @@ describe("history domain", () => {
     expect(commit).not.toBeNull();
     expect(getCommitOperations(currentDb(), latestId)).toHaveLength(1);
 
-    const effects = getCommitEffects(currentDb(), latestId);
-    expect(effects.rows).toHaveLength(1);
-    expect(effects.rows[0]?.tableName).toBe("tasks");
-    expect(effects.schemas).toHaveLength(0);
+    const rowEffects = getRowEffectsByCommitId(currentDb(), latestId);
+    expect(rowEffects).toHaveLength(1);
+    expect(rowEffects[0]?.tableName).toBe("tasks");
+    const schemaEffects = getSchemaEffectsByCommitId(currentDb(), latestId);
+    expect(schemaEffects).toHaveLength(0);
   });
 
   testWithTmp("commitHistory filters by historical table names even after drop", async () => {

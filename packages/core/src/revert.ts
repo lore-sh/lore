@@ -1,7 +1,7 @@
 import { and, asc, eq, gt } from "drizzle-orm";
 import {
   appendCommitObserved,
-  type CommitRowEffect,
+  decodeRowEffects,
   getCommitById,
   getRowEffectsByCommitId,
   getSchemaEffectsByCommitId,
@@ -20,12 +20,13 @@ import {
   getObservedRowByPk,
   isSystemTable,
   rowHash,
+  type RowEffect,
   type SchemaEffect,
 } from "./effect";
 import { CodedError } from "./error";
 import { canonicalJson } from "./hash";
 import { schemaHash } from "./inspect";
-import { type Commit, CommitTable } from "./schema";
+import { type Commit, type RowEffectRow, CommitTable } from "./schema";
 
 export interface RevertConflict {
   kind: "row" | "schema";
@@ -67,7 +68,7 @@ export function detectSchemaConflicts(
 
 export function detectSchemaRowConflicts(
   schemaEffects: SchemaEffect[],
-  laterRowEffects: CommitRowEffect[],
+  laterRowEffects: RowEffectRow[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
   for (const effect of schemaEffects) {
@@ -76,7 +77,7 @@ export function detectSchemaRowConflicts(
       conflicts.push({
         kind: "schema",
         table: effect.tableName,
-        pk: later.pk,
+        pk: JSON.parse(later.pkJson) as Record<string, string>,
         reason: `Later row change found on ${effect.tableName}; reverting schema would discard post-commit row mutations.`,
       });
     }
@@ -86,12 +87,13 @@ export function detectSchemaRowConflicts(
 
 export function detectRowConflict(
   db: Database,
-  targetRowEffects: CommitRowEffect[],
-  laterRowEffects: CommitRowEffect[],
+  targetRowEffects: RowEffectRow[],
+  laterRowEffects: RowEffectRow[],
 ): RevertConflict[] {
   const conflicts: RevertConflict[] = [];
   const missingTables = new Set<string>();
   for (const effect of targetRowEffects) {
+    const pk = JSON.parse(effect.pkJson) as Record<string, string>;
     if (!tableExists(db, effect.tableName)) {
       if (!missingTables.has(effect.tableName)) {
         conflicts.push({
@@ -103,14 +105,14 @@ export function detectRowConflict(
       }
       continue;
     }
-    const currentRow = getObservedRowByPk(db, effect.tableName, effect.pk);
+    const currentRow = getObservedRowByPk(db, effect.tableName, pk);
     const currentHash = rowHash(currentRow);
 
     if (effect.opKind === "update" && currentHash !== effect.afterHash) {
       conflicts.push({
         kind: "row",
         table: effect.tableName,
-        pk: effect.pk,
+        pk,
         reason: "Current row hash differs from target after-image.",
       });
       continue;
@@ -120,21 +122,21 @@ export function detectRowConflict(
       conflicts.push({
         kind: "row",
         table: effect.tableName,
-        pk: effect.pk,
+        pk,
         reason: "Inserted row was changed or removed after the target commit.",
       });
       continue;
     }
 
     if (effect.opKind === "delete" && currentRow) {
-      const pkJson = canonicalJson(effect.pk);
+      const pkJson = canonicalJson(pk);
       const touchedLater = laterRowEffects.some(
-        (later) => later.tableName === effect.tableName && canonicalJson(later.pk) === pkJson,
+        (later) => later.tableName === effect.tableName && later.pkJson === pkJson,
       );
       conflicts.push({
         kind: "row",
         table: effect.tableName,
-        pk: effect.pk,
+        pk,
         reason: touchedLater
           ? "Later commits touched this deleted row and it exists now; inverse insert would violate PRIMARY KEY."
           : "Deleted row already exists now; inverse insert would violate PRIMARY KEY.",
@@ -144,14 +146,14 @@ export function detectRowConflict(
   return conflicts;
 }
 
-export function getLaterEffects(db: Database, seq: number): { rows: CommitRowEffect[]; schemas: SchemaEffect[] } {
+export function getLaterEffects(db: Database, seq: number): { rows: RowEffectRow[]; schemas: SchemaEffect[] } {
   const laterCommits = db
     .select({ commitId: CommitTable.commitId })
     .from(CommitTable)
     .where(gt(CommitTable.seq, seq))
     .orderBy(asc(CommitTable.seq))
     .all();
-  const rows: CommitRowEffect[] = [];
+  const rows: RowEffectRow[] = [];
   const schemas: SchemaEffect[] = [];
   for (const commit of laterCommits) {
     rows.push(...getRowEffectsByCommitId(db, commit.commitId));
@@ -193,7 +195,7 @@ function sqliteConstraintConflict(error: unknown): RevertConflict | null {
 
 function preflightInverseApply(
   db: Database,
-  targetRows: CommitRowEffect[],
+  targetRows: RowEffect[],
   targetSchemas: SchemaEffect[],
 ): RevertConflict[] {
   try {
@@ -247,11 +249,12 @@ export function revert(db: Database, commitId: string): RevertResult {
       throw new CodedError("ALREADY_REVERTED", `Commit is already reverted: ${commitId}`);
     }
 
-    const targetRows = getRowEffectsByCommitId(db, commitId);
+    const targetRowEffects = getRowEffectsByCommitId(db, commitId);
+    const targetRows = decodeRowEffects(targetRowEffects);
     const targetSchemas = getSchemaEffectsByCommitId(db, commitId);
     const later = getLaterEffects(db, targetCommit.seq);
     const conflicts = [
-      ...detectRowConflict(db, targetRows, later.rows),
+      ...detectRowConflict(db, targetRowEffects, later.rows),
       ...detectSchemaConflicts(targetSchemas, later.schemas),
       ...detectSchemaRowConflicts(targetSchemas, later.rows),
       ...preflightInverseApply(db, targetRows, targetSchemas),

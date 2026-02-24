@@ -9,7 +9,7 @@ import {
 } from "./db";
 import { estimateCommitSizeBytes, estimateHistorySizeBytes } from "./history";
 import { countRows } from "./inspect";
-import { SnapshotTable, type CommitKind } from "./schema";
+import { SnapshotTable, type Commit } from "./schema";
 import { syncStatus, type SyncStatus } from "./sync";
 
 export interface StorageEstimate {
@@ -27,13 +27,7 @@ export interface Status {
   dbPath: string;
   tableCount: number;
   tables: StatusTable[];
-  headCommit: {
-    commitId: string;
-    seq: number;
-    kind: CommitKind;
-    message: string;
-    createdAt: number;
-  } | null;
+  headCommit: Commit | null;
   snapshotCount: number;
   lastVerifiedAt: string | null;
   lastVerifiedOk: boolean | null;
@@ -57,15 +51,7 @@ export function status(db: Database): Status {
     dbPath: db.$client.filename,
     tableCount: tables.length,
     tables,
-    headCommit: head
-      ? {
-          commitId: head.commitId,
-          seq: head.seq,
-          kind: head.kind,
-          message: head.message,
-          createdAt: head.createdAt,
-        }
-      : null,
+    headCommit: head,
     snapshotCount: snapshotCountRow?.c ?? 0,
     lastVerifiedAt: getMetaValue(db, LAST_VERIFIED_AT_META_KEY),
     lastVerifiedOk: verifiedOkRaw === null ? null : verifiedOkRaw === "1",

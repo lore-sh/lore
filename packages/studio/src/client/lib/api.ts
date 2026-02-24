@@ -1,7 +1,7 @@
 import type {
   Commit,
-  CommitEffects,
   CommitSummary,
+  EncodedRow,
   Operation,
   RevertConflicts,
   RevertResult,
@@ -45,7 +45,22 @@ export interface TablesPayload {
 export interface CommitDetailPayload {
   commit: Commit;
   operations: Operation[];
-  effects: CommitEffects;
+  effects: {
+    rows: Array<{
+      tableName: string;
+      pk: Record<string, string>;
+      opKind: "insert" | "update" | "delete";
+      beforeRow: EncodedRow | null;
+      afterRow: EncodedRow | null;
+      beforeHash: string | null;
+      afterHash: string | null;
+    }>;
+    schemas: Array<{
+      tableName: string;
+      beforeTable: unknown;
+      afterTable: unknown;
+    }>;
+  };
 }
 
 export type TableDataQuery = Omit<TableRowsQueryJson, "page" | "pageSize" | "filters"> & {

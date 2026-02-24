@@ -1,5 +1,13 @@
 import { zValidator } from "@hono/zod-validator";
-import { CodedError, commitHistory, getCommitById, getCommitEffects, getCommitOperations, type Database } from "@toss/core";
+import {
+  CodedError,
+  commitHistory,
+  getCommitById,
+  getCommitOperations,
+  getRowEffectsByCommitId,
+  getSchemaEffectsByCommitId,
+  type Database,
+} from "@toss/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { commitIdParamSchema, positiveIntSchema, validationError } from "./shared";
@@ -47,7 +55,26 @@ export function createHistoryRoutes(db: Database) {
         if (!commit) {
           throw new CodedError("NOT_FOUND", `Commit not found: ${param.id}`);
         }
-        return c.json({ commit, operations: getCommitOperations(db, param.id), effects: getCommitEffects(db, param.id) }, 200);
+        const rowEffects = getRowEffectsByCommitId(db, param.id).map((effect) => ({
+          tableName: effect.tableName,
+          pk: JSON.parse(effect.pkJson) as Record<string, string>,
+          opKind: effect.opKind,
+          beforeRow: effect.beforeJson ? JSON.parse(effect.beforeJson) : null,
+          afterRow: effect.afterJson ? JSON.parse(effect.afterJson) : null,
+          beforeHash: effect.beforeHash,
+          afterHash: effect.afterHash,
+        }));
+        return c.json(
+          {
+            commit,
+            operations: getCommitOperations(db, param.id),
+            effects: {
+              rows: rowEffects,
+              schemas: getSchemaEffectsByCommitId(db, param.id),
+            },
+          },
+          200,
+        );
       },
     );
 }

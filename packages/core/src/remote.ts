@@ -2,7 +2,7 @@ import { createClient, type Client, type InArgs, type ResultSet, type Row, type 
 import { drizzle } from "drizzle-orm/libsql";
 import { migrate as migrateLibsql } from "drizzle-orm/libsql/migrator";
 import { basename, resolve } from "node:path";
-import type { CommitReplayInput } from "./commit";
+import type { CommitBundle } from "./commit";
 import { readAuthToken } from "./config";
 import {
   COMMIT_PARENT_TABLE,
@@ -21,6 +21,7 @@ import {
   normalizeMetaString,
 } from "./db";
 import { CodedError } from "./error";
+import type { RowEffect, SchemaEffect } from "./effect";
 import { canonicalJson, sha256Hex } from "./hash";
 import { schemaHashFromDescriptor } from "./inspect";
 import type { Operation } from "./operation";
@@ -59,9 +60,6 @@ export interface RemoteProjectionStatus {
 interface SqlExecutor {
   execute(stmt: string | { sql: string; args?: InArgs }, args?: InArgs): Promise<ResultSet>;
 }
-
-type RowEffect = CommitReplayInput["rowEffects"][number];
-type SchemaEffect = CommitReplayInput["schemaEffects"][number];
 
 type ReplayDirection = "forward" | "inverse";
 
@@ -507,9 +505,9 @@ async function remoteSchemaHash(executor: SqlExecutor): Promise<string> {
           cid: parseInteger(parseRowValue(row, "cid"), `PRAGMA table_xinfo(${tableName}).cid`),
           name,
           type: parseStringLike(parseRowValue(row, "type"), `PRAGMA table_xinfo(${tableName}).type`).trim().toUpperCase(),
-          notnull: parseInteger(parseRowValue(row, "notnull"), `PRAGMA table_xinfo(${tableName}).notnull`),
-          dfltValue: parseNullableStringLike(parseRowValue(row, "dflt_value"), `PRAGMA table_xinfo(${tableName}).dflt_value`),
-          pk: parseInteger(parseRowValue(row, "pk"), `PRAGMA table_xinfo(${tableName}).pk`),
+          notNull: parseInteger(parseRowValue(row, "notnull"), `PRAGMA table_xinfo(${tableName}).notnull`) === 1,
+          defaultValue: parseNullableStringLike(parseRowValue(row, "dflt_value"), `PRAGMA table_xinfo(${tableName}).dflt_value`),
+          primaryKey: parseInteger(parseRowValue(row, "pk"), `PRAGMA table_xinfo(${tableName}).pk`) > 0,
           hidden: parseInteger(parseRowValue(row, "hidden"), `PRAGMA table_xinfo(${tableName}).hidden`),
         };
       })
@@ -1257,19 +1255,19 @@ async function rebuildProjectionFromCanonicalHistory(executor: SqlExecutor, head
   }
 }
 
-export async function materializeSingleCommit(executor: SqlExecutor, replay: CommitReplayInput): Promise<void> {
+export async function materializeSingleCommit(executor: SqlExecutor, replay: CommitBundle): Promise<void> {
   await runProjectionStep(async () => {
     const beforeSchemaHash = await remoteSchemaHash(executor);
-    if (beforeSchemaHash !== replay.schemaHashBefore) {
+    if (beforeSchemaHash !== replay.commit.schemaHashBefore) {
       throw projectionFailure(
-        `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.schemaHashBefore}, got ${beforeSchemaHash}`,
+        `schema_hash_before mismatch for replay ${replay.commitId}: expected ${replay.commit.schemaHashBefore}, got ${beforeSchemaHash}`,
       );
     }
 
     const computedPlanHash = sha256Hex(replay.operations);
-    if (computedPlanHash !== replay.planHash) {
+    if (computedPlanHash !== replay.commit.planHash) {
       throw projectionFailure(
-        `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.planHash}, got ${computedPlanHash}`,
+        `plan_hash mismatch for replay ${replay.commitId}: expected ${replay.commit.planHash}, got ${computedPlanHash}`,
       );
     }
 
@@ -1286,16 +1284,16 @@ export async function materializeSingleCommit(executor: SqlExecutor, replay: Com
     await assertStructuralIntegrity(executor, `replay ${replay.commitId}`);
 
     const afterSchemaHash = await remoteSchemaHash(executor);
-    if (afterSchemaHash !== replay.schemaHashAfter) {
+    if (afterSchemaHash !== replay.commit.schemaHashAfter) {
       throw projectionFailure(
-        `schema_hash_after mismatch for replay ${replay.commitId}: expected ${replay.schemaHashAfter}, got ${afterSchemaHash}`,
+        `schema_hash_after mismatch for replay ${replay.commitId}: expected ${replay.commit.schemaHashAfter}, got ${afterSchemaHash}`,
       );
     }
 
     const afterStateHash = await remoteStateHash(executor);
-    if (afterStateHash !== replay.stateHashAfter) {
+    if (afterStateHash !== replay.commit.stateHashAfter) {
       throw projectionFailure(
-        `state_hash_after mismatch for replay ${replay.commitId}: expected ${replay.stateHashAfter}, got ${afterStateHash}`,
+        `state_hash_after mismatch for replay ${replay.commitId}: expected ${replay.commit.stateHashAfter}, got ${afterStateHash}`,
       );
     }
   }, `replay ${replay.commitId}`);
@@ -1400,7 +1398,7 @@ export async function fetchRemoteProjectionStatus(
   };
 }
 
-async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput): Promise<void> {
+async function insertReplayIntoRemote(tx: Transaction, replay: CommitBundle): Promise<void> {
   await tx.execute({
     sql: `
       INSERT INTO _toss_commit(
@@ -1413,17 +1411,17 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
     `,
     args: [
       replay.commitId,
-      replay.seq,
-      replay.kind,
-      replay.message,
-      replay.createdAt,
+      replay.commit.seq,
+      replay.commit.kind,
+      replay.commit.message,
+      replay.commit.createdAt,
       replay.parentIds.length,
-      replay.schemaHashBefore,
-      replay.schemaHashAfter,
-      replay.stateHashAfter,
-      replay.planHash,
-      replay.revertible,
-      replay.revertTargetId,
+      replay.commit.schemaHashBefore,
+      replay.commit.schemaHashAfter,
+      replay.commit.stateHashAfter,
+      replay.commit.planHash,
+      replay.commit.revertible,
+      replay.commit.revertTargetId,
     ],
   });
 
@@ -1500,7 +1498,7 @@ async function insertReplayIntoRemote(tx: Transaction, replay: CommitReplayInput
 
 export async function pushCommit(
   client: Client,
-  replay: CommitReplayInput,
+  replay: CommitBundle,
   expectedRemoteHead: string | null,
 ): Promise<void> {
   const tx = await client.transaction("write");
@@ -1528,7 +1526,7 @@ export async function pushCommit(
         SET commit_id = ?, updated_at = ?
         WHERE name = ? AND ((? IS NULL AND commit_id IS NULL) OR commit_id = ?)
       `,
-      args: [replay.commitId, replay.createdAt, MAIN_REF_NAME, expectedRemoteHead, expectedRemoteHead],
+      args: [replay.commitId, replay.commit.createdAt, MAIN_REF_NAME, expectedRemoteHead, expectedRemoteHead],
     });
     if (update.rowsAffected !== 1) {
       throw new CodedError(
@@ -1542,7 +1540,13 @@ export async function pushCommit(
         INSERT INTO _toss_reflog(ref_name, old_commit_id, new_commit_id, reason, created_at)
         VALUES (?, ?, ?, ?, ?)
       `,
-      args: [MAIN_REF_NAME, expectedRemoteHead, replay.commitId, replay.kind === "revert" ? "revert" : "apply", Date.now()],
+      args: [
+        MAIN_REF_NAME,
+        expectedRemoteHead,
+        replay.commitId,
+        replay.commit.kind === "revert" ? "revert" : "apply",
+        Date.now(),
+      ],
     });
 
     await tx.commit();
@@ -1559,7 +1563,7 @@ export async function pushCommit(
   }
 }
 
-async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): Promise<CommitReplayInput> {
+async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): Promise<CommitBundle> {
   const commitResult = await executor.execute({
     sql: `
       SELECT
@@ -1615,10 +1619,10 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
     pk: parseJson<Record<string, string>>(parseRowValue(row, "pk_json"), "_toss_row_effect.pk_json"),
     opKind: parseOpKind(parseString(parseRowValue(row, "op_kind"), "_toss_row_effect.op_kind")),
     beforeRow: parseRowValue(row, "before_json")
-      ? parseJson<CommitReplayInput["rowEffects"][number]["beforeRow"]>(parseRowValue(row, "before_json"), "_toss_row_effect.before_json")
+      ? parseJson<RowEffect["beforeRow"]>(parseRowValue(row, "before_json"), "_toss_row_effect.before_json")
       : null,
     afterRow: parseRowValue(row, "after_json")
-      ? parseJson<CommitReplayInput["rowEffects"][number]["afterRow"]>(parseRowValue(row, "after_json"), "_toss_row_effect.after_json")
+      ? parseJson<RowEffect["afterRow"]>(parseRowValue(row, "after_json"), "_toss_row_effect.after_json")
       : null,
   }));
 
@@ -1634,26 +1638,28 @@ async function fetchRemoteReplayInput(executor: SqlExecutor, commitId: string): 
   const schemaEffects = rowsFrom(schemaEffectsResult).map((row) => ({
     tableName: parseString(parseRowValue(row, "table_name"), "_toss_schema_effect.table_name"),
     beforeTable: parseRowValue(row, "before_json")
-      ? parseJson<CommitReplayInput["schemaEffects"][number]["beforeTable"]>(parseRowValue(row, "before_json"), "_toss_schema_effect.before_json")
+      ? parseJson<SchemaEffect["beforeTable"]>(parseRowValue(row, "before_json"), "_toss_schema_effect.before_json")
       : null,
     afterTable: parseRowValue(row, "after_json")
-      ? parseJson<CommitReplayInput["schemaEffects"][number]["afterTable"]>(parseRowValue(row, "after_json"), "_toss_schema_effect.after_json")
+      ? parseJson<SchemaEffect["afterTable"]>(parseRowValue(row, "after_json"), "_toss_schema_effect.after_json")
       : null,
   }));
 
   return {
     commitId: parseString(parseRowValue(commitRow, "commit_id"), "_toss_commit.commit_id"),
-    seq: parseInteger(parseRowValue(commitRow, "seq"), "_toss_commit.seq"),
-    kind: parseCommitKind(parseString(parseRowValue(commitRow, "kind"), "_toss_commit.kind")),
-    message: parseString(parseRowValue(commitRow, "message"), "_toss_commit.message"),
-    createdAt: parseInteger(parseRowValue(commitRow, "created_at"), "_toss_commit.created_at"),
+    commit: {
+      seq: parseInteger(parseRowValue(commitRow, "seq"), "_toss_commit.seq"),
+      kind: parseCommitKind(parseString(parseRowValue(commitRow, "kind"), "_toss_commit.kind")),
+      message: parseString(parseRowValue(commitRow, "message"), "_toss_commit.message"),
+      createdAt: parseInteger(parseRowValue(commitRow, "created_at"), "_toss_commit.created_at"),
+      schemaHashBefore: parseString(parseRowValue(commitRow, "schema_hash_before"), "_toss_commit.schema_hash_before"),
+      schemaHashAfter: parseString(parseRowValue(commitRow, "schema_hash_after"), "_toss_commit.schema_hash_after"),
+      stateHashAfter: parseString(parseRowValue(commitRow, "state_hash_after"), "_toss_commit.state_hash_after"),
+      planHash: parseString(parseRowValue(commitRow, "plan_hash"), "_toss_commit.plan_hash"),
+      revertible: parseInteger(parseRowValue(commitRow, "revertible"), "_toss_commit.revertible"),
+      revertTargetId: parseNullableString(parseRowValue(commitRow, "revert_target_id"), "_toss_commit.revert_target_id"),
+    },
     parentIds,
-    schemaHashBefore: parseString(parseRowValue(commitRow, "schema_hash_before"), "_toss_commit.schema_hash_before"),
-    schemaHashAfter: parseString(parseRowValue(commitRow, "schema_hash_after"), "_toss_commit.schema_hash_after"),
-    stateHashAfter: parseString(parseRowValue(commitRow, "state_hash_after"), "_toss_commit.state_hash_after"),
-    planHash: parseString(parseRowValue(commitRow, "plan_hash"), "_toss_commit.plan_hash"),
-    revertible: parseInteger(parseRowValue(commitRow, "revertible"), "_toss_commit.revertible"),
-    revertTargetId: parseNullableString(parseRowValue(commitRow, "revert_target_id"), "_toss_commit.revert_target_id"),
     operations,
     rowEffects,
     schemaEffects,
@@ -1664,7 +1670,7 @@ async function fetchRemoteReplayInputsInSeqRange(
   executor: SqlExecutor,
   fromSeqExclusive: number,
   toSeqInclusive: number,
-): Promise<CommitReplayInput[]> {
+): Promise<CommitBundle[]> {
   if (toSeqInclusive <= fromSeqExclusive) {
     return [];
   }
@@ -1678,7 +1684,7 @@ async function fetchRemoteReplayInputsInSeqRange(
     args: [fromSeqExclusive, toSeqInclusive],
   });
   const commitIds = rowsFrom(result).map((row) => parseString(parseRowValue(row, "commit_id"), "_toss_commit.commit_id"));
-  const replayInputs: CommitReplayInput[] = [];
+  const replayInputs: CommitBundle[] = [];
   for (const commitId of commitIds) {
     replayInputs.push(await fetchRemoteReplayInput(executor, commitId));
   }
@@ -1689,7 +1695,7 @@ export async function fetchRemoteInputsAfterSeq(
   executor: SqlExecutor,
   fromSeqExclusive: number,
   remoteHeadInput?: RemoteHead,
-): Promise<CommitReplayInput[]> {
+): Promise<CommitBundle[]> {
   const remoteHead = remoteHeadInput ?? (await fetchRemoteHead(executor));
   if (!remoteHead.commitId) {
     return [];

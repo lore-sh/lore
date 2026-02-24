@@ -2,7 +2,6 @@ import { desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { mkdir, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { CommitReplayInput } from "./commit";
 import {
   DEFAULT_SNAPSHOT_INTERVAL,
   DEFAULT_SNAPSHOT_RETAIN,
@@ -22,14 +21,6 @@ import type { Commit } from "./schema";
 import { CodedError } from "./error";
 import { loadCommitReplayInputs, replayCommitExactly } from "./commit";
 import { quoteIdentifier } from "./sql";
-
-export interface Snapshot {
-  commitId: string;
-  filePath: string;
-  fileSha256: string;
-  createdAt: number;
-  rowCountHint: number;
-}
 
 async function hashFile(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -137,7 +128,7 @@ export async function promotePrepared(preparedDbPath: string, dbPath: string): P
 function resolveSnapshotForRecovery(
   dbPath: string,
   commitId: string,
-): { snapshotPath: string; replayCommits: CommitReplayInput[] } {
+): { snapshotPath: string; replayCommits: ReturnType<typeof loadCommitReplayInputs> } {
   const db = openDb(dbPath);
   try {
     const snapshot = db

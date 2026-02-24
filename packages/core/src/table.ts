@@ -118,13 +118,9 @@ export function resolveTableName(db: Database, requestedTable: string): string {
   throw new CodedError("NOT_FOUND", `Table not found: ${requestedTable}`);
 }
 
-function escapeLikePattern(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
-}
-
 export function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
   const names = new Set<string>();
-  const primaryKeyColumns = table.columns.filter((column) => column.pk > 0);
+  const primaryKeyColumns = table.columns.filter((column) => column.primaryKey);
   if (primaryKeyColumns.length === 1) {
     names.add(primaryKeyColumns[0]!.name);
   }
@@ -140,63 +136,12 @@ export function uniqueColumnNames(table: SchemaTableDescriptor): Set<string> {
   return names;
 }
 
-function mapColumns(table: SchemaTableDescriptor): TableColumn[] {
-  const unique = uniqueColumnNames(table);
-  return table.columns
-    .filter((column) => isVisibleColumn(column.hidden))
-    .map((column) => ({
-      name: column.name,
-      type: column.type,
-      notNull: column.notnull === 1,
-      primaryKey: column.pk > 0,
-      unique: unique.has(column.name),
-      defaultValue: column.dfltValue,
-    }));
-}
-
-function mapSchemaTable(db: Database, table: SchemaTableDescriptor): SchemaTable {
-  const unique = uniqueColumnNames(table);
-  return {
-    tableSql: table.tableSql,
-    name: table.table,
-    options: table.options,
-    columns: table.columns.map((column) => ({
-      definitionSql: column.definitionSql,
-      cid: column.cid,
-      name: column.name,
-      type: column.type,
-      notNull: column.notnull === 1,
-      defaultValue: column.dfltValue,
-      primaryKey: column.pk > 0,
-      unique: unique.has(column.name),
-      hidden: !isVisibleColumn(column.hidden),
-    })),
-    foreignKeys: table.foreignKeys,
-    indexes: table.indexes,
-    checks: table.checks,
-    triggers: table.triggers,
-    rowCount: countRows(db, table.table),
-  };
-}
-
-function findTableFromSchema(descriptor: { tables: SchemaTableDescriptor[] }, tableName: string): SchemaTableDescriptor {
-  const matched = descriptor.tables.find((table) => table.table === tableName);
-  if (matched) {
-    return matched;
-  }
-  throw new CodedError("NOT_FOUND", `Table not found: ${tableName}`);
-}
-
-function primaryKeyColumnNames(table: SchemaTableDescriptor): string[] {
-  return table.columns
-    .filter((column) => column.pk > 0)
-    .sort((left, right) => left.pk - right.pk)
-    .map((column) => column.name);
-}
-
-function tieBreakerTerms(table: SchemaTableDescriptor): OrderTerm[] {
+function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, sortDir: "asc" | "desc"): string {
   const terms: OrderTerm[] = [];
-  const primaryKeyColumns = primaryKeyColumnNames(table);
+  const primaryKeyColumns = table.columns
+    .filter((column) => column.primaryKey)
+    .sort((left, right) => left.cid - right.cid)
+    .map((column) => column.name);
   const visibleColumns = table.columns.filter((c) => isVisibleColumn(c.hidden)).map((c) => c.name);
 
   if (primaryKeyColumns.length > 0) {
@@ -231,22 +176,18 @@ function tieBreakerTerms(table: SchemaTableDescriptor): OrderTerm[] {
     }
   }
 
-  return terms;
-}
-
-function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, sortDir: "asc" | "desc"): string {
-  const tieBreakers = tieBreakerTerms(table);
+  const tieBreakers = terms;
   if (!sortBy) {
     return ` ORDER BY ${tieBreakers.map((term) => term.sql).join(", ")}`;
   }
-  const terms = [`${quoteIdentifier(sortBy, { unsafe: true })} ${sortDir === "desc" ? "DESC" : "ASC"}`];
+  const orderedTerms = [`${quoteIdentifier(sortBy, { unsafe: true })} ${sortDir === "desc" ? "DESC" : "ASC"}`];
   for (const tieBreaker of tieBreakers) {
     if (tieBreaker.key === sortBy) {
       continue;
     }
-    terms.push(tieBreaker.sql);
+    orderedTerms.push(tieBreaker.sql);
   }
-  return ` ORDER BY ${terms.join(", ")}`;
+  return ` ORDER BY ${orderedTerms.join(", ")}`;
 }
 
 export function schema(db: Database, options: SchemaOptions = {}): DbSchema {
@@ -254,7 +195,30 @@ export function schema(db: Database, options: SchemaOptions = {}): DbSchema {
   const selectedTable = options.table ? resolveTableName(db, options.table) : null;
   const tables = descriptor.tables
     .filter((table) => selectedTable === null || table.table === selectedTable)
-    .map((table) => mapSchemaTable(db, table));
+    .map((table) => {
+      const unique = uniqueColumnNames(table);
+      return {
+        tableSql: table.tableSql,
+        name: table.table,
+        options: table.options,
+        columns: table.columns.map((column) => ({
+          definitionSql: column.definitionSql,
+          cid: column.cid,
+          name: column.name,
+          type: column.type,
+          notNull: column.notNull,
+          defaultValue: column.defaultValue,
+          primaryKey: column.primaryKey,
+          unique: unique.has(column.name),
+          hidden: !isVisibleColumn(column.hidden),
+        })),
+        foreignKeys: table.foreignKeys,
+        indexes: table.indexes,
+        checks: table.checks,
+        triggers: table.triggers,
+        rowCount: countRows(db, table.table),
+      };
+    });
 
   return {
     dbPath: db.$client.filename,
@@ -297,9 +261,22 @@ export function tableOverview(db: Database): TableOverview[] {
 
 export function queryTable(db: Database, options: TableQueryOptions): TablePage {
   const tableName = resolveTableName(db, options.table);
-  const schema = describeSchema(db);
-  const table = findTableFromSchema(schema, tableName);
-  const columns = mapColumns(table);
+  const descriptor = describeSchema(db);
+  const table = descriptor.tables.find((entry) => entry.table === tableName);
+  if (!table) {
+    throw new CodedError("NOT_FOUND", `Table not found: ${tableName}`);
+  }
+  const unique = uniqueColumnNames(table);
+  const columns: TableColumn[] = table.columns
+    .filter((column) => isVisibleColumn(column.hidden))
+    .map((column) => ({
+      name: column.name,
+      type: column.type,
+      notNull: column.notNull,
+      primaryKey: column.primaryKey,
+      unique: unique.has(column.name),
+      defaultValue: column.defaultValue,
+    }));
   const columnNames = new Set(columns.map((column) => column.name));
   const pageSize = normalizePageSize(options.pageSize);
   const requestedPage = normalizePage(options.page);
@@ -319,7 +296,7 @@ export function queryTable(db: Database, options: TableQueryOptions): TablePage 
     }
     filters[column] = value;
     whereParts.push(`CAST(${quoteIdentifier(column, { unsafe: true })} AS TEXT) LIKE ? ESCAPE '\\'`);
-    bindings.push(`%${escapeLikePattern(value)}%`);
+    bindings.push(`%${value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`);
   }
 
   const sortBy = options.sortBy?.trim();

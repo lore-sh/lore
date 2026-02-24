@@ -71,9 +71,9 @@ export interface SchemaColumnDescriptor {
   cid: number;
   name: string;
   type: string;
-  notnull: number;
-  dfltValue: string | null;
-  pk: number;
+  notNull: boolean;
+  defaultValue: string | null;
+  primaryKey: boolean;
   hidden: number;
 }
 
@@ -208,9 +208,9 @@ export function describeSchema(db: Database): SchemaDescriptor {
           cid: column.cid,
           name: column.name,
           type: column.type.trim().toUpperCase(),
-          notnull: column.notnull,
-          dfltValue: column.dflt_value,
-          pk: column.pk,
+          notNull: column.notnull === 1,
+          defaultValue: column.dflt_value,
+          primaryKey: column.pk > 0,
           hidden: column.hidden,
         }))
         .sort((a, b) => a.cid - b.cid),
