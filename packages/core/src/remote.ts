@@ -52,7 +52,6 @@ const REMOTE_REQUIRED_READ_TABLES = [
 const SQLITE_SEQUENCE_TABLE = "sqlite_sequence";
 
 type ReplayDirection = "forward" | "inverse";
-type Replay = ReturnType<typeof readCommit>;
 
 const SENSITIVE_QUERY_KEYS = [
   "token",
@@ -1229,7 +1228,10 @@ async function rebuildProjectionFromCanonicalHistory(executor: Client | Transact
   }
 }
 
-export async function materializeCommit(executor: Client | Transaction, replay: Replay): Promise<void> {
+export async function materializeCommit(
+  executor: Client | Transaction,
+  replay: ReturnType<typeof readCommit>,
+): Promise<void> {
   await runProjectionStep(async () => {
     const beforeSchemaHash = await remoteSchemaHash(executor);
     if (beforeSchemaHash !== replay.commit.schemaHashBefore) {
@@ -1377,7 +1379,7 @@ export async function projectionStatus(
   };
 }
 
-async function writeToRemote(tx: Transaction, replay: Replay): Promise<void> {
+async function writeToRemote(tx: Transaction, replay: ReturnType<typeof readCommit>): Promise<void> {
   await tx.execute({
     sql: `
       INSERT INTO _toss_commit(
@@ -1477,7 +1479,7 @@ async function writeToRemote(tx: Transaction, replay: Replay): Promise<void> {
 
 export async function pushCommit(
   client: Client,
-  replay: Replay,
+  replay: ReturnType<typeof readCommit>,
   expectedRemoteHead: string | null,
 ): Promise<void> {
   const tx = await client.transaction("write");
@@ -1546,7 +1548,7 @@ async function fetchCommitRange(
   executor: Client | Transaction,
   fromSeqExclusive: number,
   toSeqInclusive: number,
-): Promise<Replay[]> {
+): Promise<Array<ReturnType<typeof readCommit>>> {
   if (toSeqInclusive <= fromSeqExclusive) {
     return [];
   }
@@ -1689,7 +1691,7 @@ export async function fetchCommitsAfter(
   executor: Client | Transaction,
   fromSeqExclusive: number,
   remoteHeadInput?: Awaited<ReturnType<typeof remoteHead>>,
-): Promise<Replay[]> {
+): Promise<Array<ReturnType<typeof readCommit>>> {
   const head = remoteHeadInput ?? (await remoteHead(executor));
   if (!head.commitId) {
     return [];

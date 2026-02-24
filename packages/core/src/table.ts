@@ -50,62 +50,6 @@ export function uniqueColumnNames(table: ReturnType<typeof describeSchema>["tabl
   return names;
 }
 
-function orderClause(
-  table: ReturnType<typeof describeSchema>["tables"][number],
-  sortBy: string | undefined,
-  sortDir: "asc" | "desc",
-): string {
-  const terms: Array<{ key: string; sql: string }> = [];
-  const primaryKeyColumns = table.columns
-    .filter((column) => column.primaryKey)
-    .sort((left, right) => left.cid - right.cid)
-    .map((column) => column.name);
-  const visibleColumns = table.columns.filter((c) => isVisible(c.hidden)).map((c) => c.name);
-
-  if (primaryKeyColumns.length > 0) {
-    for (const column of primaryKeyColumns) {
-      terms.push({
-        key: column,
-        sql: `${quoteIdentifier(column, { unsafe: true })} ASC`,
-      });
-    }
-  }
-
-  if (!table.options.withoutRowid) {
-    const foldedNames = new Set(table.columns.map((column) => asciiCaseFold(column.name)));
-    const pseudoRowIdName = ["rowid", "_rowid_", "oid"].find((candidate) => !foldedNames.has(asciiCaseFold(candidate)));
-    if (pseudoRowIdName) {
-      terms.push({
-        key: "__rowid__",
-        sql: `${pseudoRowIdName} ASC`,
-      });
-    }
-  }
-
-  if (terms.length === 0) {
-    if (visibleColumns.length === 0) {
-      throw new CodedError("INTERNAL", `Table has no visible columns for ordering: ${table.table}`);
-    }
-    for (const column of visibleColumns) {
-      terms.push({
-        key: column,
-        sql: `${quoteIdentifier(column, { unsafe: true })} ASC`,
-      });
-    }
-  }
-
-  if (!sortBy) {
-    return ` ORDER BY ${terms.map((term) => term.sql).join(", ")}`;
-  }
-  const orderedTerms = [`${quoteIdentifier(sortBy, { unsafe: true })} ${sortDir === "desc" ? "DESC" : "ASC"}`];
-  for (const term of terms) {
-    if (term.key !== sortBy) {
-      orderedTerms.push(term.sql);
-    }
-  }
-  return ` ORDER BY ${orderedTerms.join(", ")}`;
-}
-
 export function describeDb(
   db: Database,
   options: {
@@ -235,6 +179,48 @@ export function queryTable(
     throw new CodedError("INVALID_OPERATION", `Sort column not found: ${sortBy}`);
   }
 
+  const terms: Array<{ key: string; sql: string }> = [];
+  const primaryKeyColumns = table.columns
+    .filter((column) => column.primaryKey)
+    .sort((left, right) => left.cid - right.cid)
+    .map((column) => column.name);
+  const visibleColumns = table.columns.filter((column) => isVisible(column.hidden)).map((column) => column.name);
+  if (primaryKeyColumns.length > 0) {
+    for (const column of primaryKeyColumns) {
+      terms.push({
+        key: column,
+        sql: `${quoteIdentifier(column, { unsafe: true })} ASC`,
+      });
+    }
+  }
+  if (!table.options.withoutRowid) {
+    const foldedNames = new Set(table.columns.map((column) => asciiCaseFold(column.name)));
+    const pseudoRowIdName = ["rowid", "_rowid_", "oid"].find((candidate) => !foldedNames.has(asciiCaseFold(candidate)));
+    if (pseudoRowIdName) {
+      terms.push({
+        key: "__rowid__",
+        sql: `${pseudoRowIdName} ASC`,
+      });
+    }
+  }
+  if (terms.length === 0) {
+    if (visibleColumns.length === 0) {
+      throw new CodedError("INTERNAL", `Table has no visible columns for ordering: ${table.table}`);
+    }
+    for (const column of visibleColumns) {
+      terms.push({
+        key: column,
+        sql: `${quoteIdentifier(column, { unsafe: true })} ASC`,
+      });
+    }
+  }
+  const orderSql = !sortBy
+    ? ` ORDER BY ${terms.map((term) => term.sql).join(", ")}`
+    : ` ORDER BY ${[
+      `${quoteIdentifier(sortBy, { unsafe: true })} ${sortDir === "desc" ? "DESC" : "ASC"}`,
+      ...terms.filter((term) => term.key !== sortBy).map((term) => term.sql),
+    ].join(", ")}`;
+
   const whereSql = whereParts.length === 0 ? "" : ` WHERE ${whereParts.join(" AND ")}`;
   const totalRow = db.$client
     .query<{ c: number }, string[]>(
@@ -245,8 +231,6 @@ export function queryTable(
   const totalPages = totalRows === 0 ? 1 : Math.ceil(totalRows / pageSize);
   const page = Math.min(requestedPage, totalPages);
   const offset = (page - 1) * pageSize;
-
-  const orderSql = orderClause(table, sortBy, sortDir);
 
   const rows = db.$client
     .query<Record<string, unknown>, Array<string | number>>(

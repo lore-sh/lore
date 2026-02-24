@@ -16,10 +16,6 @@ export function resolveCredentialsPath(): string {
   return resolve(resolveTossDirPath(), "credentials.json");
 }
 
-function ensureParentDirectory(path: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-}
-
 function readJsonFile(path: string): unknown | null {
   if (!existsSync(path)) {
     return null;
@@ -36,7 +32,7 @@ function readJsonFile(path: string): unknown | null {
 }
 
 function writeJsonFile(path: string, value: unknown): void {
-  ensureParentDirectory(path);
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
@@ -60,23 +56,6 @@ export function parseRemotePlatform(value: unknown, fieldPath = "platform"): Rem
     return value;
   }
   throw new CodedError("CONFIG", `${fieldPath} must be one of: turso, libsql`);
-}
-
-function parseRemoteConfigFromUnknown(value: unknown) {
-  if (!isRecord(value)) {
-    throw new CodedError("CONFIG", "config.json root must be an object");
-  }
-  const remote = value.remote;
-  if (remote === undefined) {
-    return null;
-  }
-  if (!isRecord(remote)) {
-    throw new CodedError("CONFIG", "remote must be an object");
-  }
-  return {
-    platform: parseRemotePlatform(remote.platform, "remote.platform"),
-    url: parseNonEmptyString(remote.url, "remote.url"),
-  };
 }
 
 function parseToken(value: unknown, fieldPath: string): string | undefined {
@@ -124,7 +103,20 @@ export function readRemoteConfig() {
   if (parsed === null) {
     return null;
   }
-  return parseRemoteConfigFromUnknown(parsed);
+  if (!isRecord(parsed)) {
+    throw new CodedError("CONFIG", "config.json root must be an object");
+  }
+  const remote = parsed.remote;
+  if (remote === undefined) {
+    return null;
+  }
+  if (!isRecord(remote)) {
+    throw new CodedError("CONFIG", "remote must be an object");
+  }
+  return {
+    platform: parseRemotePlatform(remote.platform, "remote.platform"),
+    url: parseNonEmptyString(remote.url, "remote.url"),
+  };
 }
 
 export function writeRemoteConfig(remote: { platform: RemotePlatform; url: string }): void {
@@ -161,19 +153,20 @@ function tokenFromEntry(entry: Record<string, unknown> | undefined, fieldPath: s
   return parseToken(entry.token, fieldPath);
 }
 
-function normalizeEnvToken(token: string | undefined): string | undefined {
-  if (token === undefined) {
-    return undefined;
-  }
-  const normalized = token.trim();
-  return normalized.length === 0 ? undefined : normalized;
-}
-
 export function readAuthToken(platform: RemotePlatform): string | undefined {
   const normalizedPlatform = parseRemotePlatform(platform);
   const credentials = readCredentials();
   if (normalizedPlatform === "turso") {
-    return tokenFromEntry(credentials.turso, "credentials.turso.token") ?? normalizeEnvToken(Bun.env.TURSO_AUTH_TOKEN);
+    const token = tokenFromEntry(credentials.turso, "credentials.turso.token");
+    if (token !== undefined) {
+      return token;
+    }
+    const envToken = Bun.env.TURSO_AUTH_TOKEN;
+    if (envToken === undefined) {
+      return undefined;
+    }
+    const normalized = envToken.trim();
+    return normalized.length === 0 ? undefined : normalized;
   }
   return tokenFromEntry(credentials.libsql, "credentials.libsql.token");
 }

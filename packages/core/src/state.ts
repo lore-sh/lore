@@ -59,10 +59,6 @@ function parseStorageClass(value: unknown, label: string): StorageClass {
   throw new Error(`${label} storage class is invalid`);
 }
 
-function isVisibleColumn(hidden: number): boolean {
-  return hidden === 0 || hidden === 2 || hidden === 3;
-}
-
 function columnsFromPragmaRows(rows: Array<Record<string, unknown>>, tableName: string): string[] {
   const columns = rows
     .map((row) => ({
@@ -70,7 +66,7 @@ function columnsFromPragmaRows(rows: Array<Record<string, unknown>>, tableName: 
       name: parseStringLike(row.name, `PRAGMA table_xinfo(${tableName}).name`),
       hidden: parseInteger(row.hidden, `PRAGMA table_xinfo(${tableName}).hidden`),
     }))
-    .filter((column) => isVisibleColumn(column.hidden))
+    .filter((column) => column.hidden === 0 || column.hidden === 2 || column.hidden === 3)
     .sort((a, b) => a.cid - b.cid)
     .map((column) => column.name);
 

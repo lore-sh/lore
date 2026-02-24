@@ -78,50 +78,6 @@ export function tableDDL(db: Database, table: string): string | null {
   return row?.sql ?? null;
 }
 
-function tableForeignKeys(db: Database, table: string) {
-  const rows = db.$client
-    .query<{
-      id: number;
-      seq: number;
-      table: string;
-      from: string;
-      to: string | null;
-      on_update: string;
-      on_delete: string;
-      match: string;
-    }, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`)
-    .all();
-  const grouped = new Map<
-    number,
-    {
-      id: number;
-      refTable: string;
-      onUpdate: string;
-      onDelete: string;
-      match: string;
-      mappings: Array<{ seq: number; from: string; to: string | null }>;
-    }
-  >();
-  for (const row of rows) {
-    const entry = grouped.get(row.id);
-    if (entry) {
-      entry.mappings.push({ seq: row.seq, from: row.from, to: row.to });
-      continue;
-    }
-    grouped.set(row.id, {
-      id: row.id,
-      refTable: row.table,
-      onUpdate: row.on_update,
-      onDelete: row.on_delete,
-      match: row.match,
-      mappings: [{ seq: row.seq, from: row.from, to: row.to }],
-    });
-  }
-  return Array.from(grouped.values())
-    .map((fk) => ({ ...fk, mappings: fk.mappings.sort((a, b) => a.seq - b.seq) }))
-    .sort((a, b) => a.id - b.id);
-}
-
 export function describeSchema(db: Database) {
   const tableNames = listUserTables(db);
   const tableList = db.$client
@@ -144,6 +100,48 @@ export function describeSchema(db: Database) {
     const tableDdl = tableDDL(db, table);
     const columnDefs = parseColumnDefinitionsFromCreateTable(tableDdl);
     const checks = extractCheckConstraints(tableDdl);
+    const foreignKeyRows = db.$client
+      .query<{
+        id: number;
+        seq: number;
+        table: string;
+        from: string;
+        to: string | null;
+        on_update: string;
+        on_delete: string;
+        match: string;
+      }, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`)
+      .all();
+    const foreignKeysById = new Map<
+      number,
+      {
+        id: number;
+        refTable: string;
+        onUpdate: string;
+        onDelete: string;
+        match: string;
+        mappings: Array<{ seq: number; from: string; to: string | null }>;
+      }
+    >();
+    for (const row of foreignKeyRows) {
+      const entry = foreignKeysById.get(row.id);
+      if (entry) {
+        entry.mappings.push({ seq: row.seq, from: row.from, to: row.to });
+        continue;
+      }
+      foreignKeysById.set(row.id, {
+        id: row.id,
+        refTable: row.table,
+        onUpdate: row.on_update,
+        onDelete: row.on_delete,
+        match: row.match,
+        mappings: [{ seq: row.seq, from: row.from, to: row.to }],
+      });
+    }
+    const foreignKeys = Array.from(foreignKeysById.values())
+      .map((fk) => ({ ...fk, mappings: fk.mappings.sort((a, b) => a.seq - b.seq) }))
+      .sort((a, b) => a.id - b.id);
+
     return {
       tableSql: normalizeSqlNullable(tableDdl),
       table,
@@ -170,7 +168,7 @@ export function describeSchema(db: Database) {
           hidden: column.hidden,
         }))
         .sort((a, b) => a.cid - b.cid),
-      foreignKeys: tableForeignKeys(db, table),
+      foreignKeys,
       indexes: db.$client
         .query<{
           seq: number;
