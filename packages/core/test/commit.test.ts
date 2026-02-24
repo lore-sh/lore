@@ -77,11 +77,9 @@ describe("commit persistence", () => {
       targetDb.$client
         .query(`UPDATE ${ROW_EFFECT_TABLE} SET before_hash = ?, after_hash = ? WHERE commit_id = ?`)
         .run("a".repeat(64), "b".repeat(64), second.commit.commitId);
-      const redecoded = commitRowEffects(targetDb, second.commit.commitId)[0]!;
-      expect(redecoded.beforeHash).toBe(rowHash(redecoded.beforeRow));
-      expect(redecoded.afterHash).toBe(rowHash(redecoded.afterRow));
-      expect(redecoded.beforeHash).not.toBe("a".repeat(64));
-      expect(redecoded.afterHash).not.toBe("b".repeat(64));
+      expect(() => commitRowEffects(targetDb, second.commit.commitId)).toThrow(
+        "row effect before_hash does not match before_json",
+      );
     } finally {
       sourceDb.$client.close(false);
       targetDb.$client.close(false);

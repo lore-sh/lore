@@ -263,29 +263,47 @@ export function commitOperations(db: Database, commitId: string): Op[] {
     });
 }
 
-type RowEffectRow = {
-  tableName: string;
-  pkJson: string;
-  opKind: RowEffect["opKind"];
-  beforeJson: string | null;
-  afterJson: string | null;
-};
-
-function decodeRowEffects(rows: RowEffectRow[]): RowEffect[] {
+function decodeRowEffects(
+  rows: Array<{
+    tableName: string;
+    pkJson: string;
+    opKind: RowEffect["opKind"];
+    beforeJson: string | null;
+    afterJson: string | null;
+    beforeHash: string | null;
+    afterHash: string | null;
+  }>,
+): RowEffect[] {
   return rows.map((row) => {
     const pk: Record<string, string> = JSON.parse(row.pkJson);
     const beforeRow: RowEffect["beforeRow"] = row.beforeJson ? JSON.parse(row.beforeJson) : null;
     const afterRow: RowEffect["afterRow"] = row.afterJson ? JSON.parse(row.afterJson) : null;
-    const beforeHash = beforeRow ? sha256Hex(beforeRow) : null;
-    const afterHash = afterRow ? sha256Hex(afterRow) : null;
+    if ((beforeRow === null) !== (row.beforeHash === null)) {
+      throw new CodedError("INTERNAL", "row effect before_hash is inconsistent with before_json");
+    }
+    if ((afterRow === null) !== (row.afterHash === null)) {
+      throw new CodedError("INTERNAL", "row effect after_hash is inconsistent with after_json");
+    }
+    if (beforeRow !== null) {
+      const computed = sha256Hex(beforeRow);
+      if (row.beforeHash !== computed) {
+        throw new CodedError("INTERNAL", "row effect before_hash does not match before_json");
+      }
+    }
+    if (afterRow !== null) {
+      const computed = sha256Hex(afterRow);
+      if (row.afterHash !== computed) {
+        throw new CodedError("INTERNAL", "row effect after_hash does not match after_json");
+      }
+    }
     return {
       tableName: row.tableName,
       pk,
       opKind: row.opKind,
       beforeRow,
       afterRow,
-      beforeHash,
-      afterHash,
+      beforeHash: row.beforeHash,
+      afterHash: row.afterHash,
     };
   });
 }
@@ -298,6 +316,8 @@ export function commitRowEffects(db: Database, commitId: string): RowEffect[] {
       opKind: RowEffectTable.opKind,
       beforeJson: RowEffectTable.beforeJson,
       afterJson: RowEffectTable.afterJson,
+      beforeHash: RowEffectTable.beforeHash,
+      afterHash: RowEffectTable.afterHash,
     })
     .from(RowEffectTable)
     .where(eq(RowEffectTable.commitId, commitId))
@@ -409,6 +429,8 @@ export function readCommitsAfter(db: Database, fromSeqExclusive: number) {
       opKind: RowEffectTable.opKind,
       beforeJson: RowEffectTable.beforeJson,
       afterJson: RowEffectTable.afterJson,
+      beforeHash: RowEffectTable.beforeHash,
+      afterHash: RowEffectTable.afterHash,
     })
     .from(RowEffectTable)
     .innerJoin(CommitTable, eq(CommitTable.commitId, RowEffectTable.commitId))
