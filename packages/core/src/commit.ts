@@ -330,24 +330,14 @@ export function getCommitReplayInput(db: Database, commitId: string): CommitBund
   if (!commitRow) {
     throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
   }
+  const { commitId: _, parentCount: __, ...commit } = commitRow;
   return {
-    commitId: commitRow.commitId,
-    commit: {
-      seq: commitRow.seq,
-      kind: commitRow.kind,
-      message: commitRow.message,
-      createdAt: commitRow.createdAt,
-      schemaHashBefore: commitRow.schemaHashBefore,
-      schemaHashAfter: commitRow.schemaHashAfter,
-      stateHashAfter: commitRow.stateHashAfter,
-      planHash: commitRow.planHash,
-      revertible: commitRow.revertible,
-      revertTargetId: commitRow.revertTargetId,
-    },
-    parentIds: getCommitParentIds(db, commitRow.commitId),
-    operations: getCommitOperations(db, commitRow.commitId),
-    rowEffects: decodeRowEffects(getRowEffectsByCommitId(db, commitRow.commitId)),
-    schemaEffects: getSchemaEffectsByCommitId(db, commitRow.commitId),
+    commitId,
+    commit,
+    parentIds: getCommitParentIds(db, commitId),
+    operations: getCommitOperations(db, commitId),
+    rowEffects: decodeRowEffects(getRowEffectsByCommitId(db, commitId)),
+    schemaEffects: getSchemaEffectsByCommitId(db, commitId),
   };
 }
 

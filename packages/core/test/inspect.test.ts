@@ -4,7 +4,6 @@ import { computeSchemaHash, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
-
 describe("schemaHash", () => {
   testWithTmp("schemaHash includes UNIQUE/CHECK/FOREIGN KEY constraints", async () => {
     const hashA = await computeSchemaHash([`

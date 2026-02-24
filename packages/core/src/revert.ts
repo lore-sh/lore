@@ -170,27 +170,13 @@ function sqliteConstraintConflict(error: unknown): RevertConflict | null {
   if (!message.toUpperCase().includes("CONSTRAINT")) {
     return null;
   }
-  const unique = /UNIQUE constraint failed: ([^.]+)\./i.exec(message);
-  if (unique?.[1]) {
-    return {
-      kind: "row",
-      table: unique[1],
-      reason: message,
-    };
+  const tableMatch =
+    /UNIQUE constraint failed: ([^.]+)\./i.exec(message) ??
+    /NOT NULL constraint failed: ([^.]+)\./i.exec(message);
+  if (tableMatch?.[1]) {
+    return { kind: "row", table: tableMatch[1], reason: message };
   }
-  const notNull = /NOT NULL constraint failed: ([^.]+)\./i.exec(message);
-  if (notNull?.[1]) {
-    return {
-      kind: "row",
-      table: notNull[1],
-      reason: message,
-    };
-  }
-  return {
-    kind: "schema",
-    table: "(unknown)",
-    reason: message,
-  };
+  return { kind: "schema", table: "(unknown)", reason: message };
 }
 
 function preflightInverseApply(

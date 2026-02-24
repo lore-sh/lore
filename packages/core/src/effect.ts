@@ -262,14 +262,8 @@ export function diffObservedState(
   );
 
   const schemaEffects: SchemaEffect[] = [];
-  const rowEffectsByTable = new Map<
-    string,
-    {
-      inserts: RowEffect[];
-      updates: RowEffect[];
-      deletes: RowEffect[];
-    }
-  >();
+  type RowBucket = { inserts: RowEffect[]; updates: RowEffect[]; deletes: RowEffect[] };
+  const rowEffectsByTable = new Map<string, RowBucket>();
   const tableRefs = new Map<string, string[]>();
 
   for (const tableName of names) {
@@ -292,15 +286,7 @@ export function diffObservedState(
     const beforeRows = beforeTable?.rowsByPk ?? new Map<string, CapturedRowEntry>();
     const afterRows = afterTable?.rowsByPk ?? new Map<string, CapturedRowEntry>();
     const pkKeys = Array.from(new Set([...beforeRows.keys(), ...afterRows.keys()])).sort((a, b) => a.localeCompare(b));
-    const bucket: {
-      inserts: RowEffect[];
-      updates: RowEffect[];
-      deletes: RowEffect[];
-    } = {
-      inserts: [],
-      updates: [],
-      deletes: [],
-    };
+    const bucket: RowBucket = { inserts: [], updates: [], deletes: [] };
 
     for (const key of pkKeys) {
       const beforeEntry = beforeRows.get(key);
@@ -382,10 +368,7 @@ export function dependencyOrder(
   const perm = new Set<string>();
   const parentFirst: string[] = [];
   const visit = (node: string): void => {
-    if (perm.has(node)) {
-      return;
-    }
-    if (temp.has(node)) {
+    if (perm.has(node) || temp.has(node)) {
       return;
     }
     temp.add(node);
@@ -490,23 +473,24 @@ function effectRowMode(
   effect: RowEffect,
   direction: "forward" | "inverse",
 ): { expectedCurrent: EncodedRow | null; target: EncodedRow | null; opLabel: string } {
-  if (direction === "forward") {
-    if (effect.opKind === "insert") {
-      return { expectedCurrent: null, target: effect.afterRow, opLabel: "insert" };
-    }
-    if (effect.opKind === "update") {
-      return { expectedCurrent: effect.beforeRow, target: effect.afterRow, opLabel: "update" };
-    }
-    return { expectedCurrent: effect.beforeRow, target: null, opLabel: "delete" };
-  }
+  const forward = direction === "forward";
+  const before = effect.beforeRow;
+  const after = effect.afterRow;
 
-  if (effect.opKind === "insert") {
-    return { expectedCurrent: effect.afterRow, target: null, opLabel: "inverse-delete" };
+  switch (effect.opKind) {
+    case "insert":
+      return forward
+        ? { expectedCurrent: null, target: after, opLabel: "insert" }
+        : { expectedCurrent: after, target: null, opLabel: "inverse-delete" };
+    case "update":
+      return forward
+        ? { expectedCurrent: before, target: after, opLabel: "update" }
+        : { expectedCurrent: after, target: before, opLabel: "inverse-update" };
+    case "delete":
+      return forward
+        ? { expectedCurrent: before, target: null, opLabel: "delete" }
+        : { expectedCurrent: null, target: before, opLabel: "inverse-insert" };
   }
-  if (effect.opKind === "update") {
-    return { expectedCurrent: effect.afterRow, target: effect.beforeRow, opLabel: "inverse-update" };
-  }
-  return { expectedCurrent: null, target: effect.beforeRow, opLabel: "inverse-insert" };
 }
 
 export function applyRowEffectsWithOptions(

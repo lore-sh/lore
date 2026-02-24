@@ -148,11 +148,12 @@ export function check(db: Database, plan: OperationPlan): CheckResult {
     touchedTables: Array.from(touchedTables).sort((a, b) => a.localeCompare(b)),
     predicted,
   };
-  const risk: CheckResult["risk"] = errors.length > 0 || destructiveOperations > 0
-    ? "high"
-    : schemaOperations > 0 || predicted.schemaEffects > 0
-    ? "medium"
-    : "low";
+  let risk: CheckResult["risk"] = "low";
+  if (errors.length > 0 || destructiveOperations > 0) {
+    risk = "high";
+  } else if (schemaOperations > 0 || predicted.schemaEffects > 0) {
+    risk = "medium";
+  }
 
   return {
     ok: errors.length === 0,

@@ -176,16 +176,14 @@ function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, s
     }
   }
 
-  const tieBreakers = terms;
   if (!sortBy) {
-    return ` ORDER BY ${tieBreakers.map((term) => term.sql).join(", ")}`;
+    return ` ORDER BY ${terms.map((term) => term.sql).join(", ")}`;
   }
   const orderedTerms = [`${quoteIdentifier(sortBy, { unsafe: true })} ${sortDir === "desc" ? "DESC" : "ASC"}`];
-  for (const tieBreaker of tieBreakers) {
-    if (tieBreaker.key === sortBy) {
-      continue;
+  for (const term of terms) {
+    if (term.key !== sortBy) {
+      orderedTerms.push(term.sql);
     }
-    orderedTerms.push(tieBreaker.sql);
   }
   return ` ORDER BY ${orderedTerms.join(", ")}`;
 }

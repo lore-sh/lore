@@ -183,6 +183,29 @@ export function tableDDL(db: Database, table: string): string | null {
   return row?.sql ?? null;
 }
 
+function tableForeignKeys(db: Database, table: string): SchemaForeignKeyDescriptor[] {
+  const rows = db.$client.query<ForeignKeyRow, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`).all();
+  const grouped = new Map<number, SchemaForeignKeyDescriptor>();
+  for (const row of rows) {
+    const entry = grouped.get(row.id);
+    if (entry) {
+      entry.mappings.push({ seq: row.seq, from: row.from, to: row.to });
+      continue;
+    }
+    grouped.set(row.id, {
+      id: row.id,
+      refTable: row.table,
+      onUpdate: row.on_update,
+      onDelete: row.on_delete,
+      match: row.match,
+      mappings: [{ seq: row.seq, from: row.from, to: row.to }],
+    });
+  }
+  return Array.from(grouped.values())
+    .map((fk) => ({ ...fk, mappings: fk.mappings.sort((a, b) => a.seq - b.seq) }))
+    .sort((a, b) => a.id - b.id);
+}
+
 export function describeSchema(db: Database): SchemaDescriptor {
   const tableNames = listUserTables(db);
   const tableList = db.$client.query<TableListRow, []>("PRAGMA table_list").all();
@@ -214,38 +237,7 @@ export function describeSchema(db: Database): SchemaDescriptor {
           hidden: column.hidden,
         }))
         .sort((a, b) => a.cid - b.cid),
-      foreignKeys: (() => {
-        const rows = db.$client.query<ForeignKeyRow, []>(`PRAGMA foreign_key_list(${pragmaLiteral(table)})`).all();
-        const grouped = new Map<
-          number,
-          {
-            id: number;
-            refTable: string;
-            onUpdate: string;
-            onDelete: string;
-            match: string;
-            mappings: Array<{ seq: number; from: string; to: string | null }>;
-          }
-        >();
-        for (const row of rows) {
-          const entry = grouped.get(row.id);
-          if (!entry) {
-            grouped.set(row.id, {
-              id: row.id,
-              refTable: row.table,
-              onUpdate: row.on_update,
-              onDelete: row.on_delete,
-              match: row.match,
-              mappings: [{ seq: row.seq, from: row.from, to: row.to }],
-            });
-            continue;
-          }
-          entry.mappings.push({ seq: row.seq, from: row.from, to: row.to });
-        }
-        return Array.from(grouped.values())
-          .map((fk) => ({ ...fk, mappings: fk.mappings.sort((a, b) => a.seq - b.seq) }))
-          .sort((a, b) => a.id - b.id);
-      })(),
+      foreignKeys: tableForeignKeys(db, table),
       indexes: db.$client
         .query<IndexListRow, []>(`PRAGMA index_list(${pragmaLiteral(table)})`)
         .all()
