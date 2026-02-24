@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { assertNoForeignKeyViolations } from "../../src/engine/effect";
-import * as schema from "../../src/engine/schema.sql";
+import { assertNoForeignKeyViolations } from "../src/effect";
+import * as schema from "../src/schema";
 
 describe("effect helpers", () => {
   test("assertNoForeignKeyViolations passes for valid data", () => {

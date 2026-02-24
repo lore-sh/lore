@@ -6,7 +6,7 @@ const url = resolve(homedir(), ".toss", "toss.db");
 
 export default defineConfig({
   dialect: "sqlite",
-  schema: "./src/engine/schema.sql.ts",
+  schema: "./src/schema.ts",
   out: "./migration",
   dbCredentials: {
     url,

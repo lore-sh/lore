@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { schema, initDb, openDb, CodedError } from "../src";
-import { schemaHash } from "../src/engine/inspect";
+import { schemaHash } from "../src/effect";
 import { createTestContext, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

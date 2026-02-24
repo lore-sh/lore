@@ -12,14 +12,12 @@ import {
   CodedError,
   pull,
   push,
-  readAuthToken,
   query,
   revert,
   verify,
-  writeAuthToken,
-  writeRemoteConfig,
 } from "../src";
-import { LAST_SYNC_STATE_META_KEY } from "../src/engine/db";
+import { readAuthToken, writeAuthToken, writeRemoteConfig } from "../src/config";
+import { LAST_SYNC_STATE_META_KEY } from "../src/db";
 import { applyPlan, createTestContext, currentDb, withDbPath, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

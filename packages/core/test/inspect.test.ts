@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeSchemaHash, withTmpDirCleanup } from "../helpers";
+import { computeSchemaHash, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 

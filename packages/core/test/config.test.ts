@@ -2,13 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { statSync } from "node:fs";
 import {
   CodedError,
+} from "../src";
+import {
   readAuthToken,
   readRemoteConfig,
   resolveConfigPath,
   resolveCredentialsPath,
   writeAuthToken,
   writeRemoteConfig,
-} from "../src";
+} from "../src/config";
 import { createTestContext, withTestHome, withTmpDirCleanup } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

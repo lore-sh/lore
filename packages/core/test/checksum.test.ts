@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalJson, sha256Hex } from "../../src/engine/checksum";
+import { canonicalJson, sha256Hex } from "../src/sql";
 
 describe("checksum", () => {
   test("canonicalJson sorts object keys recursively", () => {

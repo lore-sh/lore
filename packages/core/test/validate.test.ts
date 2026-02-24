@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parsePlan } from "../../src/engine/validate";
+import { parsePlan } from "../src/operation";
 
 describe("parsePlan", () => {
   test("accepts valid plan", () => {

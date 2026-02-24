@@ -5,9 +5,9 @@ import { dirname, join } from "path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { apply, check, initDb, openDb, parsePlan } from "../src";
 import { CodedError } from "../src/error";
-import { schemaHash } from "../src/engine/inspect";
-import type { Database } from "../src/engine/db";
-import * as schema from "../src/engine/schema.sql";
+import { schemaHash } from "../src/effect";
+import type { Database } from "../src/db";
+import * as schema from "../src/schema";
 
 const tmpDirScopeStorage = new AsyncLocalStorage<Set<string>>();
 const scopedDbStorage = new AsyncLocalStorage<Database>();

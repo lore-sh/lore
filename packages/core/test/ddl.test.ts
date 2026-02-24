@@ -6,7 +6,7 @@ import {
   rewriteColumnTypeInCreateTable,
   rewriteCreateTableName,
   rewriteDropCheckInCreateTable,
-} from "../../src/engine/ddl";
+} from "../src/sql";
 
 describe("ddl helpers", () => {
   test("parseColumnDefinitionsFromCreateTable ignores table constraints", () => {

@@ -11,12 +11,19 @@ import {
   runInDeferredTransaction,
   setMetaValue,
   type Database,
-} from "./engine/db";
+  initDb,
+} from "./db";
 import { clearAuthToken, parseRemotePlatform, readAuthToken, readRemoteConfig, writeAuthToken, writeRemoteConfig } from "./config";
 import { CodedError } from "./error";
-import { getHeadCommit, getHeadCommitId, getCommitById } from "./engine/log";
-import { initDb } from "./init";
-import { findCommitSeq, getCommitReplayInput, loadCommitReplayInputs, replayCommitExactly } from "./engine/replay";
+import {
+  findCommitSeq,
+  getCommitById,
+  getCommitReplayInput,
+  getHeadCommit,
+  getHeadCommitId,
+  loadCommitReplayInputs,
+  replayCommitExactly,
+} from "./commit";
 import {
   authTokenForPlatform,
   classifySyncBoundaryError,
@@ -32,8 +39,8 @@ import {
   pushCommit,
   remoteCommitSeq,
   remoteHasCommit,
-} from "./engine/remote";
-import { canonicalJson } from "./engine/checksum";
+} from "./remote";
+import { canonicalJson } from "./sql";
 
 export type RemotePlatform = "turso" | "libsql";
 

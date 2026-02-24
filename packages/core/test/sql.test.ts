@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { quoteIdentifier, validateReadSql } from "../../src/engine/sql";
+import { quoteIdentifier, validateReadSql } from "../src/sql";
 
 describe("sql helpers", () => {
   test("quoteIdentifier escapes valid identifiers", () => {

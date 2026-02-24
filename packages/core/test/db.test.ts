@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { listUserTables, resolveDbPath } from "../../src/engine/db";
-import { CodedError } from "../../src/error";
-import { initDb, openDb } from "../../src";
-import { createTestContext, currentDb, withTmpDirCleanup } from "../helpers";
-import { MetaTable } from "../../src/engine/schema.sql";
+import { listUserTables, resolveDbPath } from "../src/db";
+import { CodedError } from "../src/error";
+import { initDb, openDb } from "../src";
+import { createTestContext, currentDb, withTmpDirCleanup } from "./helpers";
+import { MetaTable } from "../src/schema";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 

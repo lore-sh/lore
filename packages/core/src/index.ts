@@ -1,26 +1,11 @@
 export * from "./error";
-export * from "./config";
-export * from "./init";
-export * from "./apply";
-export * from "./query";
 export * from "./schema";
-export * from "./status";
-export * from "./history";
-export * from "./table";
+export * from "./db";
+export * from "./commit";
+export * from "./operation";
+export * from "./apply";
 export * from "./revert";
-export * from "./verify";
+export * from "./table";
 export * from "./snapshot";
 export * from "./sync";
-
-export { openDb, resolveDbPath } from "./engine/db";
-export { operationPlanSchema, parsePlan } from "./engine/validate";
-export { deleteIfExists, isEnoent, resolveHomeDir } from "./engine/files";
-export type { Database } from "./engine/db";
-
-export type {
-  JsonPrimitive,
-  JsonValue,
-  JsonObject,
-  EncodedCell,
-  EncodedRow,
-} from "./engine/primitives";
+export * from "./status";

@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { CodedError } from "./error";
-import { resolveHomeDir } from "./engine/files";
+import { resolveHomeDir } from "./db";
 import type { RemotePlatform } from "./sync";
 
 export interface RemoteConfig {

@@ -2,12 +2,14 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-import { CodedError } from "../error";
-import { deleteWithSidecars, resolveHomeDir } from "./files";
-import { MetaTable, RefTable } from "./schema.sql";
-import * as schema from "./schema.sql";
+import { CodedError } from "./error";
+import { MetaTable, RefTable } from "./schema";
+import * as schema from "./schema";
+import { validateReadSql } from "./sql";
 
 export type Database = ReturnType<typeof drizzle<typeof schema>>;
+
+export type SkillPlatform = "claude" | "cursor" | "codex" | "opencode" | "openclaw";
 
 export const DEFAULT_DB_DIR = ".toss";
 export const DEFAULT_DB_NAME = "toss.db";
@@ -45,10 +47,46 @@ export const PRESERVED_META_DEFAULTS = [
   [LAST_MATERIALIZED_AT_META_KEY, ""],
   [LAST_MATERIALIZED_ERROR_META_KEY, ""],
 ] as const;
-const ENGINE_MIGRATIONS_DIR = resolve(import.meta.dir, "../../migration");
+const MIGRATIONS_DIR = resolve(import.meta.dir, "../migration");
 
 export interface OpenDbOptions {
   busyTimeoutMs?: number | undefined;
+}
+
+export interface InitDbOptions {
+  dbPath?: string;
+  forceNew?: boolean;
+}
+
+export function isEnoent(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+export function resolveHomeDir(): string {
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    throw new CodedError("CONFIG", "HOME (or USERPROFILE) is required to resolve the home directory.");
+  }
+  return resolve(home);
+}
+
+export async function deleteIfExists(path: string): Promise<void> {
+  try {
+    await Bun.file(path).delete();
+  } catch (error) {
+    if (isEnoent(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+export async function deleteWithSidecars(path: string): Promise<void> {
+  await Promise.all([deleteIfExists(path), deleteIfExists(`${path}-wal`), deleteIfExists(`${path}-shm`)]);
+}
+
+export async function deleteWalAndShm(path: string): Promise<void> {
+  await Promise.all([deleteIfExists(`${path}-wal`), deleteIfExists(`${path}-shm`)]);
 }
 
 function defaultDbPath(): string {
@@ -97,10 +135,10 @@ export function openDb(pathFromArg?: string, options: OpenDbOptions = {}): Datab
 }
 
 function initializeStorage(db: Database): void {
-  if (!existsSync(ENGINE_MIGRATIONS_DIR)) {
-    throw new CodedError("CONFIG", `Engine migrations directory not found: ${ENGINE_MIGRATIONS_DIR}`);
+  if (!existsSync(MIGRATIONS_DIR)) {
+    throw new CodedError("CONFIG", `Engine migrations directory not found: ${MIGRATIONS_DIR}`);
   }
-  migrate(db, { migrationsFolder: ENGINE_MIGRATIONS_DIR });
+  migrate(db, { migrationsFolder: MIGRATIONS_DIR });
   for (const [key, value] of RESETTABLE_META_DEFAULTS) {
     db.insert(MetaTable)
       .values({ key, value })
@@ -119,9 +157,7 @@ function initializeStorage(db: Database): void {
     .run();
 }
 
-export async function initDb(
-  options: { dbPath?: string | undefined; forceNew?: boolean | undefined } = {},
-): Promise<{ path: string }> {
+export async function initDb(options: InitDbOptions = {}): Promise<{ path: string }> {
   const dbPath = resolveDbPath(options.dbPath);
   ensureDatabaseDirectory(dbPath);
   if (options.forceNew) {
@@ -234,4 +270,9 @@ export function setMetaValue(db: Database, key: string, value: string): void {
       set: { value },
     })
     .run();
+}
+
+export function query(db: Database, sqlInput: string): Record<string, unknown>[] {
+  const sql = validateReadSql(sqlInput);
+  return db.$client.query<Record<string, unknown>, []>(sql).all();
 }

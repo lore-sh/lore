@@ -1,9 +1,16 @@
-import { COMMIT_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, listUserTables, type Database } from "./engine/db";
+import { COMMIT_TABLE, ROW_EFFECT_TABLE, SCHEMA_EFFECT_TABLE, listUserTables, type Database } from "./db";
+import {
+  describeSchema,
+  schemaHashFromDescriptor,
+  type SchemaForeignKeyDescriptor,
+  type SchemaIndexDescriptor,
+  type SchemaTableDescriptor,
+  type SchemaTriggerDescriptor,
+  normalizeRowObject,
+} from "./effect";
 import { CodedError } from "./error";
-import { describeSchema, type SchemaDescriptor, type SchemaTableDescriptor } from "./engine/inspect";
-import { normalizeRowObject } from "./engine/rows";
-import { asciiCaseFold, quoteIdentifier } from "./engine/sql";
-import type { JsonObject } from "./engine/primitives";
+import type { JsonObject } from "./schema";
+import { asciiCaseFold, quoteIdentifier } from "./sql";
 
 export interface Table {
   name: string;
@@ -41,6 +48,44 @@ export interface TableQueryOptions {
   sortBy?: string | undefined;
   sortDir?: "asc" | "desc" | undefined;
   filters?: Record<string, string> | undefined;
+}
+
+export interface SchemaOptions {
+  table?: string | undefined;
+}
+
+export interface SchemaColumn {
+  definitionSql: string | null;
+  cid: number;
+  name: string;
+  type: string;
+  notNull: boolean;
+  defaultValue: string | null;
+  primaryKey: boolean;
+  unique: boolean;
+  hidden: boolean;
+}
+
+export interface SchemaTable {
+  tableSql: string | null;
+  name: string;
+  options: {
+    withoutRowid: boolean;
+    strict: boolean;
+  };
+  columns: SchemaColumn[];
+  foreignKeys: SchemaForeignKeyDescriptor[];
+  indexes: SchemaIndexDescriptor[];
+  checks: string[];
+  triggers: SchemaTriggerDescriptor[];
+  rowCount: number;
+}
+
+export interface Schema {
+  dbPath: string;
+  generatedAt: string;
+  schemaHash: string;
+  tables: SchemaTable[];
 }
 
 interface OrderTerm {
@@ -134,7 +179,32 @@ function mapColumns(table: SchemaTableDescriptor): TableColumn[] {
     }));
 }
 
-function findTableFromSchema(descriptor: SchemaDescriptor, tableName: string): SchemaTableDescriptor {
+function mapSchemaTable(db: Database, table: SchemaTableDescriptor): SchemaTable {
+  const unique = uniqueColumnNames(table);
+  return {
+    tableSql: table.tableSql,
+    name: table.table,
+    options: table.options,
+    columns: table.columns.map((column) => ({
+      definitionSql: column.definitionSql,
+      cid: column.cid,
+      name: column.name,
+      type: column.type,
+      notNull: column.notnull === 1,
+      defaultValue: column.dfltValue,
+      primaryKey: column.pk > 0,
+      unique: unique.has(column.name),
+      hidden: !isVisibleColumn(column.hidden),
+    })),
+    foreignKeys: table.foreignKeys,
+    indexes: table.indexes,
+    checks: table.checks,
+    triggers: table.triggers,
+    rowCount: countTableRows(db, table.table),
+  };
+}
+
+function findTableFromSchema(descriptor: { tables: SchemaTableDescriptor[] }, tableName: string): SchemaTableDescriptor {
   const matched = descriptor.tables.find((table) => table.table === tableName);
   if (matched) {
     return matched;
@@ -202,6 +272,21 @@ function orderClause(table: SchemaTableDescriptor, sortBy: string | undefined, s
     terms.push(tieBreaker.sql);
   }
   return ` ORDER BY ${terms.join(", ")}`;
+}
+
+export function schema(db: Database, options: SchemaOptions = {}): Schema {
+  const descriptor = describeSchema(db);
+  const selectedTable = options.table ? resolveTableName(db, options.table) : null;
+  const tables = descriptor.tables
+    .filter((table) => selectedTable === null || table.table === selectedTable)
+    .map((table) => mapSchemaTable(db, table));
+
+  return {
+    dbPath: db.$client.filename,
+    generatedAt: new Date().toISOString(),
+    schemaHash: schemaHashFromDescriptor(descriptor),
+    tables,
+  };
 }
 
 export function tableOverview(db: Database): Table[] {
