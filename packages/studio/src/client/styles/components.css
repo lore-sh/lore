@@ -129,11 +129,10 @@
   }
 
   .ui-label {
-    font-size: 11px;
-    font-weight: 500;
-    color: var(--studio-fg-soft);
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--studio-fg-muted);
+    letter-spacing: -0.01em;
   }
 
   .ui-context {
@@ -336,6 +335,51 @@
     border-radius: 8px;
     padding: 8px 10px;
     background: var(--studio-bg);
+  }
+
+  /* ── Code block ──────────────────────────────── */
+
+  .ui-code-block {
+    background: var(--studio-code-bg);
+    border: 1px solid var(--studio-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    overflow-x: auto;
+  }
+
+  .ui-code-line {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.7;
+    white-space: nowrap;
+  }
+
+  .ui-code-line + .ui-code-line {
+    border-top: 1px solid color-mix(in srgb, var(--studio-border) 50%, transparent);
+    padding-top: 4px;
+    margin-top: 4px;
+  }
+
+  .ui-syn-keyword {
+    color: var(--studio-syntax-keyword);
+    font-weight: 500;
+  }
+
+  .ui-syn-table {
+    color: var(--studio-syntax-table);
+    font-weight: 500;
+  }
+
+  .ui-syn-column {
+    color: var(--studio-syntax-column);
+  }
+
+  .ui-syn-value {
+    color: var(--studio-syntax-value);
+  }
+
+  .ui-syn-punct {
+    color: var(--studio-syntax-punct);
   }
 
   /* ── Diffs ──────────────────────────────────── */

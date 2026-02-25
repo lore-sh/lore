@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { createElement } from "react";
 import type { EncodedCell, EncodedRow, Operation, history } from "@lore/core";
 import type { CommitDetailPayload } from "./api";
 
@@ -99,6 +101,124 @@ export function renderOperationLine(operation: Operation): string {
       return `DROP CHECK on ${operation.table} - ${operation.expression}`;
     case "restore_table":
       return `RESTORE ${operation.table}`;
+  }
+}
+
+function kw(text: string): ReactNode {
+  return createElement("span", { className: "ui-syn-keyword" }, text);
+}
+
+function tbl(text: string): ReactNode {
+  return createElement("span", { className: "ui-syn-table" }, text);
+}
+
+function col(text: string): ReactNode {
+  return createElement("span", { className: "ui-syn-column" }, text);
+}
+
+function val(text: string): ReactNode {
+  return createElement("span", { className: "ui-syn-value" }, text);
+}
+
+function punct(text: string): ReactNode {
+  return createElement("span", { className: "ui-syn-punct" }, text);
+}
+
+function formatFieldsSyntax(values: Record<string, unknown>): ReactNode[] {
+  const entries = Object.entries(values).sort(([a], [b]) => a.localeCompare(b));
+  const nodes: ReactNode[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const [key, value] = entries[i]!;
+    if (i > 0) {
+      nodes.push(punct(", "));
+    }
+    nodes.push(col(key), punct(" = "), val(formatPrimitive(value)));
+  }
+  return nodes;
+}
+
+export function renderOperationSyntax(operation: Operation): ReactNode[] {
+  switch (operation.type) {
+    case "create_table":
+      return [
+        kw("CREATE TABLE "),
+        tbl(operation.table),
+        punct(" ("),
+        ...operation.columns.flatMap((c, i) =>
+          i > 0 ? [punct(", "), col(c.name)] : [col(c.name)],
+        ),
+        punct(")"),
+      ];
+    case "add_column":
+      return [
+        kw("ALTER TABLE "),
+        tbl(operation.table),
+        kw(" ADD "),
+        col(operation.column.name),
+        " ",
+        val(operation.column.type),
+      ];
+    case "insert":
+      return [
+        kw("INSERT INTO "),
+        tbl(operation.table),
+        kw(" SET "),
+        ...formatFieldsSyntax(operation.values),
+      ];
+    case "update":
+      return [
+        kw("UPDATE "),
+        tbl(operation.table),
+        kw(" SET "),
+        ...formatFieldsSyntax(operation.values),
+        kw(" WHERE "),
+        ...formatFieldsSyntax(operation.where),
+      ];
+    case "delete":
+      return [
+        kw("DELETE FROM "),
+        tbl(operation.table),
+        kw(" WHERE "),
+        ...formatFieldsSyntax(operation.where),
+      ];
+    case "drop_table":
+      return [kw("DROP TABLE "), tbl(operation.table)];
+    case "drop_column":
+      return [
+        kw("ALTER TABLE "),
+        tbl(operation.table),
+        kw(" DROP "),
+        col(operation.column),
+      ];
+    case "alter_column_type":
+      return [
+        kw("ALTER TABLE "),
+        tbl(operation.table),
+        kw(" ALTER "),
+        col(operation.column),
+        kw(" TYPE "),
+        val(operation.newType),
+      ];
+    case "add_check":
+      return [
+        kw("ALTER TABLE "),
+        tbl(operation.table),
+        kw(" ADD CHECK "),
+        punct("("),
+        val(operation.expression),
+        punct(")"),
+      ];
+    case "drop_check":
+      return [
+        kw("ALTER TABLE "),
+        tbl(operation.table),
+        kw(" DROP CHECK "),
+        punct("("),
+        val(operation.expression),
+        punct(")"),
+      ];
+    case "restore_table":
+      return [kw("RESTORE TABLE "), tbl(operation.table)];
   }
 }
 

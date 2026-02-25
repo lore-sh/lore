@@ -48,6 +48,13 @@
   --studio-status-warn: #ca8a04;
   --studio-status-error: #dc2626;
 
+  --studio-syntax-keyword: #8b5cf6;
+  --studio-syntax-table: #0891b2;
+  --studio-syntax-column: #d97706;
+  --studio-syntax-value: #16a34a;
+  --studio-syntax-punct: #a1a1aa;
+  --studio-code-bg: #f8f8fa;
+
   --studio-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
   --studio-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
 }
@@ -74,6 +81,13 @@
   --studio-status-ok: #22c55e;
   --studio-status-warn: #eab308;
   --studio-status-error: #ef4444;
+
+  --studio-syntax-keyword: #a78bfa;
+  --studio-syntax-table: #22d3ee;
+  --studio-syntax-column: #fbbf24;
+  --studio-syntax-value: #4ade80;
+  --studio-syntax-punct: #71717a;
+  --studio-code-bg: #111113;
 
   --studio-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.12);
   --studio-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.15);

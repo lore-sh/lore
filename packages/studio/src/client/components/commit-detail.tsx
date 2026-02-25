@@ -4,7 +4,7 @@ import { useState } from "react";
 import { QueryBoundary } from "./query-boundary";
 import { revertCommitById } from "../lib/api";
 import {
-  renderOperationLine,
+  renderOperationSyntax,
   renderPkLabel,
   renderRowEffectLines,
   renderSchemaEffectLine,
@@ -98,13 +98,13 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
               {detailData.operations.length === 0 ? (
                 <p className="ui-soft">No operations</p>
               ) : (
-                <ul className="ui-list-tight">
+                <div className="ui-code-block">
                   {detailData.operations.map((operation, index) => (
-                    <li key={`${operation.type}-${index}`} className="ui-mono ui-line">
-                      {renderOperationLine(operation)}
-                    </li>
+                    <div key={`${operation.type}-${index}`} className="ui-code-line">
+                      {renderOperationSyntax(operation)}
+                    </div>
                   ))}
-                </ul>
+                </div>
               )}
             </section>
 
