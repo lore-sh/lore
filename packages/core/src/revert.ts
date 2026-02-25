@@ -1,10 +1,11 @@
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   createCommit,
   findCommit,
   commitRowEffects,
   commitSchemaEffects,
   commitSeq,
+  readCommitsAfter,
 } from "./commit";
 import {
   runInDeferredTransaction,
@@ -90,9 +91,19 @@ export function detectRowConflict(
     reason: string;
   }> = [];
   const missingTables = new Set<string>();
+  const tableExistsCache = new Map<string, boolean>();
+  const hasTable = (tableName: string): boolean => {
+    const cached = tableExistsCache.get(tableName);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const exists = tableExists(db, tableName);
+    tableExistsCache.set(tableName, exists);
+    return exists;
+  };
   for (const effect of targetRowEffects) {
     const pk = effect.pk;
-    if (!tableExists(db, effect.tableName)) {
+    if (!hasTable(effect.tableName)) {
       if (!missingTables.has(effect.tableName)) {
         conflicts.push({
           kind: isSystemTable(effect.tableName) ? "row" : "schema",
@@ -145,17 +156,12 @@ export function detectRowConflict(
 }
 
 export function getLaterEffects(db: Database, seq: number): { rows: RowEffect[]; schemas: SchemaEffect[] } {
-  const laterCommits = db
-    .select({ commitId: CommitTable.commitId })
-    .from(CommitTable)
-    .where(gt(CommitTable.seq, seq))
-    .orderBy(asc(CommitTable.seq))
-    .all();
+  const laterCommits = readCommitsAfter(db, seq);
   const rows: RowEffect[] = [];
   const schemas: SchemaEffect[] = [];
-  for (const commit of laterCommits) {
-    rows.push(...commitRowEffects(db, commit.commitId));
-    schemas.push(...commitSchemaEffects(db, commit.commitId));
+  for (const replay of laterCommits) {
+    rows.push(...replay.rowEffects);
+    schemas.push(...replay.schemaEffects);
   }
   return { rows, schemas };
 }

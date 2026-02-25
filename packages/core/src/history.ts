@@ -2,8 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { LAST_VERIFIED_AT_META_KEY, LAST_VERIFIED_OK_META_KEY, setMetaValue, type Database } from "./db";
 import {
   computeCommitId,
-  readCommit,
-  listCommits,
+  readCommitsAfter,
 } from "./commit";
 import { normalizePage, normalizePageSize } from "./inspect";
 import { type CommitKind, CommitTable, OpTable, RowEffectTable, SchemaEffectTable } from "./schema";
@@ -193,9 +192,9 @@ export function verify(db: Database, options: { full?: boolean } = {}) {
   const mode = options.full ? "full" : "quick";
   const issues: string[] = [];
 
-  const commits = listCommits(db, false);
-  for (const commit of commits) {
-    const replay = readCommit(db, commit.commitId);
+  const replays = readCommitsAfter(db, 0);
+  for (const replay of replays) {
+    const commit = replay.commit;
     const expected = computeCommitId({
       seq: replay.commit.seq,
       kind: replay.commit.kind,
