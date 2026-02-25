@@ -1,4 +1,4 @@
-import { CodedError, check, parsePlan, type Database } from "@toss/core";
+import { CodedError, check, parsePlan, type Database } from "@lore/core";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { toJson } from "../format";

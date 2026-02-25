@@ -1,4 +1,4 @@
-import { remoteStatus, type Database } from "@toss/core";
+import { remoteStatus, type Database } from "@lore/core";
 import { z } from "zod";
 import { toJson } from "../format";
 

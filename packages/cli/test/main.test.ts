@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CodedError } from "@toss/core";
+import { CodedError } from "@lore/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +30,7 @@ describe("main command dispatch", () => {
   test("formatError adds actionable hints for known error codes", () => {
     const message = formatError(new CodedError("SYNC_NOT_CONFIGURED", "Remote is not configured"));
     expect(message).toContain("Error [SYNC_NOT_CONFIGURED]: Remote is not configured");
-    expect(message).toContain("toss remote connect");
+    expect(message).toContain("lore remote connect");
   });
 
   test("formatError does not add remote hint for generic CONFIG errors", () => {
@@ -43,7 +43,7 @@ describe("main command dispatch", () => {
   });
 
   test("validates db command args before opening database", async () => {
-    const home = mkdtempSync(join(tmpdir(), "toss-cli-home-"));
+    const home = mkdtempSync(join(tmpdir(), "lore-cli-home-"));
     const snapshot = {
       HOME: process.env.HOME,
       USERPROFILE: process.env.USERPROFILE,

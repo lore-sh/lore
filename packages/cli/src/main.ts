@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { CodedError, openDb, type ErrorCode, type Database } from "@toss/core";
+import { CodedError, openDb, type ErrorCode, type Database } from "@lore/core";
 import { parseInitArgs, parseCleanArgs, runInit, runClean } from "./commands/init";
 import { parseRemoteArgs, runRemote } from "./commands/remote";
 import { parsePushArgs, runPush } from "./commands/push";
@@ -26,38 +26,38 @@ type CommandDefinition = {
 };
 
 const CLI_HINTS: Partial<Record<ErrorCode, string>> = {
-  SYNC_NOT_CONFIGURED: "Run `toss remote connect` to configure remote.",
-  NOT_INITIALIZED: "Run `toss init` to initialize the database.",
+  SYNC_NOT_CONFIGURED: "Run `lore remote connect` to configure remote.",
+  NOT_INITIALIZED: "Run `lore init` to initialize the database.",
 };
 
 export function usage(): string {
   return [
-    "toss CLI",
+    "Lore CLI",
     "",
     "Commands:",
-    "  toss init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]",
-    "  toss clean [--yes] [--json]",
-    "  toss schema [<table>]",
-    "  toss plan <file|->",
-    "  toss apply <file|->",
-    "  toss read --sql \"<SELECT...>\" [--json]",
-    "  toss status [--json]",
-    "  toss history [--verbose] [--json]",
-    "  toss revert <commit_id>",
-    "  toss verify [--full]",
-    "  toss recover <commit_id>",
-    "  toss remote connect",
-    "  toss remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]",
-    "  toss remote status",
-    "  toss push",
-    "  toss pull",
-    "  toss sync",
-    "  toss clone <url> --platform <turso|libsql> [--force-new]",
-    "  toss studio [--port <n>] [--no-open]",
+    "  lore init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]",
+    "  lore clean [--yes] [--json]",
+    "  lore schema [<table>]",
+    "  lore plan <file|->",
+    "  lore apply <file|->",
+    "  lore read --sql \"<SELECT...>\" [--json]",
+    "  lore status [--json]",
+    "  lore history [--verbose] [--json]",
+    "  lore revert <commit_id>",
+    "  lore verify [--full]",
+    "  lore recover <commit_id>",
+    "  lore remote connect",
+    "  lore remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]",
+    "  lore remote status",
+    "  lore push",
+    "  lore pull",
+    "  lore sync",
+    "  lore clone <url> --platform <turso|libsql> [--force-new]",
+    "  lore studio [--port <n>] [--no-open]",
     "",
     "Config Files:",
-    "  ~/.toss/config.json        Remote connection settings",
-    "  ~/.toss/credentials.json   Auth tokens (chmod 600)",
+    "  ~/.lore/config.json        Remote connection settings",
+    "  ~/.lore/credentials.json   Auth tokens (chmod 600)",
     "",
     "Environment:",
     "  TURSO_AUTH_TOKEN  Auth token fallback (CI)",

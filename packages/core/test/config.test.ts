@@ -28,7 +28,7 @@ describe("config", () => {
         platform: "turso",
         url: "libsql://mydb-xxx.turso.io",
       });
-      expect(resolveConfigPath()).toBe(`${dir}/.toss/config.json`);
+      expect(resolveConfigPath()).toBe(`${dir}/.lore/config.json`);
     });
   });
 

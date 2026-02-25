@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { initDb, openDb } from "@toss/core";
+import { initDb, openDb } from "@lore/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import { attachServerCleanup } from "../../src/server/index";
 
 test("attachServerCleanup closes db and detaches signal listeners when server stops", async () => {
   const dir = mkdtempSync(join(tmpdir(), "studio-index-test-"));
-  const dbPath = join(dir, "toss.db");
+  const dbPath = join(dir, "lore.db");
   await initDb({ dbPath });
   const db = openDb(dbPath);
   let stopCalls = 0;
@@ -39,7 +39,7 @@ test("attachServerCleanup closes db and detaches signal listeners when server st
 
 test("attachServerCleanup stops server and closes db on SIGINT", async () => {
   const dir = mkdtempSync(join(tmpdir(), "studio-index-test-"));
-  const dbPath = join(dir, "toss.db");
+  const dbPath = join(dir, "lore.db");
   await initDb({ dbPath });
   const db = openDb(dbPath);
   let stopCalls = 0;

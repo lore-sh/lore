@@ -1,4 +1,4 @@
-import type { EncodedCell, EncodedRow, Operation, history } from "@toss/core";
+import type { EncodedCell, EncodedRow, Operation, history } from "@lore/core";
 import type { CommitDetailPayload } from "./api";
 
 type CommitSummary = ReturnType<typeof history>[number];

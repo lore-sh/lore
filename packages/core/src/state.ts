@@ -98,9 +98,9 @@ function buildStateSelectSql(tableName: string, columns: string[], pkColumns: st
   hexAliases: string[];
   typeAliases: string[];
 } {
-  const quoteAliases = columns.map((_, index) => `__toss_state_quote_${index}`);
-  const hexAliases = columns.map((_, index) => `__toss_state_hex_${index}`);
-  const typeAliases = columns.map((_, index) => `__toss_state_type_${index}`);
+  const quoteAliases = columns.map((_, index) => `__lore_state_quote_${index}`);
+  const hexAliases = columns.map((_, index) => `__lore_state_hex_${index}`);
+  const typeAliases = columns.map((_, index) => `__lore_state_type_${index}`);
 
   const selectParts: string[] = [];
   for (let i = 0; i < columns.length; i += 1) {
@@ -179,7 +179,7 @@ export function stateHashForDb(db: Database): string {
 
 export async function stateHashForRemote(executor: Client | Transaction): Promise<string> {
   const tableResult = await executor.execute({
-    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_lore_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
   });
   const tables = tableResult.rows.map((row) => parseStringLike(parseRowRecord(row, "sqlite_master").name, "sqlite_master.name"));
   const state: Record<string, Array<Record<string, string>>> = {};

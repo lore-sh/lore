@@ -371,7 +371,7 @@ function rebuildTableWithRewrittenDdl(
   rewrittenDdl: string,
   options: { savepointName: string; selectList?: string | undefined },
 ): void {
-  const tempTable = `__toss_tmp_${state.resolvedTableName}_${crypto.randomUUID().replaceAll("-", "")}`;
+  const tempTable = `__lore_tmp_${state.resolvedTableName}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTempTable = quoteIdentifier(tempTable);
   const columnList = state.tableInfo.map((column) => quoteIdentifier(column.name)).join(", ");
   const selectList = options.selectList ?? columnList;
@@ -393,17 +393,17 @@ function rebuildTableWithRewrittenDdl(
 function executeAddCheck(db: Database, operation: AddCheck): void {
   const state = resolveMutableTableState(db, operation.table);
   const rewrittenDdl = rewriteAddCheckInCreateTable(state.tableDdlSql, operation.expression);
-  rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "toss_add_check" });
+  rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "lore_add_check" });
 }
 
 function executeDropCheck(db: Database, operation: DropCheck): void {
   const state = resolveMutableTableState(db, operation.table);
   const rewrittenDdl = rewriteDropCheckInCreateTable(state.tableDdlSql, operation.expression);
-  rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "toss_drop_check" });
+  rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, { savepointName: "lore_drop_check" });
 }
 
 function executeRestoreTable(db: Database, operation: RestoreTable): void {
-  const tmpTable = `__toss_restore_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
+  const tmpTable = `__lore_restore_${operation.table}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTmp = quoteIdentifier(tmpTable);
   const quotedTable = quoteIdentifier(operation.table);
   const rowForRestore = (value: unknown): Record<string, unknown> => {
@@ -428,7 +428,7 @@ function executeRestoreTable(db: Database, operation: RestoreTable): void {
     throw new CodedError("INVALID_OPERATION", "restore_table row contains unsupported encoded value");
   };
 
-  runInSavepoint(db, "toss_restore_table", () => {
+  runInSavepoint(db, "lore_restore_table", () => {
     const sequenceSnapshot = captureSqliteSequenceSnapshot(db, operation.table);
     db.$client.run(rewriteCreateTableName(operation.ddlSql, tmpTable));
     const first = operation.rows?.[0];
@@ -481,7 +481,7 @@ function executeAlterColumnType(db: Database, operation: AlterColumnType): void 
     .join(", ");
 
   rebuildTableWithRewrittenDdl(db, state, rewrittenDdl, {
-    savepointName: "toss_alter_column_type",
+    savepointName: "lore_alter_column_type",
     selectList,
   });
 }
@@ -534,7 +534,7 @@ function assertIdentifier(value: string, label: string): void {
   if (!IDENTIFIER_PATTERN.test(value)) {
     throw new CodedError("INVALID_OPERATION", `${label} must match ${IDENTIFIER_PATTERN.source}: ${value}`);
   }
-  if (value.startsWith("_toss_") || value.startsWith("sqlite_")) {
+  if (value.startsWith("_lore_") || value.startsWith("sqlite_")) {
     throw new CodedError("INVALID_OPERATION", `${label} cannot use reserved prefix: ${value}`);
   }
 }

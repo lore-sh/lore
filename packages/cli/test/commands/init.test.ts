@@ -62,20 +62,20 @@ describe("init command", () => {
 
   test("renderInitResult prints generated summary", () => {
     const text = renderInitResult({
-      dbPath: "/tmp/work/toss.db",
+      dbPath: "/tmp/work/lore.db",
       forceNew: true,
       selectedPlatforms: ["codex", "cursor"],
       noSkills: false,
       useColor: false,
       generatedSkills: {
-        canonicalSkillPath: "/tmp/work/.agents/skills/toss/SKILL.md",
+        canonicalSkillPath: "/tmp/work/.agents/skills/lore/SKILL.md",
         files: [
           { platform: "shared", path: "/tmp/work/AGENTS.md" },
-          { platform: "cursor", path: "/tmp/work/.cursor/rules/toss.mdc" },
+          { platform: "cursor", path: "/tmp/work/.cursor/rules/lore.mdc" },
         ],
       },
     });
-    expect(text.includes("toss init complete")).toBe(true);
+    expect(text.includes("Lore init complete")).toBe(true);
     expect(text.includes("Platforms: Codex CLI, Cursor")).toBe(true);
     expect(text.includes("Generated files")).toBe(true);
     expect(text.includes("Shared")).toBe(true);
@@ -84,7 +84,7 @@ describe("init command", () => {
 
   test("renderInitResult prints skipped summary", () => {
     const text = renderInitResult({
-      dbPath: "/tmp/work/toss.db",
+      dbPath: "/tmp/work/lore.db",
       forceNew: false,
       selectedPlatforms: [],
       noSkills: true,
@@ -98,11 +98,11 @@ describe("init command", () => {
     const text = renderCleanResult({
       useColor: false,
       files: [
-        { platform: "shared", path: "/tmp/home/.agents/skills/toss", removed: true },
-        { platform: "cursor", path: "/tmp/home/.cursor/rules/toss.mdc", removed: false },
+        { platform: "shared", path: "/tmp/home/.agents/skills/lore", removed: true },
+        { platform: "cursor", path: "/tmp/home/.cursor/rules/lore.mdc", removed: false },
       ],
     });
-    expect(text.includes("toss clean complete")).toBe(true);
+    expect(text.includes("Lore clean complete")).toBe(true);
     expect(text.includes("Removed: 1/2")).toBe(true);
     expect(text.includes("Shared")).toBe(true);
     expect(text.includes("Cursor")).toBe(true);

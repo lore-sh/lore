@@ -7,7 +7,7 @@ import {
   commitRowEffects,
   commitSchemaEffects,
   type Database,
-} from "@toss/core";
+} from "@lore/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { commitIdParamSchema, positiveIntSchema, validationError } from "./shared";

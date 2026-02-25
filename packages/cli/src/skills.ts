@@ -1,17 +1,17 @@
 import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { deleteIfExists, isEnoent, resolveHomeDir } from "@toss/core";
-import type { SkillPlatform } from "@toss/core";
+import { deleteIfExists, isEnoent, resolveHomeDir } from "@lore/core";
+import type { SkillPlatform } from "@lore/core";
 
 const ALL_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "codex", "opencode", "openclaw"];
 const PLATFORM_SET = new Set<SkillPlatform>(ALL_PLATFORMS);
 
-const AGENTS_BLOCK_START = "<!-- toss:init:agents:start -->";
-const AGENTS_BLOCK_END = "<!-- toss:init:agents:end -->";
-const CLAUDE_BLOCK_START = "<!-- toss:init:claude:start -->";
-const CLAUDE_BLOCK_END = "<!-- toss:init:claude:end -->";
-const HEARTBEAT_BLOCK_START = "<!-- toss:init:heartbeat:start -->";
-const HEARTBEAT_BLOCK_END = "<!-- toss:init:heartbeat:end -->";
+const AGENTS_BLOCK_START = "<!-- lore:init:agents:start -->";
+const AGENTS_BLOCK_END = "<!-- lore:init:agents:end -->";
+const CLAUDE_BLOCK_START = "<!-- lore:init:claude:start -->";
+const CLAUDE_BLOCK_END = "<!-- lore:init:claude:end -->";
+const HEARTBEAT_BLOCK_START = "<!-- lore:init:heartbeat:start -->";
+const HEARTBEAT_BLOCK_END = "<!-- lore:init:heartbeat:end -->";
 const AGENTS_BLOCKS: ManagedBlock[] = [{ start: AGENTS_BLOCK_START, end: AGENTS_BLOCK_END }];
 const CLAUDE_BLOCKS: ManagedBlock[] = [{ start: CLAUDE_BLOCK_START, end: CLAUDE_BLOCK_END }];
 const HEARTBEAT_BLOCKS: ManagedBlock[] = [{ start: HEARTBEAT_BLOCK_START, end: HEARTBEAT_BLOCK_END }];
@@ -81,11 +81,11 @@ function resolveSkillPaths(): SkillPaths {
   const opencodeHome = resolve(configHome, "opencode");
   const openclawWorkspace = resolve(home, ".openclaw", "workspace");
 
-  const sharedSkillDir = resolve(home, ".agents", "skills", "toss");
+  const sharedSkillDir = resolve(home, ".agents", "skills", "lore");
   const sharedReferencesDir = resolve(sharedSkillDir, "references");
-  const claudeSkillDir = resolve(home, ".claude", "skills", "toss");
+  const claudeSkillDir = resolve(home, ".claude", "skills", "lore");
   const claudeReferencesDir = resolve(claudeSkillDir, "references");
-  const openclawSkillDir = resolve(openclawWorkspace, "skills", "toss");
+  const openclawSkillDir = resolve(openclawWorkspace, "skills", "lore");
   const openclawReferencesDir = resolve(openclawSkillDir, "references");
 
   return {
@@ -94,7 +94,7 @@ function resolveSkillPaths(): SkillPaths {
     sharedContractsPath: resolve(sharedReferencesDir, "contracts.md"),
     codexAgentsPath: resolve(codexHome, "AGENTS.md"),
     opencodeAgentsPath: resolve(opencodeHome, "AGENTS.md"),
-    cursorRulePath: resolve(home, ".cursor", "rules", "toss.mdc"),
+    cursorRulePath: resolve(home, ".cursor", "rules", "lore.mdc"),
     claudeSkillDir,
     claudeSkillPath: resolve(claudeSkillDir, "SKILL.md"),
     claudeContractsPath: resolve(claudeReferencesDir, "contracts.md"),
@@ -121,13 +121,13 @@ function normalizePlatforms(platforms?: SkillPlatform[] | undefined): SkillPlatf
   });
 }
 
-function tossSkillContent(): string {
+function loreSkillContent(): string {
   return `---
-name: toss
+name: Lore
 description: Detects information worth remembering from conversation — schedules, tasks, expenses, decisions, learnings, thoughts — and stores it in a personal database proactively. Also recalls and analyzes stored data. Activate whenever user mentions dates, plans, purchases, reflections, or asks about past data.
 ---
 
-# toss
+# Lore
 
 A personal database that AI manages on behalf of humans. You design the schema, evolve it, and store data proactively — users never think about tables or migrations.
 
@@ -190,7 +190,7 @@ You design all tables. Follow these conventions:
 - When schema grows unclear, refactor: rename for clarity, split bloated tables, merge redundant ones.
 
 **Before creating a new table, check for semantic overlap:**
-- Read the current schema and examine existing tables. If a table covering a similar domain already exists, query its rows with \`toss read\` to understand how it is actually used.
+- Read the current schema and examine existing tables. If a table covering a similar domain already exists, query its rows with \`lore read\` to understand how it is actually used.
 - If the existing table serves the same purpose under a different name (e.g., \`events\` already stores what would go in \`schedules\`), reuse it — or rename it via migration if the new name is clearly better.
 - If the existing table serves a genuinely different purpose despite a similar name, keep both and create the new table.
 - If the overlap is ambiguous, ask the user which direction to take before writing.
@@ -209,7 +209,7 @@ schema -> plan -> apply
 
 1. Read current schema:
 \`\`\`bash
-toss schema
+lore schema
 \`\`\`
 
 2. Build OperationPlan. Include schema changes and data mutations together:
@@ -240,14 +240,14 @@ toss schema
 
 3. Dry-run (recommended for schema changes, optional for simple inserts):
 \`\`\`bash
-cat <<'JSON' | toss plan -
+cat <<'JSON' | lore plan -
 <plan JSON>
 JSON
 \`\`\`
 
 4. Apply:
 \`\`\`bash
-cat <<'JSON' | toss apply -
+cat <<'JSON' | lore apply -
 <plan JSON>
 JSON
 \`\`\`
@@ -258,7 +258,7 @@ JSON
 
 Convert request to SQL and query:
 \`\`\`bash
-toss read --sql "SELECT date, item, amount FROM expenses WHERE category = 'food' AND date >= '2026-02-01' ORDER BY date" --json
+lore read --sql "SELECT date, item, amount FROM expenses WHERE category = 'food' AND date >= '2026-02-01' ORDER BY date" --json
 \`\`\`
 
 Present results with a short interpretation.
@@ -276,31 +276,31 @@ Present results with a short interpretation.
 - MUST prefer SQLite-generated timestamps for system fields (via SQL defaults) instead of injecting current time in values.
 - For finite category/status fields, define and maintain explicit \`CHECK\` constraints.
 - For destructive operations (\`drop_table\`, \`drop_column\`): prefer staged migration — add new -> migrate data -> verify -> drop old.
-- MUST NOT run \`toss clean\`, \`toss init --force-new\`, or \`toss clone --force-new\` unless the user explicitly requests destructive reset/replacement.
+- MUST NOT run \`lore clean\`, \`lore init --force-new\`, or \`lore clone --force-new\` unless the user explicitly requests destructive reset/replacement.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| \`toss schema [<table>]\` | Read current schema |
-| \`toss plan <file\\|->\` | Dry-run validation |
-| \`toss apply <file\\|->\` | Execute and commit |
-| \`toss read --sql "<SELECT>" --json\` | Read-only query |
-| \`toss status [--json]\` | Database overview |
-| \`toss history [--verbose] [--json]\` | Commit log |
-| \`toss verify [--full]\` | Integrity check |
-| \`toss revert <commit_id>\` | Reverse a commit |
-| \`toss recover <commit_id>\` | Restore from snapshot |
-| \`toss remote connect --platform <turso\\|libsql> --url <url> [--token <token>\\|--clear-token]\` | Configure remote |
-| \`toss remote status\` | Show local/remote sync state |
-| \`toss push\` | Push local commits |
-| \`toss pull\` | Pull remote commits |
-| \`toss sync\` | Pull then push |
-| \`toss clone <url> --platform <turso\\|libsql> [--force-new]\` | Initialize local DB from remote |
-| \`toss init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]\` | Initialize local DB |
-| \`toss clean [--yes] [--json]\` | Remove global integration files |
+| \`lore schema [<table>]\` | Read current schema |
+| \`lore plan <file\\|->\` | Dry-run validation |
+| \`lore apply <file\\|->\` | Execute and commit |
+| \`lore read --sql "<SELECT>" --json\` | Read-only query |
+| \`lore status [--json]\` | Database overview |
+| \`lore history [--verbose] [--json]\` | Commit log |
+| \`lore verify [--full]\` | Integrity check |
+| \`lore revert <commit_id>\` | Reverse a commit |
+| \`lore recover <commit_id>\` | Restore from snapshot |
+| \`lore remote connect --platform <turso\\|libsql> --url <url> [--token <token>\\|--clear-token]\` | Configure remote |
+| \`lore remote status\` | Show local/remote sync state |
+| \`lore push\` | Push local commits |
+| \`lore pull\` | Pull remote commits |
+| \`lore sync\` | Pull then push |
+| \`lore clone <url> --platform <turso\\|libsql> [--force-new]\` | Initialize local DB from remote |
+| \`lore init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]\` | Initialize local DB |
+| \`lore clean [--yes] [--json]\` | Remove global integration files |
 
-IMPORTANT: You can run toss commands from any directory. toss always uses \`~/.toss/toss.db\`.
+IMPORTANT: You can run lore commands from any directory. Lore always uses \`~/.lore/lore.db\`.
 
 ## Examples
 
@@ -312,7 +312,7 @@ User says: "I booked a dentist appointment tomorrow at 2pm"
 # 1. Read schema -> schedules table does not exist yet
 
 # 2. Apply with table creation + insert
-cat <<'JSON' | toss apply -
+cat <<'JSON' | lore apply -
 {
   "message": "dentist appointment 2026-02-21 14:00",
   "operations": [
@@ -347,7 +347,7 @@ User says: "Had lunch at Ichiran in Shibuya, 1200 yen"
 Schema already has \`expenses(id, date, item, amount, category, note)\` — location is new.
 
 \`\`\`bash
-cat <<'JSON' | toss apply -
+cat <<'JSON' | lore apply -
 {
   "message": "lunch expense with location tracking",
   "operations": [
@@ -374,7 +374,7 @@ JSON
 User says: "We changed the auth decision from session to JWT."
 
 \`\`\`bash
-cat <<'JSON' | toss apply -
+cat <<'JSON' | lore apply -
 {
   "message": "update auth decision to JWT",
   "operations": [
@@ -397,7 +397,7 @@ JSON
 During debugging, user resolves a tricky issue:
 
 \`\`\`bash
-cat <<'JSON' | toss apply -
+cat <<'JSON' | lore apply -
 {
   "message": "debug insight: SQLite WAL mode lock contention",
   "operations": [
@@ -408,7 +408,7 @@ cat <<'JSON' | toss apply -
         "date": "2026-02-20",
         "topic": "sqlite",
         "insight": "WAL mode with PRAGMA busy_timeout=5000 resolves intermittent SQLITE_BUSY in concurrent reads",
-        "context": "toss CLI failing under parallel test runs",
+        "context": "Lore CLI failing under parallel test runs",
         "tags": "sqlite,debugging,concurrency"
       }
     }
@@ -422,7 +422,7 @@ JSON
 User asks: "How much did I spend on food this month?"
 
 \`\`\`bash
-toss read --sql "SELECT SUM(amount) as total, COUNT(*) as count FROM expenses WHERE category = 'food' AND date >= '2026-02-01'" --json
+lore read --sql "SELECT SUM(amount) as total, COUNT(*) as count FROM expenses WHERE category = 'food' AND date >= '2026-02-01'" --json
 \`\`\`
 
 Response: "You spent a total of 12,450 yen on food this month across 14 meals."
@@ -434,11 +434,11 @@ Response: "You spent a total of 12,450 yen on food this month across 14 meals."
 }
 
 function contractsReferenceContent(): string {
-  return `# toss Operation Contracts
+  return `# Lore Operation Contracts
 
 ## OperationPlan Envelope
 
-Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss apply -\`:
+Every write goes through this JSON envelope piped to \`lore plan -\` or \`lore apply -\`:
 
 \`\`\`json
 {
@@ -470,7 +470,7 @@ Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss a
 - \`default\` supports:
   - \`{"kind":"literal","value":<string|number|boolean|null>}\`
   - \`{"kind":"sql","expr":"CURRENT_TIMESTAMP"|"CURRENT_DATE"|"CURRENT_TIME"}\`
-- Table/column names: letters, digits, underscore. No \`_toss_\` or \`sqlite_\` prefix.
+- Table/column names: letters, digits, underscore. No \`_lore_\` or \`sqlite_\` prefix.
 
 ### add_column
 \`\`\`json
@@ -558,41 +558,41 @@ Every write goes through this JSON envelope piped to \`toss plan -\` or \`toss a
 
 ### schema
 \`\`\`bash
-toss schema [<table>]
+lore schema [<table>]
 \`\`\`
 Returns JSON with tables, columns, indexes, foreign keys, triggers, checks, and row counts.
 
 ### read
 \`\`\`bash
-toss read --sql "<SELECT | WITH...SELECT>" [--json]
+lore read --sql "<SELECT | WITH...SELECT>" [--json]
 \`\`\`
 Single statement, read-only. Use \`--json\` for structured output.
 
 ### plan (dry-run)
 \`\`\`bash
-toss plan <file|->
+lore plan <file|->
 \`\`\`
 Returns: \`ok\`, \`errors\`, \`warnings\`, \`risk\` (low/medium/high), predicted effects.
 
 ## Other Commands
 
-- \`toss history [--verbose] [--json]\`: Commit log with optional detail.
-- \`toss verify [--full]\`: Chain hash validation + optional SQLite integrity check.
-- \`toss revert <commit_id>\`: Inverse commit. Returns conflict details if revert is blocked.
-- \`toss status [--json]\`: Database path, table count, HEAD commit info.
-- \`toss recover <commit_id>\`: Disaster recovery from snapshot.
-- \`toss remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]\`: Configure remote connection.
-- \`toss remote status\`: Show local/remote sync state.
-- \`toss push\` / \`toss pull\` / \`toss sync\`: Explicit sync controls.
-- \`toss clone <url> --platform <turso|libsql> [--force-new]\`: Initialize from remote.
-- \`toss init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]\`: Initialize local DB.
-- \`toss clean [--yes] [--json]\`: Remove global integration files (destructive).
+- \`lore history [--verbose] [--json]\`: Commit log with optional detail.
+- \`lore verify [--full]\`: Chain hash validation + optional SQLite integrity check.
+- \`lore revert <commit_id>\`: Inverse commit. Returns conflict details if revert is blocked.
+- \`lore status [--json]\`: Database path, table count, HEAD commit info.
+- \`lore recover <commit_id>\`: Disaster recovery from snapshot.
+- \`lore remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]\`: Configure remote connection.
+- \`lore remote status\`: Show local/remote sync state.
+- \`lore push\` / \`lore pull\` / \`lore sync\`: Explicit sync controls.
+- \`lore clone <url> --platform <turso|libsql> [--force-new]\`: Initialize from remote.
+- \`lore init [--platforms <list>] [--no-skills] [--no-heartbeat] [--force-new] [--yes] [--json]\`: Initialize local DB.
+- \`lore clean [--yes] [--json]\`: Remove global integration files (destructive).
 `;
 }
 
 function cursorRuleContent(): string {
   return `---
-description: toss personal database — detects storable info (schedules, tasks, expenses, decisions, learnings) from conversation and manages schema evolution proactively
+description: Lore personal database — detects storable info (schedules, tasks, expenses, decisions, learnings) from conversation and manages schema evolution proactively
 alwaysApply: false
 ---
 
@@ -605,13 +605,13 @@ Activate when conversation contains information worth remembering or user asks a
 - Keep written content values in the user-requested language; default to the current user message language when unspecified.
 
 ## Commands
-- \`toss schema\` — read current schema
-- \`toss plan -\` — dry-run validation
-- \`toss apply -\` — execute and commit
-- \`toss read --sql "<SELECT ...>" --json\` — query data
-- \`toss remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]\` — configure remote
-- \`toss remote status\` / \`toss push\` / \`toss pull\` / \`toss sync\` — remote sync controls
-- \`toss clone <url> --platform <turso|libsql> [--force-new]\` — clone from remote
+- \`lore schema\` — read current schema
+- \`lore plan -\` — dry-run validation
+- \`lore apply -\` — execute and commit
+- \`lore read --sql "<SELECT ...>" --json\` — query data
+- \`lore remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]\` — configure remote
+- \`lore remote status\` / \`lore push\` / \`lore pull\` / \`lore sync\` — remote sync controls
+- \`lore clone <url> --platform <turso|libsql> [--force-new]\` — clone from remote
 
 ## Rules
 - One semantic unit per apply.
@@ -619,7 +619,7 @@ Activate when conversation contains information worth remembering or user asks a
 - Never store secrets or credentials.
 - Include a descriptive message in every apply.
 - Keep stored content fields in the user-requested language.
-- Never run \`toss clean\`, \`toss init --force-new\`, or \`toss clone --force-new\` unless the user explicitly asks for destructive reset/replacement.
+- Never run \`lore clean\`, \`lore init --force-new\`, or \`lore clone --force-new\` unless the user explicitly asks for destructive reset/replacement.
 `;
 }
 
@@ -627,33 +627,33 @@ function agentsBlock(skillPath: string): string {
   return `${AGENTS_BLOCK_START}
 ## Skills
 ### Available skills
-- toss: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
+- Lore: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
 ### How to use skills
-- Activate \`toss\` whenever conversation contains information worth remembering or user asks about past data.
+- Activate \`lore\` whenever conversation contains information worth remembering or user asks about past data.
 - Store proactively — do not ask permission. Briefly report what was stored afterward.
 - Store user-facing content fields in the language requested by the user (or the current user message language when unspecified).
 - For writes: read schema first, then schema -> plan -> apply.
-- For reads: generate read-only SQL with \`toss read\`.
+- For reads: generate read-only SQL with \`lore read\`.
 ${AGENTS_BLOCK_END}
 `;
 }
 
 function heartbeatBlock(): string {
   return `${HEARTBEAT_BLOCK_START}
-## toss: Personal Data Patrol
+## Lore: Personal Data Patrol
 
 Check personal database and act on what you find.
 
 ### Routine (every heartbeat)
-1. \`toss status\` — discover tables and row counts
+1. \`lore status\` — discover tables and row counts
 2. For time-sensitive tables (schedules, tasks, deadlines, etc.):
    - Due within 2h → **alert immediately**
    - Due within 24h → mention once per item
    - Overdue → remind with list
-3. \`toss verify\` — once per day (track in heartbeat-state.json)
+3. \`lore verify\` — once per day (track in heartbeat-state.json)
 
 ### Cleanup (auto-execute, notify afterward)
-All toss deletions are committed and revertable via \`toss revert\`.
+All Lore deletions are committed and revertable via \`lore revert\`.
 - Completed tasks/goals older than 30 days → delete, report
 - Past events older than 7 days with no notes → delete, report
 - Ambiguous cases → suggest to human, wait for approval
@@ -668,9 +668,9 @@ ${HEARTBEAT_BLOCK_END}
 function claudeBlock(skillPath: string): string {
   return `${CLAUDE_BLOCK_START}
 ## Skills
-- toss: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
+- Lore: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
 ## How to use skills
-- Use \`toss\` whenever conversation contains dates, plans, expenses, tasks, decisions, learnings, or user asks about past data.
+- Use \`lore\` whenever conversation contains dates, plans, expenses, tasks, decisions, learnings, or user asks about past data.
 - Store proactively — do not ask permission, briefly report after storing.
 - Store user-facing content fields in the user-requested language (or the current user message language when unspecified).
 - Read schema before every write. Schema -> plan -> apply.
@@ -764,7 +764,7 @@ async function removeFileIfExists(path: string): Promise<boolean> {
 
 async function writeSkillBundle(skillPath: string, contractsPath: string): Promise<void> {
   await Promise.all([
-    writeText(skillPath, tossSkillContent()),
+    writeText(skillPath, loreSkillContent()),
     writeText(contractsPath, contractsReferenceContent()),
   ]);
 }

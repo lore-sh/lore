@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { initDb, openDb } from "@toss/core";
+import { initDb, openDb } from "@lore/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ describe("studio app asset routing", () => {
 
   test("missing asset path returns 404 instead of index fallback", async () => {
     const dir = mkdtempSync(join(tmpdir(), "studio-app-test-"));
-    const dbPath = join(dir, "toss.db");
+    const dbPath = join(dir, "lore.db");
     await initDb({ dbPath });
     const db = openDb(dbPath);
     const app = createStudioApp(db);

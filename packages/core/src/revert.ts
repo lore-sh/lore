@@ -208,7 +208,7 @@ function preflightInverseApply(
   try {
     runInSavepoint(
       db,
-      "toss_revert_preflight",
+      "lore_revert_preflight",
       () => {
         applyInverse(db, targetRows, targetSchemas, "REVERT_FAILED", "revert preflight");
       },

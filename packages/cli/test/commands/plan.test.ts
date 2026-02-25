@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { initDb, openDb, type Database } from "@toss/core";
+import { initDb, openDb, type Database } from "@lore/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePlanArgs, runPlan } from "../../src/commands/plan";
 
 async function withTempDb<T>(dir: string, run: (db: Database) => Promise<T>): Promise<T> {
-  const dbPath = join(dir, "toss.db");
+  const dbPath = join(dir, "lore.db");
   await initDb({ dbPath });
   const db = openDb(dbPath);
   try {
@@ -32,7 +32,7 @@ describe("plan command", () => {
   });
 
   test("runPlan prints JSON check result when plan file is missing", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "toss-cli-plan-missing-"));
+    const dir = mkdtempSync(join(tmpdir(), "lore-cli-plan-missing-"));
     const originalLog = console.log;
     const originalExit = process.exit;
     const logs: string[] = [];
@@ -63,7 +63,7 @@ describe("plan command", () => {
   });
 
   test("runPlan preserves structured INVALID_JSON output", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "toss-cli-plan-invalid-"));
+    const dir = mkdtempSync(join(tmpdir(), "lore-cli-plan-invalid-"));
     const originalLog = console.log;
     const originalExit = process.exit;
     const logs: string[] = [];

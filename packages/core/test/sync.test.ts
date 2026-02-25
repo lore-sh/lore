@@ -400,14 +400,14 @@ describe("sync with Turso protocol", () => {
     const remoteDbAfter = new Database(remote.dbPath);
     try {
       const head = remoteDbAfter
-        .query<{ commit_id: string | null }, []>("SELECT commit_id FROM _toss_ref WHERE name='main' LIMIT 1")
+        .query<{ commit_id: string | null }, []>("SELECT commit_id FROM _lore_ref WHERE name='main' LIMIT 1")
         .get();
       expect(head?.commit_id ?? null).toBe(initialHead);
-      const count = remoteDbAfter.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM _toss_commit").get();
+      const count = remoteDbAfter.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM _lore_commit").get();
       expect(count?.c ?? 0).toBe(1);
       const projectionError = remoteDbAfter
         .query<{ value: string }, []>(
-          "SELECT value FROM _toss_meta WHERE key='last_materialized_error' LIMIT 1",
+          "SELECT value FROM _lore_meta WHERE key='last_materialized_error' LIMIT 1",
         )
         .get();
       expect((projectionError?.value ?? "").length).toBeGreaterThan(0);
@@ -474,7 +474,7 @@ describe("sync with Turso protocol", () => {
 
     const remoteDbAfter = new Database(remote.dbPath);
     try {
-      const count = remoteDbAfter.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM _toss_commit").get();
+      const count = remoteDbAfter.query<{ c: number }, []>("SELECT COUNT(*) AS c FROM _lore_commit").get();
       expect(count?.c ?? 0).toBe(2);
     } finally {
       remoteDbAfter.close(false);
@@ -523,11 +523,11 @@ describe("sync with Turso protocol", () => {
     const remoteDb = new Database(remote.dbPath);
     try {
       remoteDb
-        .query("UPDATE _toss_row_effect SET after_json = ? WHERE commit_id = ? AND effect_index = 0")
+        .query("UPDATE _lore_row_effect SET after_json = ? WHERE commit_id = ? AND effect_index = 0")
         .run(tamperedAfterRow, insertCommitId);
       remoteDb
         .query(
-          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _lore_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run(createCommitId);
     } finally {
@@ -550,7 +550,7 @@ describe("sync with Turso protocol", () => {
     try {
       const projectionError = remoteDbAfter
         .query<{ value: string }, []>(
-          "SELECT value FROM _toss_meta WHERE key='last_materialized_error' LIMIT 1",
+          "SELECT value FROM _lore_meta WHERE key='last_materialized_error' LIMIT 1",
         )
         .get();
       expect((projectionError?.value ?? "").startsWith("Remote projection failed:")).toBe(true);
@@ -647,7 +647,7 @@ describe("sync with Turso protocol", () => {
 
     const remoteDb = new Database(remote.dbPath);
     try {
-      remoteDb.query("UPDATE _toss_ref SET commit_id=?, updated_at=? WHERE name='main'").run(rollbackHead, Date.now());
+      remoteDb.query("UPDATE _lore_ref SET commit_id=?, updated_at=? WHERE name='main'").run(rollbackHead, Date.now());
     } finally {
       remoteDb.close(false);
     }
@@ -703,7 +703,7 @@ describe("sync with Turso protocol", () => {
 
     const remoteDb = new Database(remote.dbPath);
     try {
-      remoteDb.query("UPDATE _toss_ref SET commit_id=?, updated_at=? WHERE name='main'").run(rollbackHead, Date.now());
+      remoteDb.query("UPDATE _lore_ref SET commit_id=?, updated_at=? WHERE name='main'").run(rollbackHead, Date.now());
     } finally {
       remoteDb.close(false);
     }
@@ -781,7 +781,7 @@ describe("sync with Turso protocol", () => {
       remoteDb.query("DELETE FROM tasks WHERE id = 2").run();
       remoteDb
         .query(
-          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _lore_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run(checkpointCommitId);
     } finally {
@@ -849,12 +849,12 @@ describe("sync with Turso protocol", () => {
       remoteDb.query("DROP TABLE tasks").run();
       remoteDb
         .query(
-          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _lore_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run("f".repeat(64));
       remoteDb
         .query(
-          "INSERT INTO _toss_meta(key, value) VALUES ('last_materialized_error', 'stale') ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+          "INSERT INTO _lore_meta(key, value) VALUES ('last_materialized_error', 'stale') ON CONFLICT(key) DO UPDATE SET value=excluded.value",
         )
         .run();
     } finally {
@@ -1100,7 +1100,7 @@ describe("sync with Turso protocol", () => {
 
     const remoteDb = new Database(remote.dbPath);
     try {
-      remoteDb.query("UPDATE _toss_commit SET message = 'tampered message' WHERE seq = 1").run();
+      remoteDb.query("UPDATE _lore_commit SET message = 'tampered message' WHERE seq = 1").run();
     } finally {
       remoteDb.close(false);
     }
@@ -1149,7 +1149,7 @@ describe("sync with Turso protocol", () => {
 
     const remoteDb = new Database(remote.dbPath);
     try {
-      remoteDb.query("UPDATE _toss_commit SET seq = '1abc' WHERE seq = 1").run();
+      remoteDb.query("UPDATE _lore_commit SET seq = '1abc' WHERE seq = 1").run();
     } finally {
       remoteDb.close(false);
     }
@@ -1477,7 +1477,7 @@ describe("sync with Turso protocol", () => {
     const remoteDb = new Database(remote.dbPath);
     try {
       remoteDb
-        .query("UPDATE _toss_meta SET value = '2' WHERE key = ?")
+        .query("UPDATE _lore_meta SET value = '2' WHERE key = ?")
         .run(SYNC_PROTOCOL_VERSION_META_KEY);
     } finally {
       remoteDb.close(false);
@@ -1527,9 +1527,9 @@ describe("sync with Turso protocol", () => {
       await push(currentDb());
       expect(status(currentDb()).sync.state).toBe("synced");
 
-      currentDb().$client.query("UPDATE _toss_meta SET value = '2' WHERE key = ?").run(SYNC_PROTOCOL_VERSION_META_KEY);
+      currentDb().$client.query("UPDATE _lore_meta SET value = '2' WHERE key = ?").run(SYNC_PROTOCOL_VERSION_META_KEY);
       const localProtocol = currentDb().$client
-        .query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1")
+        .query<{ value: string }, [string]>("SELECT value FROM _lore_meta WHERE key = ? LIMIT 1")
         .get(SYNC_PROTOCOL_VERSION_META_KEY);
       expect(localProtocol?.value).toBe("2");
 
@@ -1611,8 +1611,8 @@ describe("sync with Turso protocol", () => {
 
 function getMetaValueOrThrow(db: Database | import("../src").Database, key: string): string {
   const row = ("$client" in db
-    ? db.$client.query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1").get(key)
-    : db.query<{ value: string }, [string]>("SELECT value FROM _toss_meta WHERE key = ? LIMIT 1").get(key));
+    ? db.$client.query<{ value: string }, [string]>("SELECT value FROM _lore_meta WHERE key = ? LIMIT 1").get(key)
+    : db.query<{ value: string }, [string]>("SELECT value FROM _lore_meta WHERE key = ? LIMIT 1").get(key));
   if (!row) {
     throw new Error(`missing meta key: ${key}`);
   }

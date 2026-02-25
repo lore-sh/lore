@@ -318,7 +318,7 @@ describe("alter_column_type", () => {
 });
 
 describe("check operations", () => {
-  testWithTmp("add_check enforces constraint for toss writes and raw SQL writes", async () => {
+  testWithTmp("add_check enforces constraint for lore writes and raw SQL writes", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });
 

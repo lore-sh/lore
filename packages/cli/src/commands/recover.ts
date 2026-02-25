@@ -1,4 +1,4 @@
-import { recover, resolveDbPath } from "@toss/core";
+import { recover, resolveDbPath } from "@lore/core";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { toJson } from "../format";

@@ -4,8 +4,8 @@
   "id": "16e188d6-9256-49bd-ad99-558c55311c66",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "_toss_commit_parent": {
-      "name": "_toss_commit_parent",
+    "_lore_commit_parent": {
+      "name": "_lore_commit_parent",
       "columns": {
         "commit_id": {
           "name": "commit_id",
@@ -30,15 +30,15 @@
         }
       },
       "indexes": {
-        "idx_toss_commit_parent_parent": {
-          "name": "idx_toss_commit_parent_parent",
+        "idx_lore_commit_parent_parent": {
+          "name": "idx_lore_commit_parent_parent",
           "columns": [
             "parent_commit_id"
           ],
           "isUnique": false
         },
-        "uq_toss_commit_parent_commit_parent": {
-          "name": "uq_toss_commit_parent_commit_parent",
+        "uq_lore_commit_parent_commit_parent": {
+          "name": "uq_lore_commit_parent_commit_parent",
           "columns": [
             "commit_id",
             "parent_commit_id"
@@ -47,10 +47,10 @@
         }
       },
       "foreignKeys": {
-        "_toss_commit_parent_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_commit_parent_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_commit_parent",
-          "tableTo": "_toss_commit",
+        "_lore_commit_parent_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_commit_parent_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_commit_parent",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "commit_id"
           ],
@@ -60,10 +60,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "_toss_commit_parent_parent_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_commit_parent_parent_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_commit_parent",
-          "tableTo": "_toss_commit",
+        "_lore_commit_parent_parent_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_commit_parent_parent_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_commit_parent",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "parent_commit_id"
           ],
@@ -75,24 +75,24 @@
         }
       },
       "compositePrimaryKeys": {
-        "_toss_commit_parent_commit_id_ord_pk": {
+        "_lore_commit_parent_commit_id_ord_pk": {
           "columns": [
             "commit_id",
             "ord"
           ],
-          "name": "_toss_commit_parent_commit_id_ord_pk"
+          "name": "_lore_commit_parent_commit_id_ord_pk"
         }
       },
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_commit_parent_ord_non_negative": {
-          "name": "chk_toss_commit_parent_ord_non_negative",
-          "value": "\"_toss_commit_parent\".\"ord\" >= 0"
+        "chk_lore_commit_parent_ord_non_negative": {
+          "name": "chk_lore_commit_parent_ord_non_negative",
+          "value": "\"_lore_commit_parent\".\"ord\" >= 0"
         }
       }
     },
-    "_toss_commit": {
-      "name": "_toss_commit",
+    "_lore_commit": {
+      "name": "_lore_commit",
       "columns": {
         "commit_id": {
           "name": "commit_id",
@@ -180,8 +180,8 @@
         }
       },
       "indexes": {
-        "_toss_commit_seq_unique": {
-          "name": "_toss_commit_seq_unique",
+        "_lore_commit_seq_unique": {
+          "name": "_lore_commit_seq_unique",
           "columns": [
             "seq"
           ],
@@ -189,10 +189,10 @@
         }
       },
       "foreignKeys": {
-        "_toss_commit_revert_target_id__toss_commit_commit_id_fk": {
-          "name": "_toss_commit_revert_target_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_commit",
-          "tableTo": "_toss_commit",
+        "_lore_commit_revert_target_id__lore_commit_commit_id_fk": {
+          "name": "_lore_commit_revert_target_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_commit",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "revert_target_id"
           ],
@@ -206,54 +206,54 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_commit_seq_positive": {
-          "name": "chk_toss_commit_seq_positive",
-          "value": "\"_toss_commit\".\"seq\" > 0"
+        "chk_lore_commit_seq_positive": {
+          "name": "chk_lore_commit_seq_positive",
+          "value": "\"_lore_commit\".\"seq\" > 0"
         },
-        "chk_toss_commit_message_non_empty": {
-          "name": "chk_toss_commit_message_non_empty",
-          "value": "length(trim(\"_toss_commit\".\"message\")) > 0"
+        "chk_lore_commit_message_non_empty": {
+          "name": "chk_lore_commit_message_non_empty",
+          "value": "length(trim(\"_lore_commit\".\"message\")) > 0"
         },
-        "chk_toss_commit_created_at_non_negative": {
-          "name": "chk_toss_commit_created_at_non_negative",
-          "value": "\"_toss_commit\".\"created_at\" >= 0"
+        "chk_lore_commit_created_at_non_negative": {
+          "name": "chk_lore_commit_created_at_non_negative",
+          "value": "\"_lore_commit\".\"created_at\" >= 0"
         },
-        "chk_toss_commit_parent_count_non_negative": {
-          "name": "chk_toss_commit_parent_count_non_negative",
-          "value": "\"_toss_commit\".\"parent_count\" >= 0"
+        "chk_lore_commit_parent_count_non_negative": {
+          "name": "chk_lore_commit_parent_count_non_negative",
+          "value": "\"_lore_commit\".\"parent_count\" >= 0"
         },
-        "chk_toss_commit_revertible_bool": {
-          "name": "chk_toss_commit_revertible_bool",
-          "value": "\"_toss_commit\".\"revertible\" in (0, 1)"
+        "chk_lore_commit_revertible_bool": {
+          "name": "chk_lore_commit_revertible_bool",
+          "value": "\"_lore_commit\".\"revertible\" in (0, 1)"
         },
-        "chk_toss_commit_id_hash_len": {
-          "name": "chk_toss_commit_id_hash_len",
-          "value": "length(\"_toss_commit\".\"commit_id\") = 64"
+        "chk_lore_commit_id_hash_len": {
+          "name": "chk_lore_commit_id_hash_len",
+          "value": "length(\"_lore_commit\".\"commit_id\") = 64"
         },
-        "chk_toss_commit_schema_before_hash_len": {
-          "name": "chk_toss_commit_schema_before_hash_len",
-          "value": "length(\"_toss_commit\".\"schema_hash_before\") = 64"
+        "chk_lore_commit_schema_before_hash_len": {
+          "name": "chk_lore_commit_schema_before_hash_len",
+          "value": "length(\"_lore_commit\".\"schema_hash_before\") = 64"
         },
-        "chk_toss_commit_schema_after_hash_len": {
-          "name": "chk_toss_commit_schema_after_hash_len",
-          "value": "length(\"_toss_commit\".\"schema_hash_after\") = 64"
+        "chk_lore_commit_schema_after_hash_len": {
+          "name": "chk_lore_commit_schema_after_hash_len",
+          "value": "length(\"_lore_commit\".\"schema_hash_after\") = 64"
         },
-        "chk_toss_commit_state_hash_len": {
-          "name": "chk_toss_commit_state_hash_len",
-          "value": "length(\"_toss_commit\".\"state_hash_after\") = 64"
+        "chk_lore_commit_state_hash_len": {
+          "name": "chk_lore_commit_state_hash_len",
+          "value": "length(\"_lore_commit\".\"state_hash_after\") = 64"
         },
-        "chk_toss_commit_plan_hash_len": {
-          "name": "chk_toss_commit_plan_hash_len",
-          "value": "length(\"_toss_commit\".\"plan_hash\") = 64"
+        "chk_lore_commit_plan_hash_len": {
+          "name": "chk_lore_commit_plan_hash_len",
+          "value": "length(\"_lore_commit\".\"plan_hash\") = 64"
         },
-        "chk_toss_commit_revert_target_hash_len_or_null": {
-          "name": "chk_toss_commit_revert_target_hash_len_or_null",
-          "value": "\"_toss_commit\".\"revert_target_id\" is null or length(\"_toss_commit\".\"revert_target_id\") = 64"
+        "chk_lore_commit_revert_target_hash_len_or_null": {
+          "name": "chk_lore_commit_revert_target_hash_len_or_null",
+          "value": "\"_lore_commit\".\"revert_target_id\" is null or length(\"_lore_commit\".\"revert_target_id\") = 64"
         }
       }
     },
-    "_toss_meta": {
-      "name": "_toss_meta",
+    "_lore_meta": {
+      "name": "_lore_meta",
       "columns": {
         "key": {
           "name": "key",
@@ -275,14 +275,14 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_meta_key_non_empty": {
-          "name": "chk_toss_meta_key_non_empty",
-          "value": "length(\"_toss_meta\".\"key\") > 0"
+        "chk_lore_meta_key_non_empty": {
+          "name": "chk_lore_meta_key_non_empty",
+          "value": "length(\"_lore_meta\".\"key\") > 0"
         }
       }
     },
-    "_toss_op": {
-      "name": "_toss_op",
+    "_lore_op": {
+      "name": "_lore_op",
       "columns": {
         "commit_id": {
           "name": "commit_id",
@@ -315,10 +315,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "_toss_op_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_op_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_op",
-          "tableTo": "_toss_commit",
+        "_lore_op_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_op_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_op",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "commit_id"
           ],
@@ -330,28 +330,28 @@
         }
       },
       "compositePrimaryKeys": {
-        "_toss_op_commit_id_op_index_pk": {
+        "_lore_op_commit_id_op_index_pk": {
           "columns": [
             "commit_id",
             "op_index"
           ],
-          "name": "_toss_op_commit_id_op_index_pk"
+          "name": "_lore_op_commit_id_op_index_pk"
         }
       },
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_op_op_index_non_negative": {
-          "name": "chk_toss_op_op_index_non_negative",
-          "value": "\"_toss_op\".\"op_index\" >= 0"
+        "chk_lore_op_op_index_non_negative": {
+          "name": "chk_lore_op_op_index_non_negative",
+          "value": "\"_lore_op\".\"op_index\" >= 0"
         },
-        "chk_toss_op_json_valid": {
-          "name": "chk_toss_op_json_valid",
-          "value": "json_valid(\"_toss_op\".\"op_json\")"
+        "chk_lore_op_json_valid": {
+          "name": "chk_lore_op_json_valid",
+          "value": "json_valid(\"_lore_op\".\"op_json\")"
         }
       }
     },
-    "_toss_ref": {
-      "name": "_toss_ref",
+    "_lore_ref": {
+      "name": "_lore_ref",
       "columns": {
         "name": {
           "name": "name",
@@ -378,10 +378,10 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "_toss_ref_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_ref_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_ref",
-          "tableTo": "_toss_commit",
+        "_lore_ref_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_ref_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_ref",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "commit_id"
           ],
@@ -395,22 +395,22 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_ref_name_non_empty": {
-          "name": "chk_toss_ref_name_non_empty",
-          "value": "length(trim(\"_toss_ref\".\"name\")) > 0"
+        "chk_lore_ref_name_non_empty": {
+          "name": "chk_lore_ref_name_non_empty",
+          "value": "length(trim(\"_lore_ref\".\"name\")) > 0"
         },
-        "chk_toss_ref_updated_at_non_negative": {
-          "name": "chk_toss_ref_updated_at_non_negative",
-          "value": "\"_toss_ref\".\"updated_at\" >= 0"
+        "chk_lore_ref_updated_at_non_negative": {
+          "name": "chk_lore_ref_updated_at_non_negative",
+          "value": "\"_lore_ref\".\"updated_at\" >= 0"
         },
-        "chk_toss_ref_commit_id_hash_len_or_null": {
-          "name": "chk_toss_ref_commit_id_hash_len_or_null",
-          "value": "\"_toss_ref\".\"commit_id\" is null or length(\"_toss_ref\".\"commit_id\") = 64"
+        "chk_lore_ref_commit_id_hash_len_or_null": {
+          "name": "chk_lore_ref_commit_id_hash_len_or_null",
+          "value": "\"_lore_ref\".\"commit_id\" is null or length(\"_lore_ref\".\"commit_id\") = 64"
         }
       }
     },
-    "_toss_reflog": {
-      "name": "_toss_reflog",
+    "_lore_reflog": {
+      "name": "_lore_reflog",
       "columns": {
         "id": {
           "name": "id",
@@ -457,8 +457,8 @@
         }
       },
       "indexes": {
-        "idx_toss_reflog_ref_name_id": {
-          "name": "idx_toss_reflog_ref_name_id",
+        "idx_lore_reflog_ref_name_id": {
+          "name": "idx_lore_reflog_ref_name_id",
           "columns": [
             "ref_name",
             "id"
@@ -467,10 +467,10 @@
         }
       },
       "foreignKeys": {
-        "_toss_reflog_ref_name__toss_ref_name_fk": {
-          "name": "_toss_reflog_ref_name__toss_ref_name_fk",
-          "tableFrom": "_toss_reflog",
-          "tableTo": "_toss_ref",
+        "_lore_reflog_ref_name__lore_ref_name_fk": {
+          "name": "_lore_reflog_ref_name__lore_ref_name_fk",
+          "tableFrom": "_lore_reflog",
+          "tableTo": "_lore_ref",
           "columnsFrom": [
             "ref_name"
           ],
@@ -480,10 +480,10 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "_toss_reflog_old_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_reflog_old_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_reflog",
-          "tableTo": "_toss_commit",
+        "_lore_reflog_old_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_reflog_old_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_reflog",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "old_commit_id"
           ],
@@ -493,10 +493,10 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "_toss_reflog_new_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_reflog_new_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_reflog",
-          "tableTo": "_toss_commit",
+        "_lore_reflog_new_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_reflog_new_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_reflog",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "new_commit_id"
           ],
@@ -510,22 +510,22 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_reflog_created_at_non_negative": {
-          "name": "chk_toss_reflog_created_at_non_negative",
-          "value": "\"_toss_reflog\".\"created_at\" >= 0"
+        "chk_lore_reflog_created_at_non_negative": {
+          "name": "chk_lore_reflog_created_at_non_negative",
+          "value": "\"_lore_reflog\".\"created_at\" >= 0"
         },
-        "chk_toss_reflog_old_commit_id_hash_len_or_null": {
-          "name": "chk_toss_reflog_old_commit_id_hash_len_or_null",
-          "value": "\"_toss_reflog\".\"old_commit_id\" is null or length(\"_toss_reflog\".\"old_commit_id\") = 64"
+        "chk_lore_reflog_old_commit_id_hash_len_or_null": {
+          "name": "chk_lore_reflog_old_commit_id_hash_len_or_null",
+          "value": "\"_lore_reflog\".\"old_commit_id\" is null or length(\"_lore_reflog\".\"old_commit_id\") = 64"
         },
-        "chk_toss_reflog_new_commit_id_hash_len_or_null": {
-          "name": "chk_toss_reflog_new_commit_id_hash_len_or_null",
-          "value": "\"_toss_reflog\".\"new_commit_id\" is null or length(\"_toss_reflog\".\"new_commit_id\") = 64"
+        "chk_lore_reflog_new_commit_id_hash_len_or_null": {
+          "name": "chk_lore_reflog_new_commit_id_hash_len_or_null",
+          "value": "\"_lore_reflog\".\"new_commit_id\" is null or length(\"_lore_reflog\".\"new_commit_id\") = 64"
         }
       }
     },
-    "_toss_row_effect": {
-      "name": "_toss_row_effect",
+    "_lore_row_effect": {
+      "name": "_lore_row_effect",
       "columns": {
         "commit_id": {
           "name": "commit_id",
@@ -592,8 +592,8 @@
         }
       },
       "indexes": {
-        "idx_toss_row_effect_table_pk": {
-          "name": "idx_toss_row_effect_table_pk",
+        "idx_lore_row_effect_table_pk": {
+          "name": "idx_lore_row_effect_table_pk",
           "columns": [
             "table_name",
             "pk_json"
@@ -602,10 +602,10 @@
         }
       },
       "foreignKeys": {
-        "_toss_row_effect_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_row_effect_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_row_effect",
-          "tableTo": "_toss_commit",
+        "_lore_row_effect_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_row_effect_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_row_effect",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "commit_id"
           ],
@@ -617,60 +617,60 @@
         }
       },
       "compositePrimaryKeys": {
-        "_toss_row_effect_commit_id_effect_index_pk": {
+        "_lore_row_effect_commit_id_effect_index_pk": {
           "columns": [
             "commit_id",
             "effect_index"
           ],
-          "name": "_toss_row_effect_commit_id_effect_index_pk"
+          "name": "_lore_row_effect_commit_id_effect_index_pk"
         }
       },
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_row_effect_effect_index_non_negative": {
-          "name": "chk_toss_row_effect_effect_index_non_negative",
-          "value": "\"_toss_row_effect\".\"effect_index\" >= 0"
+        "chk_lore_row_effect_effect_index_non_negative": {
+          "name": "chk_lore_row_effect_effect_index_non_negative",
+          "value": "\"_lore_row_effect\".\"effect_index\" >= 0"
         },
-        "chk_toss_row_effect_table_name_non_empty": {
-          "name": "chk_toss_row_effect_table_name_non_empty",
-          "value": "length(trim(\"_toss_row_effect\".\"table_name\")) > 0"
+        "chk_lore_row_effect_table_name_non_empty": {
+          "name": "chk_lore_row_effect_table_name_non_empty",
+          "value": "length(trim(\"_lore_row_effect\".\"table_name\")) > 0"
         },
-        "chk_toss_row_effect_pk_json_valid": {
-          "name": "chk_toss_row_effect_pk_json_valid",
-          "value": "json_valid(\"_toss_row_effect\".\"pk_json\")"
+        "chk_lore_row_effect_pk_json_valid": {
+          "name": "chk_lore_row_effect_pk_json_valid",
+          "value": "json_valid(\"_lore_row_effect\".\"pk_json\")"
         },
-        "chk_toss_row_effect_before_json_valid_or_null": {
-          "name": "chk_toss_row_effect_before_json_valid_or_null",
-          "value": "\"_toss_row_effect\".\"before_json\" is null or json_valid(\"_toss_row_effect\".\"before_json\")"
+        "chk_lore_row_effect_before_json_valid_or_null": {
+          "name": "chk_lore_row_effect_before_json_valid_or_null",
+          "value": "\"_lore_row_effect\".\"before_json\" is null or json_valid(\"_lore_row_effect\".\"before_json\")"
         },
-        "chk_toss_row_effect_after_json_valid_or_null": {
-          "name": "chk_toss_row_effect_after_json_valid_or_null",
-          "value": "\"_toss_row_effect\".\"after_json\" is null or json_valid(\"_toss_row_effect\".\"after_json\")"
+        "chk_lore_row_effect_after_json_valid_or_null": {
+          "name": "chk_lore_row_effect_after_json_valid_or_null",
+          "value": "\"_lore_row_effect\".\"after_json\" is null or json_valid(\"_lore_row_effect\".\"after_json\")"
         },
-        "chk_toss_row_effect_before_hash_len_or_null": {
-          "name": "chk_toss_row_effect_before_hash_len_or_null",
-          "value": "\"_toss_row_effect\".\"before_hash\" is null or length(\"_toss_row_effect\".\"before_hash\") = 64"
+        "chk_lore_row_effect_before_hash_len_or_null": {
+          "name": "chk_lore_row_effect_before_hash_len_or_null",
+          "value": "\"_lore_row_effect\".\"before_hash\" is null or length(\"_lore_row_effect\".\"before_hash\") = 64"
         },
-        "chk_toss_row_effect_after_hash_len_or_null": {
-          "name": "chk_toss_row_effect_after_hash_len_or_null",
-          "value": "\"_toss_row_effect\".\"after_hash\" is null or length(\"_toss_row_effect\".\"after_hash\") = 64"
+        "chk_lore_row_effect_after_hash_len_or_null": {
+          "name": "chk_lore_row_effect_after_hash_len_or_null",
+          "value": "\"_lore_row_effect\".\"after_hash\" is null or length(\"_lore_row_effect\".\"after_hash\") = 64"
         },
-        "chk_toss_row_effect_before_hash_pairing": {
-          "name": "chk_toss_row_effect_before_hash_pairing",
-          "value": "(\"_toss_row_effect\".\"before_hash\" is null) = (\"_toss_row_effect\".\"before_json\" is null)"
+        "chk_lore_row_effect_before_hash_pairing": {
+          "name": "chk_lore_row_effect_before_hash_pairing",
+          "value": "(\"_lore_row_effect\".\"before_hash\" is null) = (\"_lore_row_effect\".\"before_json\" is null)"
         },
-        "chk_toss_row_effect_after_hash_pairing": {
-          "name": "chk_toss_row_effect_after_hash_pairing",
-          "value": "(\"_toss_row_effect\".\"after_hash\" is null) = (\"_toss_row_effect\".\"after_json\" is null)"
+        "chk_lore_row_effect_after_hash_pairing": {
+          "name": "chk_lore_row_effect_after_hash_pairing",
+          "value": "(\"_lore_row_effect\".\"after_hash\" is null) = (\"_lore_row_effect\".\"after_json\" is null)"
         },
-        "chk_toss_row_effect_op_shape": {
-          "name": "chk_toss_row_effect_op_shape",
-          "value": "(\"_toss_row_effect\".\"op_kind\" = 'insert' and \"_toss_row_effect\".\"before_json\" is null and \"_toss_row_effect\".\"after_json\" is not null)\n        or (\"_toss_row_effect\".\"op_kind\" = 'update' and \"_toss_row_effect\".\"before_json\" is not null and \"_toss_row_effect\".\"after_json\" is not null)\n        or (\"_toss_row_effect\".\"op_kind\" = 'delete' and \"_toss_row_effect\".\"before_json\" is not null and \"_toss_row_effect\".\"after_json\" is null)"
+        "chk_lore_row_effect_op_shape": {
+          "name": "chk_lore_row_effect_op_shape",
+          "value": "(\"_lore_row_effect\".\"op_kind\" = 'insert' and \"_lore_row_effect\".\"before_json\" is null and \"_lore_row_effect\".\"after_json\" is not null)\n        or (\"_lore_row_effect\".\"op_kind\" = 'update' and \"_lore_row_effect\".\"before_json\" is not null and \"_lore_row_effect\".\"after_json\" is not null)\n        or (\"_lore_row_effect\".\"op_kind\" = 'delete' and \"_lore_row_effect\".\"before_json\" is not null and \"_lore_row_effect\".\"after_json\" is null)"
         }
       }
     },
-    "_toss_schema_effect": {
-      "name": "_toss_schema_effect",
+    "_lore_schema_effect": {
+      "name": "_lore_schema_effect",
       "columns": {
         "commit_id": {
           "name": "commit_id",
@@ -709,8 +709,8 @@
         }
       },
       "indexes": {
-        "idx_toss_schema_effect_table_name": {
-          "name": "idx_toss_schema_effect_table_name",
+        "idx_lore_schema_effect_table_name": {
+          "name": "idx_lore_schema_effect_table_name",
           "columns": [
             "table_name"
           ],
@@ -718,10 +718,10 @@
         }
       },
       "foreignKeys": {
-        "_toss_schema_effect_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_schema_effect_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_schema_effect",
-          "tableTo": "_toss_commit",
+        "_lore_schema_effect_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_schema_effect_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_schema_effect",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "commit_id"
           ],
@@ -733,40 +733,40 @@
         }
       },
       "compositePrimaryKeys": {
-        "_toss_schema_effect_commit_id_effect_index_pk": {
+        "_lore_schema_effect_commit_id_effect_index_pk": {
           "columns": [
             "commit_id",
             "effect_index"
           ],
-          "name": "_toss_schema_effect_commit_id_effect_index_pk"
+          "name": "_lore_schema_effect_commit_id_effect_index_pk"
         }
       },
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_schema_effect_effect_index_non_negative": {
-          "name": "chk_toss_schema_effect_effect_index_non_negative",
-          "value": "\"_toss_schema_effect\".\"effect_index\" >= 0"
+        "chk_lore_schema_effect_effect_index_non_negative": {
+          "name": "chk_lore_schema_effect_effect_index_non_negative",
+          "value": "\"_lore_schema_effect\".\"effect_index\" >= 0"
         },
-        "chk_toss_schema_effect_table_name_non_empty": {
-          "name": "chk_toss_schema_effect_table_name_non_empty",
-          "value": "length(trim(\"_toss_schema_effect\".\"table_name\")) > 0"
+        "chk_lore_schema_effect_table_name_non_empty": {
+          "name": "chk_lore_schema_effect_table_name_non_empty",
+          "value": "length(trim(\"_lore_schema_effect\".\"table_name\")) > 0"
         },
-        "chk_toss_schema_effect_before_json_valid_or_null": {
-          "name": "chk_toss_schema_effect_before_json_valid_or_null",
-          "value": "\"_toss_schema_effect\".\"before_json\" is null or json_valid(\"_toss_schema_effect\".\"before_json\")"
+        "chk_lore_schema_effect_before_json_valid_or_null": {
+          "name": "chk_lore_schema_effect_before_json_valid_or_null",
+          "value": "\"_lore_schema_effect\".\"before_json\" is null or json_valid(\"_lore_schema_effect\".\"before_json\")"
         },
-        "chk_toss_schema_effect_after_json_valid_or_null": {
-          "name": "chk_toss_schema_effect_after_json_valid_or_null",
-          "value": "\"_toss_schema_effect\".\"after_json\" is null or json_valid(\"_toss_schema_effect\".\"after_json\")"
+        "chk_lore_schema_effect_after_json_valid_or_null": {
+          "name": "chk_lore_schema_effect_after_json_valid_or_null",
+          "value": "\"_lore_schema_effect\".\"after_json\" is null or json_valid(\"_lore_schema_effect\".\"after_json\")"
         },
-        "chk_toss_schema_effect_some_side_exists": {
-          "name": "chk_toss_schema_effect_some_side_exists",
-          "value": "\"_toss_schema_effect\".\"before_json\" is not null or \"_toss_schema_effect\".\"after_json\" is not null"
+        "chk_lore_schema_effect_some_side_exists": {
+          "name": "chk_lore_schema_effect_some_side_exists",
+          "value": "\"_lore_schema_effect\".\"before_json\" is not null or \"_lore_schema_effect\".\"after_json\" is not null"
         }
       }
     },
-    "_toss_snapshot": {
-      "name": "_toss_snapshot",
+    "_lore_snapshot": {
+      "name": "_lore_snapshot",
       "columns": {
         "commit_id": {
           "name": "commit_id",
@@ -806,8 +806,8 @@
         }
       },
       "indexes": {
-        "idx_toss_snapshot_created_at": {
-          "name": "idx_toss_snapshot_created_at",
+        "idx_lore_snapshot_created_at": {
+          "name": "idx_lore_snapshot_created_at",
           "columns": [
             "created_at"
           ],
@@ -815,10 +815,10 @@
         }
       },
       "foreignKeys": {
-        "_toss_snapshot_commit_id__toss_commit_commit_id_fk": {
-          "name": "_toss_snapshot_commit_id__toss_commit_commit_id_fk",
-          "tableFrom": "_toss_snapshot",
-          "tableTo": "_toss_commit",
+        "_lore_snapshot_commit_id__lore_commit_commit_id_fk": {
+          "name": "_lore_snapshot_commit_id__lore_commit_commit_id_fk",
+          "tableFrom": "_lore_snapshot",
+          "tableTo": "_lore_commit",
           "columnsFrom": [
             "commit_id"
           ],
@@ -832,17 +832,17 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "chk_toss_snapshot_created_at_non_negative": {
-          "name": "chk_toss_snapshot_created_at_non_negative",
-          "value": "\"_toss_snapshot\".\"created_at\" >= 0"
+        "chk_lore_snapshot_created_at_non_negative": {
+          "name": "chk_lore_snapshot_created_at_non_negative",
+          "value": "\"_lore_snapshot\".\"created_at\" >= 0"
         },
-        "chk_toss_snapshot_row_count_non_negative": {
-          "name": "chk_toss_snapshot_row_count_non_negative",
-          "value": "\"_toss_snapshot\".\"row_count_hint\" >= 0"
+        "chk_lore_snapshot_row_count_non_negative": {
+          "name": "chk_lore_snapshot_row_count_non_negative",
+          "value": "\"_lore_snapshot\".\"row_count_hint\" >= 0"
         },
-        "chk_toss_snapshot_sha256_len": {
-          "name": "chk_toss_snapshot_sha256_len",
-          "value": "length(\"_toss_snapshot\".\"file_sha256\") = 64"
+        "chk_lore_snapshot_sha256_len": {
+          "name": "chk_lore_snapshot_sha256_len",
+          "value": "length(\"_lore_snapshot\".\"file_sha256\") = 64"
         }
       }
     }

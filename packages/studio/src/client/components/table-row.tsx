@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import type { tableOverview } from "@toss/core";
+import type { tableOverview } from "@lore/core";
 import { formatRelativeTime } from "../lib/time";
 
 type TableOverview = ReturnType<typeof tableOverview>[number];

@@ -48,13 +48,13 @@ describe("db path resolution", () => {
     db.$client.run("CREATE TABLE abdrizzle_logs(id INTEGER PRIMARY KEY)");
     db.$client.run("CREATE TABLE atoss_table(id INTEGER PRIMARY KEY)");
     db.$client.run("CREATE TABLE __drizzle_custom(id INTEGER PRIMARY KEY)");
-    db.$client.run("CREATE TABLE _toss_custom(id INTEGER PRIMARY KEY)");
+    db.$client.run("CREATE TABLE _lore_custom(id INTEGER PRIMARY KEY)");
 
     const names = listUserTables(db);
     expect(names.includes("abdrizzle_logs")).toBe(true);
     expect(names.includes("atoss_table")).toBe(true);
     expect(names.includes("__drizzle_custom")).toBe(false);
-    expect(names.includes("_toss_custom")).toBe(false);
+    expect(names.includes("_lore_custom")).toBe(false);
   });
 
   testWithTmp("openDb returns drizzle client for engine tables", async () => {

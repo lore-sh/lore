@@ -1,4 +1,4 @@
-import { push, type Database } from "@toss/core";
+import { push, type Database } from "@lore/core";
 import { z } from "zod";
 import { toJson } from "../format";
 

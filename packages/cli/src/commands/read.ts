@@ -1,4 +1,4 @@
-import { query, type Database } from "@toss/core";
+import { query, type Database } from "@lore/core";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { printTable, toJson } from "../format";

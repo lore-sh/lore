@@ -65,18 +65,18 @@ const opTypeValues = [
 const opKindValues = ["insert", "update", "delete"] as const;
 
 export const MetaTable = sqliteTable(
-  "_toss_meta",
+  "_lore_meta",
   {
     key: text("key").primaryKey(),
     value: text("value").notNull(),
   },
   (table) => [
-    check("chk_toss_meta_key_non_empty", sql`length(${table.key}) > 0`),
+    check("chk_lore_meta_key_non_empty", sql`length(${table.key}) > 0`),
   ],
 );
 
 export const CommitTable = sqliteTable(
-  "_toss_commit",
+  "_lore_commit",
   {
     commitId: text("commit_id").primaryKey(),
     seq: integer("seq").notNull().unique(),
@@ -96,25 +96,25 @@ export const CommitTable = sqliteTable(
       columns: [table.revertTargetId],
       foreignColumns: [table.commitId],
     }).onDelete("set null"),
-    check("chk_toss_commit_seq_positive", sql`${table.seq} > 0`),
-    check("chk_toss_commit_message_non_empty", sql`length(trim(${table.message})) > 0`),
-    check("chk_toss_commit_created_at_non_negative", sql`${table.createdAt} >= 0`),
-    check("chk_toss_commit_parent_count_non_negative", sql`${table.parentCount} >= 0`),
-    check("chk_toss_commit_revertible_bool", sql`${table.revertible} in (0, 1)`),
-    check("chk_toss_commit_id_hash_len", sql`length(${table.commitId}) = 64`),
-    check("chk_toss_commit_schema_before_hash_len", sql`length(${table.schemaHashBefore}) = 64`),
-    check("chk_toss_commit_schema_after_hash_len", sql`length(${table.schemaHashAfter}) = 64`),
-    check("chk_toss_commit_state_hash_len", sql`length(${table.stateHashAfter}) = 64`),
-    check("chk_toss_commit_plan_hash_len", sql`length(${table.planHash}) = 64`),
+    check("chk_lore_commit_seq_positive", sql`${table.seq} > 0`),
+    check("chk_lore_commit_message_non_empty", sql`length(trim(${table.message})) > 0`),
+    check("chk_lore_commit_created_at_non_negative", sql`${table.createdAt} >= 0`),
+    check("chk_lore_commit_parent_count_non_negative", sql`${table.parentCount} >= 0`),
+    check("chk_lore_commit_revertible_bool", sql`${table.revertible} in (0, 1)`),
+    check("chk_lore_commit_id_hash_len", sql`length(${table.commitId}) = 64`),
+    check("chk_lore_commit_schema_before_hash_len", sql`length(${table.schemaHashBefore}) = 64`),
+    check("chk_lore_commit_schema_after_hash_len", sql`length(${table.schemaHashAfter}) = 64`),
+    check("chk_lore_commit_state_hash_len", sql`length(${table.stateHashAfter}) = 64`),
+    check("chk_lore_commit_plan_hash_len", sql`length(${table.planHash}) = 64`),
     check(
-      "chk_toss_commit_revert_target_hash_len_or_null",
+      "chk_lore_commit_revert_target_hash_len_or_null",
       sql`${table.revertTargetId} is null or length(${table.revertTargetId}) = 64`,
     ),
   ],
 );
 
 export const CommitParentTable = sqliteTable(
-  "_toss_commit_parent",
+  "_lore_commit_parent",
   {
     commitId: text("commit_id")
       .notNull()
@@ -126,28 +126,28 @@ export const CommitParentTable = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.commitId, table.ord] }),
-    unique("uq_toss_commit_parent_commit_parent").on(table.commitId, table.parentCommitId),
-    index("idx_toss_commit_parent_parent").on(table.parentCommitId),
-    check("chk_toss_commit_parent_ord_non_negative", sql`${table.ord} >= 0`),
+    unique("uq_lore_commit_parent_commit_parent").on(table.commitId, table.parentCommitId),
+    index("idx_lore_commit_parent_parent").on(table.parentCommitId),
+    check("chk_lore_commit_parent_ord_non_negative", sql`${table.ord} >= 0`),
   ],
 );
 
 export const RefTable = sqliteTable(
-  "_toss_ref",
+  "_lore_ref",
   {
     name: text("name").primaryKey(),
     commitId: text("commit_id").references(() => CommitTable.commitId, { onDelete: "set null" }),
     updatedAt: integer("updated_at").notNull().default(nowDefault),
   },
   (table) => [
-    check("chk_toss_ref_name_non_empty", sql`length(trim(${table.name})) > 0`),
-    check("chk_toss_ref_updated_at_non_negative", sql`${table.updatedAt} >= 0`),
-    check("chk_toss_ref_commit_id_hash_len_or_null", sql`${table.commitId} is null or length(${table.commitId}) = 64`),
+    check("chk_lore_ref_name_non_empty", sql`length(trim(${table.name})) > 0`),
+    check("chk_lore_ref_updated_at_non_negative", sql`${table.updatedAt} >= 0`),
+    check("chk_lore_ref_commit_id_hash_len_or_null", sql`${table.commitId} is null or length(${table.commitId}) = 64`),
   ],
 );
 
 export const ReflogTable = sqliteTable(
-  "_toss_reflog",
+  "_lore_reflog",
   {
     id: integer("id").primaryKey(),
     refName: text("ref_name")
@@ -163,15 +163,15 @@ export const ReflogTable = sqliteTable(
     createdAt: integer("created_at").notNull().default(nowDefault),
   },
   (table) => [
-    index("idx_toss_reflog_ref_name_id").on(table.refName, table.id),
-    check("chk_toss_reflog_created_at_non_negative", sql`${table.createdAt} >= 0`),
-    check("chk_toss_reflog_old_commit_id_hash_len_or_null", sql`${table.oldCommitId} is null or length(${table.oldCommitId}) = 64`),
-    check("chk_toss_reflog_new_commit_id_hash_len_or_null", sql`${table.newCommitId} is null or length(${table.newCommitId}) = 64`),
+    index("idx_lore_reflog_ref_name_id").on(table.refName, table.id),
+    check("chk_lore_reflog_created_at_non_negative", sql`${table.createdAt} >= 0`),
+    check("chk_lore_reflog_old_commit_id_hash_len_or_null", sql`${table.oldCommitId} is null or length(${table.oldCommitId}) = 64`),
+    check("chk_lore_reflog_new_commit_id_hash_len_or_null", sql`${table.newCommitId} is null or length(${table.newCommitId}) = 64`),
   ],
 );
 
 export const OpTable = sqliteTable(
-  "_toss_op",
+  "_lore_op",
   {
     commitId: text("commit_id")
       .notNull()
@@ -182,13 +182,13 @@ export const OpTable = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.commitId, table.opIndex] }),
-    check("chk_toss_op_op_index_non_negative", sql`${table.opIndex} >= 0`),
-    check("chk_toss_op_json_valid", sql`json_valid(${table.opJson})`),
+    check("chk_lore_op_op_index_non_negative", sql`${table.opIndex} >= 0`),
+    check("chk_lore_op_json_valid", sql`json_valid(${table.opJson})`),
   ],
 );
 
 export const RowEffectTable = sqliteTable(
-  "_toss_row_effect",
+  "_lore_row_effect",
   {
     commitId: text("commit_id")
       .notNull()
@@ -204,36 +204,36 @@ export const RowEffectTable = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.commitId, table.effectIndex] }),
-    index("idx_toss_row_effect_table_pk").on(table.tableName, table.pkJson),
-    check("chk_toss_row_effect_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
-    check("chk_toss_row_effect_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
-    check("chk_toss_row_effect_pk_json_valid", sql`json_valid(${table.pkJson})`),
+    index("idx_lore_row_effect_table_pk").on(table.tableName, table.pkJson),
+    check("chk_lore_row_effect_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
+    check("chk_lore_row_effect_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
+    check("chk_lore_row_effect_pk_json_valid", sql`json_valid(${table.pkJson})`),
     check(
-      "chk_toss_row_effect_before_json_valid_or_null",
+      "chk_lore_row_effect_before_json_valid_or_null",
       sql`${table.beforeJson} is null or json_valid(${table.beforeJson})`,
     ),
     check(
-      "chk_toss_row_effect_after_json_valid_or_null",
+      "chk_lore_row_effect_after_json_valid_or_null",
       sql`${table.afterJson} is null or json_valid(${table.afterJson})`,
     ),
     check(
-      "chk_toss_row_effect_before_hash_len_or_null",
+      "chk_lore_row_effect_before_hash_len_or_null",
       sql`${table.beforeHash} is null or length(${table.beforeHash}) = 64`,
     ),
     check(
-      "chk_toss_row_effect_after_hash_len_or_null",
+      "chk_lore_row_effect_after_hash_len_or_null",
       sql`${table.afterHash} is null or length(${table.afterHash}) = 64`,
     ),
     check(
-      "chk_toss_row_effect_before_hash_pairing",
+      "chk_lore_row_effect_before_hash_pairing",
       sql`(${table.beforeHash} is null) = (${table.beforeJson} is null)`,
     ),
     check(
-      "chk_toss_row_effect_after_hash_pairing",
+      "chk_lore_row_effect_after_hash_pairing",
       sql`(${table.afterHash} is null) = (${table.afterJson} is null)`,
     ),
     check(
-      "chk_toss_row_effect_op_shape",
+      "chk_lore_row_effect_op_shape",
       sql`(${table.opKind} = 'insert' and ${table.beforeJson} is null and ${table.afterJson} is not null)
         or (${table.opKind} = 'update' and ${table.beforeJson} is not null and ${table.afterJson} is not null)
         or (${table.opKind} = 'delete' and ${table.beforeJson} is not null and ${table.afterJson} is null)`,
@@ -242,7 +242,7 @@ export const RowEffectTable = sqliteTable(
 );
 
 export const SchemaEffectTable = sqliteTable(
-  "_toss_schema_effect",
+  "_lore_schema_effect",
   {
     commitId: text("commit_id")
       .notNull()
@@ -254,26 +254,26 @@ export const SchemaEffectTable = sqliteTable(
   },
   (table) => [
     primaryKey({ columns: [table.commitId, table.effectIndex] }),
-    index("idx_toss_schema_effect_table_name").on(table.tableName),
-    check("chk_toss_schema_effect_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
-    check("chk_toss_schema_effect_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
+    index("idx_lore_schema_effect_table_name").on(table.tableName),
+    check("chk_lore_schema_effect_effect_index_non_negative", sql`${table.effectIndex} >= 0`),
+    check("chk_lore_schema_effect_table_name_non_empty", sql`length(trim(${table.tableName})) > 0`),
     check(
-      "chk_toss_schema_effect_before_json_valid_or_null",
+      "chk_lore_schema_effect_before_json_valid_or_null",
       sql`${table.beforeJson} is null or json_valid(${table.beforeJson})`,
     ),
     check(
-      "chk_toss_schema_effect_after_json_valid_or_null",
+      "chk_lore_schema_effect_after_json_valid_or_null",
       sql`${table.afterJson} is null or json_valid(${table.afterJson})`,
     ),
     check(
-      "chk_toss_schema_effect_some_side_exists",
+      "chk_lore_schema_effect_some_side_exists",
       sql`${table.beforeJson} is not null or ${table.afterJson} is not null`,
     ),
   ],
 );
 
 export const SnapshotTable = sqliteTable(
-  "_toss_snapshot",
+  "_lore_snapshot",
   {
     commitId: text("commit_id")
       .primaryKey()
@@ -284,9 +284,9 @@ export const SnapshotTable = sqliteTable(
     rowCountHint: integer("row_count_hint").notNull(),
   },
   (table) => [
-    index("idx_toss_snapshot_created_at").on(table.createdAt),
-    check("chk_toss_snapshot_created_at_non_negative", sql`${table.createdAt} >= 0`),
-    check("chk_toss_snapshot_row_count_non_negative", sql`${table.rowCountHint} >= 0`),
-    check("chk_toss_snapshot_sha256_len", sql`length(${table.fileSha256}) = 64`),
+    index("idx_lore_snapshot_created_at").on(table.createdAt),
+    check("chk_lore_snapshot_created_at_non_negative", sql`${table.createdAt} >= 0`),
+    check("chk_lore_snapshot_row_count_non_negative", sql`${table.rowCountHint} >= 0`),
+    check("chk_lore_snapshot_sha256_len", sql`length(${table.fileSha256}) = 64`),
   ],
 );

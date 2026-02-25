@@ -18,10 +18,10 @@ describe("api error payload parsing", () => {
     expect(error.details).toEqual([{ field: "table" }]);
   });
 
-  test("parses RFC7807 payload with toss code", () => {
+  test("parses RFC7807 payload with Lore code", () => {
     const error = toErrorFromPayload(
       {
-        type: "https://docs.toss.sh/errors/not_found",
+        type: "https://docs.getlore.sh/errors/not_found",
         title: "NOT_FOUND",
         status: 404,
         detail: "Table not found: missing",
@@ -40,7 +40,7 @@ describe("api error payload parsing", () => {
     expect(error.message).toBe("Table not found: missing");
     expect(error.code).toBe("NOT_FOUND");
     expect(error.status).toBe(404);
-    expect(error.type).toBe("https://docs.toss.sh/errors/not_found");
+    expect(error.type).toBe("https://docs.getlore.sh/errors/not_found");
     expect(error.title).toBe("NOT_FOUND");
     expect(error.instance).toBe("/api/tables/missing/history");
   });

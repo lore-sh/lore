@@ -58,7 +58,7 @@ function readSnapshotHead(snapshotDbPath: string): { commitId: string; seq: numb
     }
     const commit = db.select({ seq: CommitTable.seq }).from(CommitTable).where(eq(CommitTable.commitId, commitId)).limit(1).get();
     if (!commit) {
-      throw new CodedError("SNAPSHOT_FAILED", `Snapshot commit not found in _toss_commit: ${commitId}`);
+      throw new CodedError("SNAPSHOT_FAILED", `Snapshot commit not found in _lore_commit: ${commitId}`);
     }
     return { commitId, seq: commit.seq, rowCountHint: countRows(db) };
   } finally {

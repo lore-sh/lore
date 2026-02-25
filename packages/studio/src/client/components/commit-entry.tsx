@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { history } from "@toss/core";
+import type { history } from "@lore/core";
 import { formatRelativeTime } from "../lib/time";
 import { summarizeHistoryEntry } from "../lib/commit-render";
 import { CommitDetail } from "./commit-detail";

@@ -75,7 +75,7 @@ export function httpStatusFromError(code: ErrorCode): 400 | 404 | 409 | 500 {
 
 export function toHttpProblem(error: CodedError, instance: string): HttpProblem {
   return {
-    type: `https://docs.toss.sh/errors/${error.code.toLowerCase()}`,
+    type: `https://docs.getlore.sh/errors/${error.code.toLowerCase()}`,
     title: error.code,
     status: httpStatusFromError(error.code),
     detail: error.message,

@@ -1,6 +1,6 @@
 import { createStudioApp } from "./app";
 import { join } from "node:path";
-import { openDb, type Database } from "@toss/core";
+import { openDb, type Database } from "@lore/core";
 import { shouldRebuildClientBundle } from "./client-bundle";
 import { DEFAULT_STUDIO_PORT, normalizeStudioPort, parseStudioPortArg } from "./port";
 import type { StartStudioServerOptions } from "./types";
@@ -166,5 +166,5 @@ export function startStudioServer(options: StartStudioServerOptions = {}): Start
 if (import.meta.main) {
   const parsed = parseStudioArgs(Bun.argv.slice(2));
   const started = startStudioServer(parsed);
-  console.log(`toss studio running at ${started.url}`);
+  console.log(`Lore Studio running at ${started.url}`);
 }

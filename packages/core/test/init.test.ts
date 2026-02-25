@@ -72,7 +72,7 @@ describe("initDb", () => {
     }
   });
 
-  testWithTmp("default database path is ~/.toss/toss.db", async () => {
+  testWithTmp("default database path is ~/.lore/lore.db", async () => {
     const { dir } = createTestContext();
     const snapshot = captureGlobalEnv();
     process.env.HOME = join(dir, "home");
@@ -80,7 +80,7 @@ describe("initDb", () => {
     process.env.XDG_CONFIG_HOME = join(dir, "xdg-config");
     try {
       const result = await initDb();
-      const expected = join(dir, "home", ".toss", "toss.db");
+      const expected = join(dir, "home", ".lore", "lore.db");
       expect(result.path).toBe(expected);
       expect(await Bun.file(expected).exists()).toBe(true);
     } finally {
@@ -95,7 +95,7 @@ describe("initDb", () => {
     process.env.CODEX_HOME = join(dir, "codex-home");
     process.env.XDG_CONFIG_HOME = join(dir, "xdg-config");
     try {
-      const expected = join(dir, "home", ".toss", "toss.db");
+      const expected = join(dir, "home", ".lore", "lore.db");
       expect(await Bun.file(expected).exists()).toBe(false);
       expect(() => openDb()).toThrow("Database is not initialized");
       expect(await Bun.file(expected).exists()).toBe(false);

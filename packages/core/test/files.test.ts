@@ -19,7 +19,7 @@ describe("files", () => {
 
   testWithTmp("deleteWithSidecars is idempotent under concurrent deletion", async () => {
     const { dir } = createTestContext();
-    const path = `${dir}/toss.db`;
+    const path = `${dir}/lore.db`;
 
     for (let i = 0; i < 200; i++) {
       await Promise.all([

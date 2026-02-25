@@ -1,4 +1,4 @@
-import { clone } from "@toss/core";
+import { clone } from "@lore/core";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { toJson } from "../format";

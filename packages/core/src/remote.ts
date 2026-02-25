@@ -377,7 +377,7 @@ export async function detectRemoteReadState(client: Client): Promise<"initialize
   if (missing.length > 0) {
     throw new CodedError(
       "CONFIG",
-      `Remote database has an incomplete toss schema (missing: ${missing.join(", ")}). Recreate remote schema with write access.`,
+      `Remote database has an incomplete lore schema (missing: ${missing.join(", ")}). Recreate remote schema with write access.`,
     );
   }
   return "initialized";
@@ -385,27 +385,27 @@ export async function detectRemoteReadState(client: Client): Promise<"initialize
 
 function metaInsertStatement(key: string, value: string): { sql: string; args: InArgs } {
   return {
-    sql: "INSERT INTO _toss_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
+    sql: "INSERT INTO _lore_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
     args: [key, value],
   };
 }
 
 async function getRemoteMetaValue(executor: Client | Transaction, key: string): Promise<string | null> {
   const result = await executor.execute({
-    sql: "SELECT value FROM _toss_meta WHERE key = ? LIMIT 1",
+    sql: "SELECT value FROM _lore_meta WHERE key = ? LIMIT 1",
     args: [key],
   });
   const row = rowsFrom(result)[0];
   if (!row) {
     return null;
   }
-  return parseString(parseRowValue(row, "value"), "_toss_meta.value");
+  return parseString(parseRowValue(row, "value"), "_lore_meta.value");
 }
 
 async function setRemoteMetaValue(executor: Client | Transaction, key: string, value: string): Promise<void> {
   await executor.execute({
     sql: `
-      INSERT INTO _toss_meta(key, value)
+      INSERT INTO _lore_meta(key, value)
       VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `,
@@ -445,7 +445,7 @@ export async function ensureRemoteInitialized(client: Client): Promise<void> {
     [
       ...metaDefaults.map(([key, value]) => metaInsertStatement(key, value)),
       {
-        sql: "INSERT INTO _toss_ref(name, commit_id, updated_at) VALUES (?, NULL, ?) ON CONFLICT(name) DO NOTHING",
+        sql: "INSERT INTO _lore_ref(name, commit_id, updated_at) VALUES (?, NULL, ?) ON CONFLICT(name) DO NOTHING",
         args: [MAIN_REF_NAME, Date.now()],
       },
     ],
@@ -457,8 +457,8 @@ export async function remoteHead(executor: Client | Transaction) {
   const result = await executor.execute({
     sql: `
       SELECT r.commit_id AS commit_id, c.seq AS seq
-      FROM _toss_ref AS r
-      LEFT JOIN _toss_commit AS c ON c.commit_id = r.commit_id
+      FROM _lore_ref AS r
+      LEFT JOIN _lore_commit AS c ON c.commit_id = r.commit_id
       WHERE r.name = ?
       LIMIT 1
     `,
@@ -480,7 +480,7 @@ export async function remoteHead(executor: Client | Transaction) {
 
 export async function remoteHasCommit(executor: Client | Transaction, commitId: string): Promise<boolean> {
   const result = await executor.execute({
-    sql: "SELECT 1 AS ok FROM _toss_commit WHERE commit_id = ? LIMIT 1",
+    sql: "SELECT 1 AS ok FROM _lore_commit WHERE commit_id = ? LIMIT 1",
     args: [commitId],
   });
   return rowsFrom(result).length > 0;
@@ -488,19 +488,19 @@ export async function remoteHasCommit(executor: Client | Transaction, commitId: 
 
 export async function remoteCommitSeq(executor: Client | Transaction, commitId: string): Promise<number | null> {
   const result = await executor.execute({
-    sql: "SELECT seq AS seq FROM _toss_commit WHERE commit_id = ? LIMIT 1",
+    sql: "SELECT seq AS seq FROM _lore_commit WHERE commit_id = ? LIMIT 1",
     args: [commitId],
   });
   const row = rowsFrom(result)[0];
   if (!row) {
     return null;
   }
-  return parseInteger(parseRowValue(row, "seq"), "_toss_commit.seq");
+  return parseInteger(parseRowValue(row, "seq"), "_lore_commit.seq");
 }
 
 async function listRemoteUserTables(executor: Client | Transaction): Promise<string[]> {
   const result = await executor.execute({
-    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_lore_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
   });
   return rowsFrom(result).map((row) => parseString(parseRowValue(row, "name"), "sqlite_master.name"));
 }
@@ -672,7 +672,7 @@ async function remoteSchemaHash(executor: Client | Transaction): Promise<string>
 
 async function verifyProjectionAtCommit(executor: Client | Transaction, commitId: string): Promise<void> {
   const result = await executor.execute({
-    sql: "SELECT schema_hash_after, state_hash_after FROM _toss_commit WHERE commit_id = ? LIMIT 1",
+    sql: "SELECT schema_hash_after, state_hash_after FROM _lore_commit WHERE commit_id = ? LIMIT 1",
     args: [commitId],
   });
   const row = rowsFrom(result)[0];
@@ -680,8 +680,8 @@ async function verifyProjectionAtCommit(executor: Client | Transaction, commitId
     throw projectionFailure(`checkpoint commit is missing from canonical history: ${commitId}`);
   }
   const expected = {
-    schemaHashAfter: parseString(parseRowValue(row, "schema_hash_after"), "_toss_commit.schema_hash_after"),
-    stateHashAfter: parseString(parseRowValue(row, "state_hash_after"), "_toss_commit.state_hash_after"),
+    schemaHashAfter: parseString(parseRowValue(row, "schema_hash_after"), "_lore_commit.schema_hash_after"),
+    stateHashAfter: parseString(parseRowValue(row, "state_hash_after"), "_lore_commit.state_hash_after"),
   };
   const actualSchemaHash = await remoteSchemaHash(executor);
   if (actualSchemaHash !== expected.schemaHashAfter) {
@@ -726,9 +726,9 @@ function buildPkWhereClause(pk: Record<string, string>): string {
 }
 
 function buildRowSelectSql(tableName: string, columns: string[], keyColumns: string[], whereClause: string | null): string {
-  const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
-  const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
-  const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
+  const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
+  const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
+  const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
   const parts: string[] = [];
   for (let i = 0; i < columns.length; i += 1) {
     const column = columns[i]!;
@@ -786,9 +786,9 @@ async function fetchObservedRowByPk(executor: Client | Transaction, tableName: s
 
   const columns = await remoteTableColumns(executor, tableName);
   const keyColumns = Object.keys(pk).sort((a, b) => a.localeCompare(b));
-  const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
-  const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
-  const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
+  const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
+  const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
+  const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
   const whereClause = buildPkWhereClause(pk);
   const sql = `${buildRowSelectSql(tableName, columns, keyColumns, whereClause)} LIMIT 1`;
   const result = await executor.execute(sql);
@@ -1062,7 +1062,7 @@ async function restoreTableSnapshot(
   tableName: string,
   snapshot: NonNullable<SchemaEffect["afterTable"]>,
 ): Promise<void> {
-  const tmpTable = `__toss_restore_${tableName}_${crypto.randomUUID().replaceAll("-", "")}`;
+  const tmpTable = `__lore_restore_${tableName}_${crypto.randomUUID().replaceAll("-", "")}`;
   const quotedTmp = quoteIdentifier(tmpTable, { unsafe: true });
   const quotedTable = quoteIdentifier(tableName, { unsafe: true });
   const sequenceSnapshot = await captureSqliteSequenceSnapshot(executor, tableName);
@@ -1382,7 +1382,7 @@ export async function projectionStatus(
 async function writeToRemote(tx: Transaction, replay: ReturnType<typeof readCommit>): Promise<void> {
   await tx.execute({
     sql: `
-      INSERT INTO _toss_commit(
+      INSERT INTO _lore_commit(
         commit_id, seq, kind, message, created_at, parent_count,
         schema_hash_before, schema_hash_after, state_hash_after, plan_hash,
         revertible, revert_target_id
@@ -1409,7 +1409,7 @@ async function writeToRemote(tx: Transaction, replay: ReturnType<typeof readComm
   for (let i = 0; i < replay.parentIds.length; i += 1) {
     await tx.execute({
       sql: `
-        INSERT INTO _toss_commit_parent(commit_id, parent_commit_id, ord)
+        INSERT INTO _lore_commit_parent(commit_id, parent_commit_id, ord)
         VALUES (?, ?, ?)
         ON CONFLICT(commit_id, ord) DO NOTHING
       `,
@@ -1421,7 +1421,7 @@ async function writeToRemote(tx: Transaction, replay: ReturnType<typeof readComm
     const operation = replay.operations[i]!;
     await tx.execute({
       sql: `
-        INSERT INTO _toss_op(commit_id, op_index, op_type, op_json)
+        INSERT INTO _lore_op(commit_id, op_index, op_type, op_json)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(commit_id, op_index) DO NOTHING
       `,
@@ -1435,7 +1435,7 @@ async function writeToRemote(tx: Transaction, replay: ReturnType<typeof readComm
     const afterJson = effect.afterRow ? canonicalJson(effect.afterRow) : null;
     await tx.execute({
       sql: `
-        INSERT INTO _toss_row_effect(
+        INSERT INTO _lore_row_effect(
           commit_id, effect_index, table_name, pk_json, op_kind,
           before_json, after_json, before_hash, after_hash
         )
@@ -1460,7 +1460,7 @@ async function writeToRemote(tx: Transaction, replay: ReturnType<typeof readComm
     const effect = replay.schemaEffects[i]!;
     await tx.execute({
       sql: `
-        INSERT INTO _toss_schema_effect(
+        INSERT INTO _lore_schema_effect(
           commit_id, effect_index, table_name, before_json, after_json
         )
         VALUES (?, ?, ?, ?, ?)
@@ -1503,7 +1503,7 @@ export async function pushCommit(
 
     const update = await tx.execute({
       sql: `
-        UPDATE _toss_ref
+        UPDATE _lore_ref
         SET commit_id = ?, updated_at = ?
         WHERE name = ? AND ((? IS NULL AND commit_id IS NULL) OR commit_id = ?)
       `,
@@ -1518,7 +1518,7 @@ export async function pushCommit(
 
     await tx.execute({
       sql: `
-        INSERT INTO _toss_reflog(ref_name, old_commit_id, new_commit_id, reason, created_at)
+        INSERT INTO _lore_reflog(ref_name, old_commit_id, new_commit_id, reason, created_at)
         VALUES (?, ?, ?, ?, ?)
       `,
       args: [
@@ -1558,25 +1558,25 @@ async function fetchCommitRange(
         commit_id, seq, kind, message, created_at, parent_count,
         schema_hash_before, schema_hash_after, state_hash_after, plan_hash,
         revertible, revert_target_id
-      FROM _toss_commit
+      FROM _lore_commit
       WHERE seq > ? AND seq <= ?
       ORDER BY seq ASC
     `,
     args: [fromSeqExclusive, toSeqInclusive],
   });
   const commits = rowsFrom(commitResult).map((row) => ({
-    commitId: parseString(parseRowValue(row, "commit_id"), "_toss_commit.commit_id"),
-    seq: parseInteger(parseRowValue(row, "seq"), "_toss_commit.seq"),
-    kind: parseCommitKind(parseString(parseRowValue(row, "kind"), "_toss_commit.kind")),
-    message: parseString(parseRowValue(row, "message"), "_toss_commit.message"),
-    createdAt: parseInteger(parseRowValue(row, "created_at"), "_toss_commit.created_at"),
-    parentCount: parseInteger(parseRowValue(row, "parent_count"), "_toss_commit.parent_count"),
-    schemaHashBefore: parseString(parseRowValue(row, "schema_hash_before"), "_toss_commit.schema_hash_before"),
-    schemaHashAfter: parseString(parseRowValue(row, "schema_hash_after"), "_toss_commit.schema_hash_after"),
-    stateHashAfter: parseString(parseRowValue(row, "state_hash_after"), "_toss_commit.state_hash_after"),
-    planHash: parseString(parseRowValue(row, "plan_hash"), "_toss_commit.plan_hash"),
-    revertible: parseInteger(parseRowValue(row, "revertible"), "_toss_commit.revertible"),
-    revertTargetId: parseNullableString(parseRowValue(row, "revert_target_id"), "_toss_commit.revert_target_id"),
+    commitId: parseString(parseRowValue(row, "commit_id"), "_lore_commit.commit_id"),
+    seq: parseInteger(parseRowValue(row, "seq"), "_lore_commit.seq"),
+    kind: parseCommitKind(parseString(parseRowValue(row, "kind"), "_lore_commit.kind")),
+    message: parseString(parseRowValue(row, "message"), "_lore_commit.message"),
+    createdAt: parseInteger(parseRowValue(row, "created_at"), "_lore_commit.created_at"),
+    parentCount: parseInteger(parseRowValue(row, "parent_count"), "_lore_commit.parent_count"),
+    schemaHashBefore: parseString(parseRowValue(row, "schema_hash_before"), "_lore_commit.schema_hash_before"),
+    schemaHashAfter: parseString(parseRowValue(row, "schema_hash_after"), "_lore_commit.schema_hash_after"),
+    stateHashAfter: parseString(parseRowValue(row, "state_hash_after"), "_lore_commit.state_hash_after"),
+    planHash: parseString(parseRowValue(row, "plan_hash"), "_lore_commit.plan_hash"),
+    revertible: parseInteger(parseRowValue(row, "revertible"), "_lore_commit.revertible"),
+    revertTargetId: parseNullableString(parseRowValue(row, "revert_target_id"), "_lore_commit.revert_target_id"),
   }));
   if (commits.length === 0) {
     return [];
@@ -1585,8 +1585,8 @@ async function fetchCommitRange(
   const parentRows = rowsFrom(await executor.execute({
     sql: `
       SELECT cp.commit_id, cp.parent_commit_id
-      FROM _toss_commit_parent cp
-      JOIN _toss_commit c ON c.commit_id = cp.commit_id
+      FROM _lore_commit_parent cp
+      JOIN _lore_commit c ON c.commit_id = cp.commit_id
       WHERE c.seq > ? AND c.seq <= ?
       ORDER BY c.seq ASC, cp.ord ASC
     `,
@@ -1594,8 +1594,8 @@ async function fetchCommitRange(
   }));
   const parentIdsByCommit = new Map<string, string[]>();
   for (const row of parentRows) {
-    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_commit_parent.commit_id");
-    const parentId = parseString(parseRowValue(row, "parent_commit_id"), "_toss_commit_parent.parent_commit_id");
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_lore_commit_parent.commit_id");
+    const parentId = parseString(parseRowValue(row, "parent_commit_id"), "_lore_commit_parent.parent_commit_id");
     const parentIds = parentIdsByCommit.get(commitId) ?? [];
     parentIds.push(parentId);
     parentIdsByCommit.set(commitId, parentIds);
@@ -1604,8 +1604,8 @@ async function fetchCommitRange(
   const operationRows = rowsFrom(await executor.execute({
     sql: `
       SELECT o.commit_id, o.op_json
-      FROM _toss_op o
-      JOIN _toss_commit c ON c.commit_id = o.commit_id
+      FROM _lore_op o
+      JOIN _lore_commit c ON c.commit_id = o.commit_id
       WHERE c.seq > ? AND c.seq <= ?
       ORDER BY c.seq ASC, o.op_index ASC
     `,
@@ -1613,8 +1613,8 @@ async function fetchCommitRange(
   }));
   const operationsByCommit = new Map<string, Op[]>();
   for (const row of operationRows) {
-    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_op.commit_id");
-    const operation = Operation.parse(parseJson(parseRowValue(row, "op_json"), "_toss_op.op_json"));
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_lore_op.commit_id");
+    const operation = Operation.parse(parseJson(parseRowValue(row, "op_json"), "_lore_op.op_json"));
     const operations = operationsByCommit.get(commitId) ?? [];
     operations.push(operation);
     operationsByCommit.set(commitId, operations);
@@ -1623,8 +1623,8 @@ async function fetchCommitRange(
   const rowEffectRows = rowsFrom(await executor.execute({
     sql: `
       SELECT re.commit_id, re.table_name, re.pk_json, re.op_kind, re.before_json, re.after_json, re.before_hash, re.after_hash
-      FROM _toss_row_effect re
-      JOIN _toss_commit c ON c.commit_id = re.commit_id
+      FROM _lore_row_effect re
+      JOIN _lore_commit c ON c.commit_id = re.commit_id
       WHERE c.seq > ? AND c.seq <= ?
       ORDER BY c.seq ASC, re.effect_index ASC
     `,
@@ -1632,19 +1632,19 @@ async function fetchCommitRange(
   }));
   const rowEffectsByCommit = new Map<string, RowEffect[]>();
   for (const row of rowEffectRows) {
-    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_row_effect.commit_id");
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_lore_row_effect.commit_id");
     const effect = RowEffect.parse({
-      tableName: parseString(parseRowValue(row, "table_name"), "_toss_row_effect.table_name"),
-      pk: parseJson(parseRowValue(row, "pk_json"), "_toss_row_effect.pk_json"),
-      opKind: parseOpKind(parseString(parseRowValue(row, "op_kind"), "_toss_row_effect.op_kind")),
+      tableName: parseString(parseRowValue(row, "table_name"), "_lore_row_effect.table_name"),
+      pk: parseJson(parseRowValue(row, "pk_json"), "_lore_row_effect.pk_json"),
+      opKind: parseOpKind(parseString(parseRowValue(row, "op_kind"), "_lore_row_effect.op_kind")),
       beforeRow: parseRowValue(row, "before_json")
-        ? parseJson(parseRowValue(row, "before_json"), "_toss_row_effect.before_json")
+        ? parseJson(parseRowValue(row, "before_json"), "_lore_row_effect.before_json")
         : null,
       afterRow: parseRowValue(row, "after_json")
-        ? parseJson(parseRowValue(row, "after_json"), "_toss_row_effect.after_json")
+        ? parseJson(parseRowValue(row, "after_json"), "_lore_row_effect.after_json")
         : null,
-      beforeHash: parseNullableString(parseRowValue(row, "before_hash"), "_toss_row_effect.before_hash"),
-      afterHash: parseNullableString(parseRowValue(row, "after_hash"), "_toss_row_effect.after_hash"),
+      beforeHash: parseNullableString(parseRowValue(row, "before_hash"), "_lore_row_effect.before_hash"),
+      afterHash: parseNullableString(parseRowValue(row, "after_hash"), "_lore_row_effect.after_hash"),
     });
     const effects = rowEffectsByCommit.get(commitId) ?? [];
     effects.push(effect);
@@ -1654,8 +1654,8 @@ async function fetchCommitRange(
   const schemaEffectRows = rowsFrom(await executor.execute({
     sql: `
       SELECT se.commit_id, se.table_name, se.before_json, se.after_json
-      FROM _toss_schema_effect se
-      JOIN _toss_commit c ON c.commit_id = se.commit_id
+      FROM _lore_schema_effect se
+      JOIN _lore_commit c ON c.commit_id = se.commit_id
       WHERE c.seq > ? AND c.seq <= ?
       ORDER BY c.seq ASC, se.effect_index ASC
     `,
@@ -1663,14 +1663,14 @@ async function fetchCommitRange(
   }));
   const schemaEffectsByCommit = new Map<string, SchemaEffect[]>();
   for (const row of schemaEffectRows) {
-    const commitId = parseString(parseRowValue(row, "commit_id"), "_toss_schema_effect.commit_id");
+    const commitId = parseString(parseRowValue(row, "commit_id"), "_lore_schema_effect.commit_id");
     const effect = SchemaEffect.parse({
-      tableName: parseString(parseRowValue(row, "table_name"), "_toss_schema_effect.table_name"),
+      tableName: parseString(parseRowValue(row, "table_name"), "_lore_schema_effect.table_name"),
       beforeTable: parseRowValue(row, "before_json")
-        ? parseJson(parseRowValue(row, "before_json"), "_toss_schema_effect.before_json")
+        ? parseJson(parseRowValue(row, "before_json"), "_lore_schema_effect.before_json")
         : null,
       afterTable: parseRowValue(row, "after_json")
-        ? parseJson(parseRowValue(row, "after_json"), "_toss_schema_effect.after_json")
+        ? parseJson(parseRowValue(row, "after_json"), "_lore_schema_effect.after_json")
         : null,
     });
     const effects = schemaEffectsByCommit.get(commitId) ?? [];

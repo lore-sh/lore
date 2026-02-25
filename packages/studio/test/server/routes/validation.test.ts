@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { initDb, openDb } from "@toss/core";
+import { initDb, openDb } from "@lore/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import { createStudioApp } from "../../../src/server/app";
 describe("studio route validation", () => {
   test("POST /api/tables/:name/rows/query returns 400 for invalid payload", async () => {
     const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
-    const dbPath = join(dir, "toss.db");
+    const dbPath = join(dir, "lore.db");
     await initDb({ dbPath });
     const db = openDb(dbPath);
     const app = createStudioApp(db);
@@ -37,7 +37,7 @@ describe("studio route validation", () => {
 
   test("POST /api/tables/:name/rows/query returns VALIDATION_ERROR for malformed JSON", async () => {
     const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
-    const dbPath = join(dir, "toss.db");
+    const dbPath = join(dir, "lore.db");
     await initDb({ dbPath });
     const db = openDb(dbPath);
     const app = createStudioApp(db);
@@ -60,7 +60,7 @@ describe("studio route validation", () => {
 
   test("GET /api/commits rejects invalid kind query", async () => {
     const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
-    const dbPath = join(dir, "toss.db");
+    const dbPath = join(dir, "lore.db");
     await initDb({ dbPath });
     const db = openDb(dbPath);
     const app = createStudioApp(db);
@@ -75,7 +75,7 @@ describe("studio route validation", () => {
 
   test("GET /api/commits/:id rejects empty param", async () => {
     const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
-    const dbPath = join(dir, "toss.db");
+    const dbPath = join(dir, "lore.db");
     await initDb({ dbPath });
     const db = openDb(dbPath);
     const app = createStudioApp(db);
@@ -90,7 +90,7 @@ describe("studio route validation", () => {
 
   test("GET /api/unknown returns JSON 404", async () => {
     const dir = mkdtempSync(join(tmpdir(), "studio-validation-test-"));
-    const dbPath = join(dir, "toss.db");
+    const dbPath = join(dir, "lore.db");
     await initDb({ dbPath });
     const db = openDb(dbPath);
     const app = createStudioApp(db);

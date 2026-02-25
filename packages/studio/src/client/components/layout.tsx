@@ -14,7 +14,7 @@ export function AppLayout() {
     <div className="ui-shell">
       <header className="ui-header">
         <div className="ui-page ui-header-inner">
-          <p className="ui-brand">toss studio</p>
+          <p className="ui-brand">Lore Studio</p>
           <nav className="ui-nav" aria-label="Studio sections">
             <Link to="/" className={navClass(isOverview)}>Overview</Link>
             <Link to="/timeline" search={{ page: 1, kind: "all" }} className={navClass(isTimeline)}>

@@ -1,7 +1,7 @@
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
-import { connect, type Database } from "@toss/core";
+import { connect, type Database } from "@lore/core";
 import { z } from "zod";
 import { promptRadioSelection, type RadioOption } from "../prompts/radio";
 
@@ -84,7 +84,7 @@ function normalizeRequired(input: string, label: string): string {
 
 function promptPlatformSelection(): Promise<z.infer<typeof RemotePlatformSchema>> {
   return promptRadioSelection({
-    title: "toss remote connect",
+    title: "Lore remote connect",
     subtitle: "Select platform.",
     options: PLATFORM_OPTIONS,
     cancelMessage: "remote connect cancelled",
@@ -258,8 +258,8 @@ export async function runRemoteConnect(db: Database, parsed: z.infer<typeof Pars
     });
   }
   console.log(`Connected to ${platformName(config.platform)} (${config.remoteDbName ?? "unknown"}).`);
-  console.log("Config saved to ~/.toss/config.json");
+  console.log("Config saved to ~/.lore/config.json");
   if (authToken !== undefined) {
-    console.log("Credentials saved to ~/.toss/credentials.json");
+    console.log("Credentials saved to ~/.lore/credentials.json");
   }
 }

@@ -1,4 +1,4 @@
-import { revert, type Database } from "@toss/core";
+import { revert, type Database } from "@lore/core";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { summarizeCommit, toJson } from "../format";

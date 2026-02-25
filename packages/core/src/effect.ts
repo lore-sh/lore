@@ -107,9 +107,9 @@ function tableColumns(db: Database, table: string): string[] {
 }
 
 function buildRowSelectSql(table: string, columns: string[], pkColumns: string[], whereClause: string | null): string {
-  const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
-  const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
-  const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
+  const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
+  const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
+  const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
   const parts: string[] = [];
   for (let i = 0; i < columns.length; i++) {
     const quotedCol = quoteIdentifier(columns[i]!, { unsafe: true });
@@ -160,9 +160,9 @@ function captureTableState(db: Database, table: string) {
   ).sort((a, b) => a.localeCompare(b));
 
   const columns = tableColumns(db, table);
-  const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
-  const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
-  const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
+  const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
+  const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
+  const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
   const rowsRaw = db.$client.query<Record<string, unknown>, []>(buildRowSelectSql(table, columns, keyColumns, null)).all();
 
   const rows: EncodedRow[] = [];
@@ -384,9 +384,9 @@ export function readRow(db: Database, table: string, pk: Record<string, string>)
   if (keyColumns.length === 0) {
     throw new CodedError("REVERT_FAILED", `Cannot fetch row without key columns: ${table}`);
   }
-  const quoteAliases = columns.map((_, i) => `__toss_quote_${i}`);
-  const hexAliases = columns.map((_, i) => `__toss_hex_${i}`);
-  const typeAliases = columns.map((_, i) => `__toss_type_${i}`);
+  const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
+  const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
+  const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
   const whereClause = pkWhere(pk);
   const sql = `${buildRowSelectSql(table, columns, keyColumns, whereClause)} LIMIT 1`;
   const row = db.$client.query<Record<string, unknown>, []>(sql).get();

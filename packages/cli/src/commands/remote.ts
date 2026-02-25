@@ -1,4 +1,4 @@
-import { type Database } from "@toss/core";
+import { type Database } from "@lore/core";
 import { z } from "zod";
 import {
   parseRemoteConnectArgs,

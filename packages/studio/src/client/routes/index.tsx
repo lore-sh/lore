@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import type { history, tableOverview } from "@toss/core";
+import type { history, tableOverview } from "@lore/core";
 import { CommitEntry } from "../components/commit-entry";
 import { TableRow } from "../components/table-row";
 import { formatBytes, formatRelativeTime } from "../lib/time";
@@ -48,7 +48,7 @@ function TablesSection({ tables }: { tables: TableOverview[] }) {
         <h2 className="ui-title">Tables</h2>
       </header>
       {tables.length === 0 ? (
-        <p className="ui-empty">No tables yet. Data will appear here as you use toss.</p>
+        <p className="ui-empty">No tables yet. Data will appear here as you use Lore.</p>
       ) : (
         <div className="ui-table-list">
           {tables.map((table) => (

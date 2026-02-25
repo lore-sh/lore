@@ -8,7 +8,7 @@ import type {
   revert,
   status,
   tableOverview,
-} from "@toss/core";
+} from "@lore/core";
 import { hc, type InferRequestType, type InferResponseType } from "hono/client";
 import type { StudioApi, StudioApiError } from "../../server/app";
 import type { StudioRow } from "../../server/studio-row";

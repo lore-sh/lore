@@ -1,4 +1,4 @@
-import { verify, type Database } from "@toss/core";
+import { verify, type Database } from "@lore/core";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { toJson } from "../format";

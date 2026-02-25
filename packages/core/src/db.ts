@@ -11,21 +11,21 @@ export type Database = ReturnType<typeof drizzle<typeof schema>>;
 
 export type SkillPlatform = "claude" | "cursor" | "codex" | "opencode" | "openclaw";
 
-export const DEFAULT_DB_DIR = ".toss";
-export const DEFAULT_DB_NAME = "toss.db";
+export const DEFAULT_DB_DIR = ".lore";
+export const DEFAULT_DB_NAME = "lore.db";
 export const DEFAULT_SNAPSHOT_INTERVAL = 100;
 export const DEFAULT_SNAPSHOT_RETAIN = 20;
 export const DEFAULT_SYNC_PROTOCOL_VERSION = "1";
 export const MAIN_REF_NAME = "main";
-export const META_TABLE = "_toss_meta";
-export const COMMIT_TABLE = "_toss_commit";
-export const COMMIT_PARENT_TABLE = "_toss_commit_parent";
-export const REF_TABLE = "_toss_ref";
-export const REFLOG_TABLE = "_toss_reflog";
-export const OP_TABLE = "_toss_op";
-export const ROW_EFFECT_TABLE = "_toss_row_effect";
-export const SCHEMA_EFFECT_TABLE = "_toss_schema_effect";
-export const SNAPSHOT_TABLE = "_toss_snapshot";
+export const META_TABLE = "_lore_meta";
+export const COMMIT_TABLE = "_lore_commit";
+export const COMMIT_PARENT_TABLE = "_lore_commit_parent";
+export const REF_TABLE = "_lore_ref";
+export const REFLOG_TABLE = "_lore_reflog";
+export const OP_TABLE = "_lore_op";
+export const ROW_EFFECT_TABLE = "_lore_row_effect";
+export const SCHEMA_EFFECT_TABLE = "_lore_schema_effect";
+export const SNAPSHOT_TABLE = "_lore_snapshot";
 export const LAST_PUSHED_COMMIT_META_KEY = "last_pushed_commit";
 export const LAST_PULLED_COMMIT_META_KEY = "last_pulled_commit";
 export const LAST_SYNC_STATE_META_KEY = "last_sync_state";
@@ -252,7 +252,7 @@ export function runInSavepoint<T>(
 export function listUserTables(db: Database): string[] {
   const rows = db.$client
     .query<{ name: string }, []>(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_toss_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_lore_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
     )
     .all();
   return rows.map((row) => row.name);

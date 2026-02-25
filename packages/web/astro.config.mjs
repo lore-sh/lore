@@ -2,5 +2,5 @@
 import { defineConfig } from 'astro/config';
 
 export default defineConfig({
-  site: 'https://toss.sh',
+  site: 'https://getlore.sh',
 });

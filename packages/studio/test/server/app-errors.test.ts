@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { apply, initDb, openDb, parsePlan, revert, type Database } from "@toss/core";
+import { apply, initDb, openDb, parsePlan, revert, type Database } from "@lore/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +16,7 @@ afterEach(() => {
 function createTempPath(prefix: string): string {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   tempDirs.push(dir);
-  return join(dir, "toss.db");
+  return join(dir, "lore.db");
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

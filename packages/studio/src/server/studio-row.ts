@@ -1,4 +1,4 @@
-import type { JsonObject } from "@toss/core";
+import type { JsonObject } from "@lore/core";
 
 export type StudioCellValue = string | number | boolean | null;
 export type StudioRow = Record<string, StudioCellValue>;

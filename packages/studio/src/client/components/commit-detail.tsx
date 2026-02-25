@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import type { revert } from "@toss/core";
+import type { revert } from "@lore/core";
 import { useState } from "react";
 import { QueryBoundary } from "./query-boundary";
 import { revertCommitById } from "../lib/api";

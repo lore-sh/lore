@@ -2,7 +2,7 @@ import { defineConfig } from "drizzle-kit";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-const url = resolve(homedir(), ".toss", "toss.db");
+const url = resolve(homedir(), ".lore", "lore.db");
 
 export default defineConfig({
   dialect: "sqlite",

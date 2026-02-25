@@ -1,8 +1,8 @@
 import { relative, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
 import { parseArgs } from "node:util";
-import type { SkillPlatform } from "@toss/core";
-import { initDb } from "@toss/core";
+import type { SkillPlatform } from "@lore/core";
+import { initDb } from "@lore/core";
 import { z } from "zod";
 import { cleanSkills, generateSkills } from "../skills";
 import type { GeneratedPlatform } from "../skills";
@@ -16,7 +16,7 @@ export const DEFAULT_INIT_PLATFORMS: SkillPlatform[] = ["claude", "cursor", "cod
 
 export const PLATFORM_OPTIONS: Array<MultiSelectOption<SkillPlatform>> = [
   { id: "claude", label: "Claude Code", hint: "~/.claude/skills + ~/.claude/CLAUDE.md" },
-  { id: "cursor", label: "Cursor", hint: "~/.cursor/rules/toss.mdc" },
+  { id: "cursor", label: "Cursor", hint: "~/.cursor/rules/lore.mdc" },
   { id: "codex", label: "Codex CLI", hint: "~/.agents/skills + ~/.codex/AGENTS.md" },
   { id: "opencode", label: "OpenCode", hint: "~/.agents/skills + ~/.config/opencode/AGENTS.md" },
   { id: "openclaw", label: "OpenClaw", hint: "~/.openclaw/workspace/skills + ~/.openclaw/workspace/AGENTS.md" },
@@ -133,7 +133,7 @@ export function renderInitResult(view: InitResultView): string {
   const withColor = view.useColor ?? colorEnabled();
   const ok = style("[✓]", "32;1", withColor);
   const info = style("[i]", "36;1", withColor);
-  const lines = [style("toss init complete", "1;36", withColor)];
+  const lines = [style("Lore init complete", "1;36", withColor)];
   lines.push(`${ok} Database: ${displayPath(view.dbPath)}`);
 
   if (view.forceNew) {
@@ -161,7 +161,7 @@ export function renderCleanResult(view: CleanResultView): string {
   const info = style("[i]", "36;1", withColor);
   const muted = style("[ ]", "37;2", withColor);
   const removedCount = view.files.filter((file) => file.removed).length;
-  const lines = [style("toss clean complete", "1;36", withColor)];
+  const lines = [style("Lore clean complete", "1;36", withColor)];
   lines.push(`${ok} Removed: ${removedCount}/${view.files.length}`);
   lines.push(style("Cleanup targets", "1", withColor));
   for (const file of view.files) {
@@ -170,7 +170,7 @@ export function renderCleanResult(view: CleanResultView): string {
     const note = file.removed ? "removed" : "not found";
     lines.push(`  ${mark} ${label}: ${displayPath(file.path)} ${style(`(${note})`, "2", withColor)}`);
   }
-  lines.push(`${info} Global toss integration state has been reset.`);
+  lines.push(`${info} Global Lore integration state has been reset.`);
   return lines.join("\n");
 }
 
@@ -240,7 +240,7 @@ export function resolveInitSelection(parsed: ParsedInitArgs, isTty: boolean): Re
 
 export function promptPlatformSelection(): Promise<SkillPlatform[]> {
   return promptMultiSelect({
-    title: "toss init - Platform Installer",
+    title: "Lore init - Platform Installer",
     subtitle: "Select target platforms and confirm to generate skill integrations.",
     keyHint: "Keys: Up/Down move | Space toggle checkbox | a all/none | Enter confirm | Ctrl+C cancel",
     options: PLATFORM_OPTIONS,
@@ -251,13 +251,13 @@ export function promptPlatformSelection(): Promise<SkillPlatform[]> {
 
 export function promptHeartbeat(): Promise<boolean> {
   return promptConfirm({
-    title: "toss init - OpenClaw",
-    message: "Enable OpenClaw heartbeat patrol for toss data?",
+    title: "Lore init - OpenClaw",
+    message: "Enable OpenClaw heartbeat patrol for Lore data?",
     defaultValue: true,
     yesLabel: "Enable",
     noLabel: "Disable",
     yesHint: "Creates a heartbeat check script and scheduler scaffold.",
-    noHint: "Skips heartbeat setup and keeps standard toss skill output only.",
+    noHint: "Skips heartbeat setup and keeps standard Lore skill output only.",
     cancelMessage: "init cancelled",
   });
 }
@@ -281,13 +281,13 @@ export function parseCleanArgs(args: string[]): z.infer<typeof ParsedCleanArgsSc
 async function confirmClean(): Promise<boolean> {
   try {
     return await promptConfirm({
-      title: "toss clean",
-      message: "This will remove global toss integrations. Continue?",
+      title: "Lore clean",
+      message: "This will remove global Lore integrations. Continue?",
       defaultValue: false,
       yesLabel: "Continue",
       noLabel: "Cancel",
       yesHint: "Remove shared skills and platform integration files.",
-      noHint: "Keep current global toss integration state.",
+      noHint: "Keep current global Lore integration state.",
       cancelMessage: "clean cancelled",
     });
   } catch (error) {

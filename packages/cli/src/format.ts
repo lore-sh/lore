@@ -1,4 +1,4 @@
-import type { Commit } from "@toss/core";
+import type { Commit } from "@lore/core";
 
 export function toJson(value: unknown): string {
   return JSON.stringify(value, null, 2);

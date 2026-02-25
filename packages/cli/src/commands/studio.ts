@@ -1,4 +1,4 @@
-import { parseStudioPortArg, startStudioServer } from "@toss/studio";
+import { parseStudioPortArg, startStudioServer } from "@lore/studio";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 

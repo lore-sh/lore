@@ -1,4 +1,4 @@
-import { listCommits, type Database } from "@toss/core";
+import { listCommits, type Database } from "@lore/core";
 import { parseArgs } from "node:util";
 import { z } from "zod";
 import { formatTimestamp, printTable, toJson } from "../format";

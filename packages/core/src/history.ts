@@ -38,12 +38,12 @@ export function history(
     conditions.push(`(
       EXISTS (
         SELECT 1
-        FROM _toss_row_effect re
+        FROM _lore_row_effect re
         WHERE re.commit_id = c.commit_id AND re.table_name = ? COLLATE NOCASE
       )
       OR EXISTS (
         SELECT 1
-        FROM _toss_schema_effect se
+        FROM _lore_schema_effect se
         WHERE se.commit_id = c.commit_id AND se.table_name = ? COLLATE NOCASE
       )
     )`);
@@ -77,24 +77,24 @@ export function history(
           SELECT group_concat(parent_commit_id, '${ARRAY_SEPARATOR}')
           FROM (
             SELECT cp.parent_commit_id
-            FROM _toss_commit_parent cp
+            FROM _lore_commit_parent cp
             WHERE cp.commit_id = c.commit_id
             ORDER BY cp.ord
           )
         ), '') AS parent_ids,
         (
           SELECT COUNT(*)
-          FROM _toss_op o
+          FROM _lore_op o
           WHERE o.commit_id = c.commit_id
         ) AS operation_count,
         (
           SELECT COUNT(*)
-          FROM _toss_row_effect re
+          FROM _lore_row_effect re
           WHERE re.commit_id = c.commit_id
         ) AS row_effect_count,
         (
           SELECT COUNT(*)
-          FROM _toss_schema_effect se
+          FROM _lore_schema_effect se
           WHERE se.commit_id = c.commit_id
         ) AS schema_effect_count,
         COALESCE((
@@ -103,17 +103,17 @@ export function history(
             SELECT table_name
             FROM (
               SELECT re.table_name AS table_name
-              FROM _toss_row_effect re
+              FROM _lore_row_effect re
               WHERE re.commit_id = c.commit_id
               UNION
               SELECT se.table_name AS table_name
-              FROM _toss_schema_effect se
+              FROM _lore_schema_effect se
               WHERE se.commit_id = c.commit_id
             )
             ORDER BY table_name COLLATE NOCASE
           )
         ), '') AS affected_tables
-      FROM _toss_commit c
+      FROM _lore_commit c
       ${whereSql}
       ORDER BY c.seq DESC
       LIMIT ? OFFSET ?

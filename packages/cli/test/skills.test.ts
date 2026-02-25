@@ -3,7 +3,7 @@ import { chmod, mkdir } from "node:fs/promises";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initDb } from "@toss/core";
+import { initDb } from "@lore/core";
 import { cleanSkills, generateSkills } from "../src/skills";
 
 interface GlobalEnvSnapshot {
@@ -39,7 +39,7 @@ interface GlobalEnvPaths {
 }
 
 function createTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "toss-cli-skill-test-"));
+  return mkdtempSync(join(tmpdir(), "lore-cli-skill-test-"));
 }
 
 function withSkillEnv(fn: (paths: GlobalEnvPaths, dbPath: string) => Promise<void>) {
@@ -56,7 +56,7 @@ function withSkillEnv(fn: (paths: GlobalEnvPaths, dbPath: string) => Promise<voi
     process.env.HOME = paths.home;
     process.env.CODEX_HOME = paths.codexHome;
     process.env.XDG_CONFIG_HOME = paths.xdgConfigHome;
-    const dbPath = join(dir, "toss.db");
+    const dbPath = join(dir, "lore.db");
     try {
       await initDb({ dbPath });
       await fn(paths, dbPath);
@@ -84,10 +84,10 @@ describe("generateSkills", () => {
     const result = await generateSkills({ platforms: ["codex", "cursor"] });
     expect(result.files.length).toBeGreaterThan(0);
 
-    const sharedSkillPath = join(paths.home, ".agents", "skills", "toss", "SKILL.md");
+    const sharedSkillPath = join(paths.home, ".agents", "skills", "lore", "SKILL.md");
     const codexAgentsPath = join(paths.codexHome, "AGENTS.md");
-    const cursorRulePath = join(paths.home, ".cursor", "rules", "toss.mdc");
-    const claudeSkillPath = join(paths.home, ".claude", "skills", "toss", "SKILL.md");
+    const cursorRulePath = join(paths.home, ".cursor", "rules", "lore.mdc");
+    const claudeSkillPath = join(paths.home, ".claude", "skills", "lore", "SKILL.md");
 
     expect(await Bun.file(sharedSkillPath).exists()).toBe(true);
     expect(await Bun.file(codexAgentsPath).exists()).toBe(true);
@@ -104,10 +104,10 @@ describe("generateSkills", () => {
     const codexAgentsText = await Bun.file(codexAgentsPath).text();
     const opencodeAgentsText = await Bun.file(opencodeAgentsPath).text();
 
-    expect(countOccurrences(codexAgentsText, "<!-- toss:init:agents:start -->")).toBe(1);
-    expect(countOccurrences(codexAgentsText, "<!-- toss:init:agents:end -->")).toBe(1);
-    expect(countOccurrences(opencodeAgentsText, "<!-- toss:init:agents:start -->")).toBe(1);
-    expect(countOccurrences(opencodeAgentsText, "<!-- toss:init:agents:end -->")).toBe(1);
+    expect(countOccurrences(codexAgentsText, "<!-- lore:init:agents:start -->")).toBe(1);
+    expect(countOccurrences(codexAgentsText, "<!-- lore:init:agents:end -->")).toBe(1);
+    expect(countOccurrences(opencodeAgentsText, "<!-- lore:init:agents:start -->")).toBe(1);
+    expect(countOccurrences(opencodeAgentsText, "<!-- lore:init:agents:end -->")).toBe(1);
   }));
 
   test("fails safely on malformed managed AGENTS block", withSkillEnv(async (paths) => {
@@ -117,7 +117,7 @@ describe("generateSkills", () => {
       "# AGENTS.md",
       "",
       "before",
-      "<!-- toss:init:agents:start -->",
+      "<!-- lore:init:agents:start -->",
       "user content that must never be truncated",
     ].join("\n");
     await Bun.write(codexAgentsPath, malformed);
@@ -136,15 +136,15 @@ describe("generateSkills", () => {
     const opencodeAgentsPath = join(paths.opencodeHome, "AGENTS.md");
     const codexAgentsText = await Bun.file(codexAgentsPath).text();
     const opencodeAgentsText = await Bun.file(opencodeAgentsPath).text();
-    expect(codexAgentsText.includes("<!-- toss:init:agents:start -->")).toBe(false);
-    expect(opencodeAgentsText.includes("<!-- toss:init:agents:start -->")).toBe(false);
+    expect(codexAgentsText.includes("<!-- lore:init:agents:start -->")).toBe(false);
+    expect(opencodeAgentsText.includes("<!-- lore:init:agents:start -->")).toBe(false);
   }));
 
   test("openclaw output uses default workspace", withSkillEnv(async (paths) => {
     const result = await generateSkills({ platforms: ["openclaw"] });
     expect(result.files.length).toBeGreaterThan(0);
 
-    const openclawSkillPath = join(paths.openclawWorkspace, "skills", "toss", "SKILL.md");
+    const openclawSkillPath = join(paths.openclawWorkspace, "skills", "lore", "SKILL.md");
     const openclawAgentsPath = join(paths.openclawWorkspace, "AGENTS.md");
     expect(await Bun.file(openclawSkillPath).exists()).toBe(true);
     expect(await Bun.file(openclawAgentsPath).exists()).toBe(true);
@@ -154,7 +154,7 @@ describe("generateSkills", () => {
     await generateSkills({ platforms: ["openclaw"] });
     await generateSkills({ platforms: ["cursor"] });
 
-    const openclawSkillPath = join(paths.openclawWorkspace, "skills", "toss", "SKILL.md");
+    const openclawSkillPath = join(paths.openclawWorkspace, "skills", "lore", "SKILL.md");
     expect(await Bun.file(openclawSkillPath).exists()).toBe(false);
   }));
 
@@ -162,12 +162,12 @@ describe("generateSkills", () => {
     await generateSkills({ platforms: ["claude"] });
     await generateSkills({ platforms: ["cursor"] });
 
-    const claudeSkillPath = join(paths.home, ".claude", "skills", "toss", "SKILL.md");
+    const claudeSkillPath = join(paths.home, ".claude", "skills", "lore", "SKILL.md");
     expect(await Bun.file(claudeSkillPath).exists()).toBe(false);
     const claudePath = join(paths.home, ".claude", "CLAUDE.md");
     if (await Bun.file(claudePath).exists()) {
       const text = await Bun.file(claudePath).text();
-      expect(text.includes("<!-- toss:init:claude:start -->")).toBe(false);
+      expect(text.includes("<!-- lore:init:claude:start -->")).toBe(false);
     }
   }));
 
@@ -175,7 +175,7 @@ describe("generateSkills", () => {
     await generateSkills({ platforms: ["cursor"] });
     await generateSkills({ platforms: ["codex"] });
 
-    const cursorRulePath = join(paths.home, ".cursor", "rules", "toss.mdc");
+    const cursorRulePath = join(paths.home, ".cursor", "rules", "lore.mdc");
     expect(await Bun.file(cursorRulePath).exists()).toBe(false);
   }));
 });
@@ -187,10 +187,10 @@ describe("cleanSkills", () => {
     const cleaned = await cleanSkills();
     expect(cleaned.files.some((file) => file.removed)).toBe(true);
 
-    const sharedSkillPath = join(paths.home, ".agents", "skills", "toss", "SKILL.md");
-    const cursorRulePath = join(paths.home, ".cursor", "rules", "toss.mdc");
-    const claudeSkillPath = join(paths.home, ".claude", "skills", "toss", "SKILL.md");
-    const openclawSkillPath = join(paths.openclawWorkspace, "skills", "toss", "SKILL.md");
+    const sharedSkillPath = join(paths.home, ".agents", "skills", "lore", "SKILL.md");
+    const cursorRulePath = join(paths.home, ".cursor", "rules", "lore.mdc");
+    const claudeSkillPath = join(paths.home, ".claude", "skills", "lore", "SKILL.md");
+    const openclawSkillPath = join(paths.openclawWorkspace, "skills", "lore", "SKILL.md");
     expect(await Bun.file(sharedSkillPath).exists()).toBe(false);
     expect(await Bun.file(cursorRulePath).exists()).toBe(false);
     expect(await Bun.file(claudeSkillPath).exists()).toBe(false);

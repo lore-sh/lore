@@ -136,9 +136,9 @@ export function withTmpDirCleanup<T>(fn: () => T | Promise<T>): () => Promise<T>
 
 export function createTestContext(): { dir: string; dbPath: string } {
   const scope = currentTmpDirScope();
-  const dir = mkdtempSync(join(tmpdir(), "toss-core-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "lore-core-test-"));
   scope.add(dir);
-  const dbPath = join(dir, "toss.db");
+  const dbPath = join(dir, "lore.db");
   lastDbPath = dbPath;
   return { dir, dbPath };
 }

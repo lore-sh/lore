@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { describeDb, history, resolveTable, tableOverview, queryTable, type Database } from "@toss/core";
+import { describeDb, history, resolveTable, tableOverview, queryTable, type Database } from "@lore/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { positiveIntSchema, tableParamSchema, validationError } from "./shared";

@@ -1,4 +1,4 @@
-import { sync, type Database } from "@toss/core";
+import { sync, type Database } from "@lore/core";
 import { z } from "zod";
 import { toJson } from "../format";
 

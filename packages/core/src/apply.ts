@@ -51,7 +51,7 @@ function dryRunWithDb(db: Database, operations: Operation[]) {
     const before = captureState(db);
     const predicted = runInSavepoint(
       db,
-      "toss_plan_check",
+      "lore_plan_check",
       () => {
         for (const op of operations) {
           executeOperation(db, op);

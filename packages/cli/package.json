@@ -1,14 +1,14 @@
 {
-  "name": "@toss/cli",
+  "name": "@lore/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "toss": "./src/main.ts"
+    "lore": "./src/main.ts"
   },
   "dependencies": {
-    "@toss/core": "workspace:*",
-    "@toss/studio": "workspace:*",
+    "@lore/core": "workspace:*",
+    "@lore/studio": "workspace:*",
     "zod": "^3.25.76"
   }
 }

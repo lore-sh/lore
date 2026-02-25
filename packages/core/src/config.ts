@@ -4,16 +4,16 @@ import { CodedError } from "./error";
 import { resolveHomeDir } from "./db";
 import type { RemotePlatform } from "./sync";
 
-function resolveTossDirPath(): string {
-  return resolve(resolveHomeDir(), ".toss");
+function resolveLoreDirPath(): string {
+  return resolve(resolveHomeDir(), ".lore");
 }
 
 export function resolveConfigPath(): string {
-  return resolve(resolveTossDirPath(), "config.json");
+  return resolve(resolveLoreDirPath(), "config.json");
 }
 
 export function resolveCredentialsPath(): string {
-  return resolve(resolveTossDirPath(), "credentials.json");
+  return resolve(resolveLoreDirPath(), "credentials.json");
 }
 
 function readJsonFile(path: string): unknown | null {

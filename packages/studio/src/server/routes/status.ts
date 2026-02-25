@@ -1,4 +1,4 @@
-import { status, type Database } from "@toss/core";
+import { status, type Database } from "@lore/core";
 import { Hono } from "hono";
 
 export function createStatusRoutes(db: Database) {
