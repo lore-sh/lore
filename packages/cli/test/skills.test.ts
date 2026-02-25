@@ -93,6 +93,18 @@ describe("generateSkills", () => {
     expect(await Bun.file(codexAgentsPath).exists()).toBe(true);
     expect(await Bun.file(cursorRulePath).exists()).toBe(true);
     expect(await Bun.file(claudeSkillPath).exists()).toBe(false);
+
+    const sharedSkillText = await Bun.file(sharedSkillPath).text();
+    expect(sharedSkillText.includes("lore plan -f - <<'JSON'")).toBe(true);
+    expect(sharedSkillText.includes("lore apply -f - <<'JSON'")).toBe(true);
+    expect(sharedSkillText.includes("lore plan '<plan JSON>'")).toBe(false);
+    expect(sharedSkillText.includes("lore apply '<plan JSON>'")).toBe(false);
+
+    const cursorRuleText = await Bun.file(cursorRulePath).text();
+    expect(cursorRuleText.includes("lore plan -f <file|->")).toBe(true);
+    expect(cursorRuleText.includes("lore apply -f <file|->")).toBe(true);
+    expect(cursorRuleText.includes("lore plan '<json>'")).toBe(false);
+    expect(cursorRuleText.includes("lore apply '<json>'")).toBe(false);
   }));
 
   test("managed AGENTS block is replaced without duplication", withSkillEnv(async (paths) => {

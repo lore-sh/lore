@@ -17,18 +17,45 @@ async function withTempDb<T>(dir: string, run: (db: Database) => Promise<T>): Pr
 }
 
 describe("plan command", () => {
-  test("parsePlanArgs requires exactly one argument", () => {
-    expect(() => parsePlanArgs([])).toThrow();
-    expect(() => parsePlanArgs(["a", "b"])).toThrow();
+  test("parsePlanArgs requires -f input", () => {
+    expect(() => parsePlanArgs([])).toThrow("Missing required option: -f <file|->");
   });
 
-  test("parsePlanArgs rejects option arguments", () => {
+  test("parsePlanArgs rejects unknown options", () => {
     expect(() => parsePlanArgs(["--verbose"])).toThrow("Unknown option '--verbose'");
   });
 
-  test("parsePlanArgs returns the plan ref", () => {
-    expect(parsePlanArgs(["schema.sql"])).toBe("schema.sql");
-    expect(parsePlanArgs(["-"])).toBe("-");
+  test("parsePlanArgs rejects positional arguments", () => {
+    expect(() => parsePlanArgs(["plan.json"])).toThrow(
+      "Positional arguments are not allowed. Use -f <file|->",
+    );
+  });
+
+  test("parsePlanArgs returns file input from -f", () => {
+    expect(parsePlanArgs(["-f", "plan.json"])).toEqual({
+      kind: "file",
+      path: "plan.json",
+    });
+    expect(parsePlanArgs(["--file", "plan.json"])).toEqual({
+      kind: "file",
+      path: "plan.json",
+    });
+  });
+
+  test("parsePlanArgs returns stdin input from -f -", () => {
+    expect(parsePlanArgs(["-f", "-"])).toEqual({ kind: "stdin" });
+  });
+
+  test("parsePlanArgs rejects extra positional arguments", () => {
+    expect(() => parsePlanArgs(["plan.json", "extra"])).toThrow(
+      "Positional arguments are not allowed. Use -f <file|->",
+    );
+  });
+
+  test("parsePlanArgs rejects combining positional with --file", () => {
+    expect(() => parsePlanArgs(["plan.json", "-f", "other.json"])).toThrow(
+      "Positional arguments are not allowed. Use -f <file|->",
+    );
   });
 
   test("runPlan prints JSON check result when plan file is missing", async () => {
@@ -47,7 +74,9 @@ describe("plan command", () => {
         }) as typeof process.exit,
       });
       await withTempDb(dir, async (db) => {
-        await expect(runPlan(db, join(dir, "missing-plan.json"))).rejects.toThrow("EXIT:1");
+        await expect(
+          runPlan(db, { kind: "file", path: join(dir, "missing-plan.json") }),
+        ).rejects.toThrow("EXIT:1");
       });
       const result = JSON.parse(logs[0] ?? "{}");
       expect(result.ok).toBe(false);
@@ -80,7 +109,7 @@ describe("plan command", () => {
         }) as typeof process.exit,
       });
       await withTempDb(dir, async (db) => {
-        await expect(runPlan(db, invalidPath)).rejects.toThrow("EXIT:1");
+        await expect(runPlan(db, { kind: "file", path: invalidPath })).rejects.toThrow("EXIT:1");
       });
       const result = JSON.parse(logs[0] ?? "{}");
       expect(result.ok).toBe(false);

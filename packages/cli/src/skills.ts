@@ -240,16 +240,22 @@ lore schema
 
 3. Dry-run (recommended for schema changes, optional for simple inserts):
 \`\`\`bash
-cat <<'JSON' | lore plan -
+lore plan -f - <<'JSON'
 <plan JSON>
 JSON
 \`\`\`
 
 4. Apply:
 \`\`\`bash
-cat <<'JSON' | lore apply -
+lore apply -f - <<'JSON'
 <plan JSON>
 JSON
+\`\`\`
+
+Alternative (from file):
+\`\`\`bash
+lore plan -f plan.json
+lore apply -f plan.json
 \`\`\`
 
 5. If apply fails with schema mismatch, re-read schema and retry once.
@@ -283,8 +289,8 @@ Present results with a short interpretation.
 | Command | Purpose |
 |---------|---------|
 | \`lore schema [<table>]\` | Read current schema |
-| \`lore plan <file\\|->\` | Dry-run validation |
-| \`lore apply <file\\|->\` | Execute and commit |
+| \`lore plan -f <file\\|->\` | Dry-run validation |
+| \`lore apply -f <file\\|->\` | Execute and commit |
 | \`lore read --sql "<SELECT>" --json\` | Read-only query |
 | \`lore status [--json]\` | Database overview |
 | \`lore history [--verbose] [--json]\` | Commit log |
@@ -312,7 +318,7 @@ User says: "I booked a dentist appointment tomorrow at 2pm"
 # 1. Read schema -> schedules table does not exist yet
 
 # 2. Apply with table creation + insert
-cat <<'JSON' | lore apply -
+lore apply -f - <<'JSON'
 {
   "message": "dentist appointment 2026-02-21 14:00",
   "operations": [
@@ -347,7 +353,7 @@ User says: "Had lunch at Ichiran in Shibuya, 1200 yen"
 Schema already has \`expenses(id, date, item, amount, category, note)\` — location is new.
 
 \`\`\`bash
-cat <<'JSON' | lore apply -
+lore apply -f - <<'JSON'
 {
   "message": "lunch expense with location tracking",
   "operations": [
@@ -374,7 +380,7 @@ JSON
 User says: "We changed the auth decision from session to JWT."
 
 \`\`\`bash
-cat <<'JSON' | lore apply -
+lore apply -f - <<'JSON'
 {
   "message": "update auth decision to JWT",
   "operations": [
@@ -397,7 +403,7 @@ JSON
 During debugging, user resolves a tricky issue:
 
 \`\`\`bash
-cat <<'JSON' | lore apply -
+lore apply -f - <<'JSON'
 {
   "message": "debug insight: SQLite WAL mode lock contention",
   "operations": [
@@ -438,7 +444,7 @@ function contractsReferenceContent(): string {
 
 ## OperationPlan Envelope
 
-Every write goes through this JSON envelope piped to \`lore plan -\` or \`lore apply -\`:
+Every write goes through this JSON envelope passed to \`lore plan\` or \`lore apply\`:
 
 \`\`\`json
 {
@@ -570,7 +576,7 @@ Single statement, read-only. Use \`--json\` for structured output.
 
 ### plan (dry-run)
 \`\`\`bash
-lore plan <file|->
+lore plan -f <file|->
 \`\`\`
 Returns: \`ok\`, \`errors\`, \`warnings\`, \`risk\` (low/medium/high), predicted effects.
 
@@ -606,8 +612,8 @@ Activate when conversation contains information worth remembering or user asks a
 
 ## Commands
 - \`lore schema\` — read current schema
-- \`lore plan -\` — dry-run validation
-- \`lore apply -\` — execute and commit
+- \`lore plan -f <file|->\` — dry-run validation (recommended: \`-f -\` with heredoc)
+- \`lore apply -f <file|->\` — execute and commit (recommended: \`-f -\` with heredoc)
 - \`lore read --sql "<SELECT ...>" --json\` — query data
 - \`lore remote connect --platform <turso|libsql> --url <url> [--token <token>|--clear-token]\` — configure remote
 - \`lore remote status\` / \`lore push\` / \`lore pull\` / \`lore sync\` — remote sync controls

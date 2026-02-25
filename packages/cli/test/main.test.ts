@@ -3,7 +3,7 @@ import { CodedError } from "@lore/core";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { formatError, getCommandHandler, runCli } from "../src/main";
+import { formatError, getCommandHandler, runCli, usage } from "../src/main";
 
 async function expectUnknownCommand(command: string): Promise<void> {
   try {
@@ -40,6 +40,14 @@ describe("main command dispatch", () => {
 
   test("formatError falls back to generic error output", () => {
     expect(formatError(new Error("boom"))).toBe("Error: boom");
+  });
+
+  test("usage shows -f-only plan/apply inputs", () => {
+    const text = usage();
+    expect(text).toContain("lore plan -f <file|->");
+    expect(text).toContain("lore apply -f <file|->");
+    expect(text).not.toContain("lore plan <json>");
+    expect(text).not.toContain("lore apply <json>");
   });
 
   test("validates db command args before opening database", async () => {

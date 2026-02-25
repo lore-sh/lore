@@ -16,24 +16,50 @@ const EMPTY_CHECK_SUMMARY: CheckSummary = {
   predicted: { rowEffects: 0, schemaEffects: 0, tables: [] },
 };
 
-const PlanRefSchema = z.string().min(1);
+export const PlanInputSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("file"), path: z.string().min(1) }),
+  z.object({ kind: z.literal("stdin") }),
+]);
 
-export function parsePlanArgs(args: string[]): string {
+export type PlanInput = z.infer<typeof PlanInputSchema>;
+
+export function parsePlanInput(args: string[]): PlanInput {
   const parsed = parseArgs({
     strict: true,
     args,
     allowPositionals: true,
-    options: {},
+    options: {
+      file: { type: "string", short: "f" },
+    },
   });
-  const [planRef] = z.tuple([PlanRefSchema]).parse(parsed.positionals);
-  return planRef;
+
+  const file = parsed.values.file;
+  const positionals = parsed.positionals;
+
+  if (positionals.length > 0) {
+    throw new Error("Positional arguments are not allowed. Use -f <file|->");
+  }
+
+  if (file !== undefined) {
+    return PlanInputSchema.parse(
+      file === "-" ? { kind: "stdin" } : { kind: "file", path: file },
+    );
+  }
+
+  throw new Error("Missing required option: -f <file|->");
 }
 
-export function readPlanInput(planRef: string): Promise<string> {
-  if (planRef === "-") {
-    return Bun.stdin.text();
+export function parsePlanArgs(args: string[]): PlanInput {
+  return parsePlanInput(args);
+}
+
+export function readPlanInput(input: PlanInput): Promise<string> {
+  switch (input.kind) {
+    case "stdin":
+      return Bun.stdin.text();
+    case "file":
+      return Bun.file(input.path).text();
   }
-  return Bun.file(planRef).text();
 }
 
 function checkIssueFromError(error: unknown): CheckIssue {
@@ -57,10 +83,10 @@ function failedCheckResult(error: unknown): CheckResult {
   };
 }
 
-export async function runPlan(db: Database, planRef: string): Promise<void> {
+export async function runPlan(db: Database, input: PlanInput): Promise<void> {
   let plan: ReturnType<typeof parsePlan>;
   try {
-    const payload = await readPlanInput(planRef);
+    const payload = await readPlanInput(input);
     plan = parsePlan(payload);
   } catch (error) {
     const result = failedCheckResult(error);
