@@ -1,17 +1,666 @@
 ---
-
 ---
 
+<!doctype html>
 <html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A local SQLite database managed by AI agents. Talk naturally — your data is structured, versioned, and stored on your machine."
+    />
+    <link rel="icon" type="image/svg+xml" href="/service-icon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <title>Lore — Your Life, One Database</title>
+
+    <style>
+      :root {
+        --bg: #09090b;
+        --border: rgba(255, 255, 255, 0.06);
+        --border-h: rgba(255, 255, 255, 0.1);
+        --tx: #f4f4f5;
+        --tx-2: #a1a1aa;
+        --tx-3: #6e6e77;
+        --accent-h: #818cf8;
+        --green: #4ade80;
+        --font: "Plus Jakarta Sans", system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        font-family: var(--font);
+        color: var(--tx);
+        background: var(--bg);
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      img,
+      video {
+        display: block;
+      }
+
+      #bg {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        padding: 0.85rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+        background: rgba(9, 9, 11, 0.8);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        flex-shrink: 0;
+      }
+
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-weight: 700;
+        font-size: 1.05rem;
+        letter-spacing: -0.01em;
+      }
+
+      .logo img {
+        width: 26px;
+        height: 26px;
+      }
+
+      .gh-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.85rem;
+        border: 1px solid var(--border-h);
+        border-radius: 8px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--tx-2);
+        transition:
+          color 0.15s,
+          border-color 0.15s;
+      }
+
+      .gh-btn:hover {
+        color: var(--tx);
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+
+      .gh-btn svg {
+        width: 15px;
+        height: 15px;
+      }
+
+      .hero {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 1.5rem;
+      }
+
+      .hero h1 {
+        font-weight: 800;
+        font-size: clamp(2.4rem, 5vw, 3.4rem);
+        line-height: 1.1;
+        letter-spacing: -0.04em;
+        max-width: 18ch;
+        margin-bottom: clamp(0.4rem, 1vh, 0.7rem);
+      }
+
+      .hero h1 em {
+        font-style: normal;
+        background: linear-gradient(135deg, var(--accent-h), #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .sub {
+        font-size: clamp(0.88rem, 1.2vw, 1.02rem);
+        color: var(--tx-2);
+        max-width: none;
+        white-space: nowrap;
+        line-height: 1.65;
+        margin-bottom: clamp(1.4rem, 3vh, 2.2rem);
+      }
+
+      .install {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 0.65rem 1.2rem;
+        border: 1px solid var(--border-h);
+        border-radius: 10px;
+        background: rgba(17, 17, 20, 0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        font-family: var(--mono);
+        font-size: clamp(0.9rem, 1.1vw, 1rem);
+        color: var(--tx);
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+        margin-bottom: clamp(2rem, 4vh, 3.5rem);
+      }
+
+      .install:hover {
+        border-color: rgba(255, 255, 255, 0.18);
+        background: rgba(24, 24, 28, 0.7);
+      }
+
+      .install .prompt {
+        color: var(--tx-3);
+        user-select: none;
+      }
+
+      .install .copy-icon {
+        color: var(--tx-3);
+        transition: color 0.15s;
+        margin-left: 0.2rem;
+      }
+
+      .install:hover .copy-icon {
+        color: var(--tx-2);
+      }
+
+      .video-wrap {
+        position: relative;
+        width: 100%;
+        max-width: 900px;
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--border-h);
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.03),
+          0 8px 40px rgba(0, 0, 0, 0.4);
+        cursor: pointer;
+      }
+
+      .video-wrap video {
+        width: 100%;
+        height: auto;
+      }
+
+      .video-wrap .play-indicator {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.3);
+        opacity: 1;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+
+      .video-wrap .play-indicator svg {
+        width: 56px;
+        height: 56px;
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+      }
+
+      .video-wrap.playing .play-indicator {
+        opacity: 0;
+      }
+
+      .foot {
+        position: relative;
+        z-index: 1;
+        padding: 0.7rem 1.5rem;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+      }
+
+      .foot span {
+        font-size: 0.78rem;
+        color: var(--tx-3);
+      }
+
+      .foot a {
+        font-size: 0.78rem;
+        color: var(--tx-3);
+        transition: color 0.15s;
+      }
+
+      .foot a:hover {
+        color: var(--tx-2);
+      }
+
+      .hero > * {
+        animation: fadeUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(16px);
+        }
+      }
+
+      .hero > *:nth-child(2) {
+        animation-delay: 0.05s;
+      }
+      .hero > *:nth-child(3) {
+        animation-delay: 0.1s;
+      }
+      .hero > *:nth-child(4) {
+        animation-delay: 0.2s;
+      }
+
+      .sp-br {
+        display: none;
+      }
+
+      @media (max-width: 640px) {
+        .sp-br {
+          display: block;
+        }
+        .sub {
+          white-space: normal;
+          max-width: 32ch;
+        }
+
+        .install {
+          font-size: 0.85rem;
+          padding: 0.55rem 1rem;
+        }
+
+        .video-wrap {
+          border-radius: 8px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0s !important;
+          transition-duration: 0s !important;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <canvas id="bg" aria-hidden="true"></canvas>
+
+    <nav class="nav">
+      <a class="logo" href="/">
+        <img src="/service-icon.svg" alt="" width="26" height="26" />
+        <span>Lore</span>
+      </a>
+      <a
+        class="gh-btn"
+        href="https://github.com/lore-sh/lore"
+        target="_blank"
+        rel="noopener"
+      >
+        <svg viewBox="0 0 16 16" fill="currentColor">
+          <path
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
+          ></path>
+        </svg>
+        GitHub
+      </a>
+    </nav>
+
+    <main class="hero">
+      <h1>The database <br class="sp-br" /><em>of your life</em></h1>
+
+      <p class="sub">
+        One SQLite file on your machine. AI structures everything. You just talk.
+      </p>
+
+      <div class="install" id="install">
+        <span class="prompt">$</span>
+        npm i -g @lore-sh/lore
+        <svg
+          class="copy-icon"
+          width="15"
+          height="15"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <g class="icon-copy">
+            <rect x="5" y="5" width="9" height="9" rx="1.5"></rect>
+            <path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"></path>
+          </g>
+          <path class="icon-check" d="M4 8.5L7 11.5L12 4.5" style="display:none"></path>
+        </svg>
+      </div>
+
+      <div class="video-wrap" id="video-wrap">
+        <video
+          muted
+          loop
+          playsinline
+          poster="/demo-poster.jpg"
+          src="/demo.mp4"
+        ></video>
+        <div class="play-indicator">
+          <svg viewBox="0 0 24 24" fill="white" stroke="none">
+            <polygon points="6,3 20,12 6,21" />
+          </svg>
+        </div>
+      </div>
+    </main>
+
+    <footer class="foot">
+      <span>Lore is open source.</span>
+      <a
+        href="https://github.com/lore-sh/lore"
+        target="_blank"
+        rel="noopener">GitHub</a
+      >
+    </footer>
+
+    <script>
+      {
+        const el = document.getElementById("install")!;
+        const iconCopy = el.querySelector<SVGElement>(".icon-copy")!;
+        const iconCheck = el.querySelector<SVGElement>(".icon-check")!;
+        const copyIcon = el.querySelector<SVGElement>(".copy-icon")!;
+        el.addEventListener("click", () => {
+          navigator.clipboard.writeText("npm i -g @lore-sh/lore");
+          iconCopy.style.display = "none";
+          iconCheck.style.display = "";
+          copyIcon.style.color = "var(--green)";
+          setTimeout(() => {
+            iconCopy.style.display = "";
+            iconCheck.style.display = "none";
+            copyIcon.style.color = "";
+          }, 1200);
+        });
+      }
+      {
+        const wrap = document.getElementById("video-wrap")!;
+        const video = wrap.querySelector<HTMLVideoElement>("video")!;
+        wrap.addEventListener("click", () => {
+          if (video.paused) {
+            video.play();
+            wrap.classList.add("playing");
+          } else {
+            video.pause();
+            wrap.classList.remove("playing");
+          }
+        });
+      }
+      {
+        const canvas = document.getElementById("bg") as HTMLCanvasElement;
+        const gl = canvas.getContext("webgl2", {
+          alpha: true,
+          premultipliedAlpha: true,
+        });
+        if (gl && gl.getExtension("EXT_color_buffer_float")) {
+          const SIM = 256;
+          const m = { x: 0.5, y: 0.5, dx: 0, dy: 0 };
+          const onM = (e: { clientX: number; clientY: number }) => {
+            const nx = e.clientX / innerWidth;
+            const ny = 1 - e.clientY / innerHeight;
+            m.dx += nx - m.x;
+            m.dy += ny - m.y;
+            m.x = nx;
+            m.y = ny;
+          };
+          addEventListener("mousemove", onM);
+          addEventListener(
+            "touchmove",
+            (e: TouchEvent) => {
+              const t = e.touches[0];
+              onM({ clientX: t.clientX, clientY: t.clientY });
+            },
+            { passive: true }
+          );
+
+          const VS = `#version 300 es
+layout(location=0)in vec2 p;out vec2 uv;
+void main(){uv=p*.5+.5;gl_Position=vec4(p,0,1);}`;
+
+          const UFS = `#version 300 es
+precision highp float;
+in vec2 uv;out vec4 oV;
+uniform sampler2D uV;
+uniform float uDt;
+uniform vec2 uM,uMD;
+
+void main(){
+  vec2 vel=texture(uV,uv).xy;
+  vec2 bp=uv-vel*uDt*14.;
+  vec2 nv=texture(uV,bp).xy*.965;
+  float mD=length(uv-uM);float mR=.22;
+  if(mD<mR&&length(uMD)>.0005){
+    float s=exp(-mD*mD/(mR*mR*.09));
+    nv+=uMD*s*2.8;
+  }
+  oV=vec4(nv,0,1);
+}`;
+
+          const RFS = `#version 300 es
+precision highp float;
+in vec2 uv;out vec4 fc;
+uniform sampler2D uV;
+uniform sampler2D uTex;
+uniform float uT;
+uniform vec2 uRes;
+
+float h21(vec2 p){vec2 q=fract(p*vec2(123.34,456.21));q+=dot(q,q+45.32);return fract(q.x*q.y);}
+
+void main(){
+  vec2 vel=texture(uV,uv).xy;
+  float aspect=uRes.x/uRes.y;
+  vec2 p=uv-.5;
+  p.x*=aspect;
+  p+=vel*vec2(aspect,1.)*.4;
+  vec2 tuv=p/1.1+.5; /* zoom */
+
+  /* 5×5 gaussian blur */
+  vec3 col=vec3(0);float aS=0.,wS=0.;
+  float bl=.03;
+  for(int x=-2;x<=2;x++)for(int y=-2;y<=2;y++){
+    float w=exp(-float(x*x+y*y)/3.5);
+    vec4 s=texture(uTex,tuv+vec2(float(x),float(y))*bl);
+    col+=s.rgb*s.a*w;
+    aS+=s.a*w;
+    wS+=w;
+  }
+  col/=wS; aS/=wS;
+
+  col*=.55; aS*=.55;
+
+  /* vignette */
+  float d=length(uv-.5);
+  float v=smoothstep(1.,.3,d);
+  col*=v; aS*=v;
+
+  /* grain */
+  col+=(h21(uv*1000.+uT*73.)-.5)*.006;
+
+  fc=vec4(col,aS);
+}`;
+
+          const sh = (src: string, t: number) => {
+            const s = gl.createShader(t)!;
+            gl.shaderSource(s, src);
+            gl.compileShader(s);
+            return s;
+          };
+          const pg = (vs: string, fs: string) => {
+            const p = gl.createProgram()!;
+            gl.attachShader(p, sh(vs, gl.VERTEX_SHADER));
+            gl.attachShader(p, sh(fs, gl.FRAGMENT_SHADER));
+            gl.linkProgram(p);
+            return p;
+          };
+
+          const upd = pg(VS, UFS);
+          const rnd = pg(VS, RFS);
+
+          const vao = gl.createVertexArray();
+          gl.bindVertexArray(vao);
+          const buf = gl.createBuffer();
+          gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+          gl.bufferData(
+            gl.ARRAY_BUFFER,
+            new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+            gl.STATIC_DRAW
+          );
+          gl.enableVertexAttribArray(0);
+          gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+          const mkTex = () => {
+            const t = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, t);
+            gl.texImage2D(
+              gl.TEXTURE_2D, 0, gl.RGBA16F,
+              SIM, SIM, 0, gl.RGBA, gl.HALF_FLOAT, null
+            );
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            return t;
+          };
+
+          const vt = [mkTex(), mkTex()];
+          const fb = [0, 1].map((i) => {
+            const f = gl.createFramebuffer();
+            gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+            gl.framebufferTexture2D(
+              gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, vt[i], 0
+            );
+            return f;
+          });
+
+          const iconTex = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, iconTex);
+          gl.texImage2D(
+            gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0,
+            gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0])
+          );
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+          const bgImg = new Image();
+          bgImg.onload = () => {
+            gl.bindTexture(gl.TEXTURE_2D, iconTex);
+            gl.texImage2D(
+              gl.TEXTURE_2D, 0, gl.RGBA,
+              gl.RGBA, gl.UNSIGNED_BYTE, bgImg
+            );
+          };
+          bgImg.src = "/lore-bg.png";
+
+          const ul = (n: string) => gl.getUniformLocation(upd, n);
+          const rl = (n: string) => gl.getUniformLocation(rnd, n);
+          const uL = { V: ul("uV"), Dt: ul("uDt"), M: ul("uM"), MD: ul("uMD") };
+          const rL = {
+            V: rl("uV"), Tex: rl("uTex"),
+            T: rl("uT"), R: rl("uRes"),
+          };
+
+          const resize = () => {
+            canvas.width = Math.floor(innerWidth * 0.75);
+            canvas.height = Math.floor(innerHeight * 0.75);
+          };
+          resize();
+          addEventListener("resize", resize);
+
+          let fr = 0;
+          const t0 = performance.now();
+          const loop = () => {
+            const t = (performance.now() - t0) / 1000;
+            const s = fr % 2, d = 1 - s;
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, fb[d]);
+            gl.viewport(0, 0, SIM, SIM);
+            gl.disable(gl.BLEND);
+            gl.useProgram(upd);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, vt[s]);
+            gl.uniform1i(uL.V, 0);
+            gl.uniform1f(uL.Dt, 1 / 60);
+            gl.uniform2f(uL.M, m.x, m.y);
+            gl.uniform2f(uL.MD, m.dx, m.dy);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+            gl.clearColor(0, 0, 0, 0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.useProgram(rnd);
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, vt[d]);
+            gl.uniform1i(rL.V, 0);
+            gl.activeTexture(gl.TEXTURE1);
+            gl.bindTexture(gl.TEXTURE_2D, iconTex);
+            gl.uniform1i(rL.Tex, 1);
+            gl.uniform1f(rL.T, t);
+            gl.uniform2f(rL.R, canvas.width, canvas.height);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+            m.dx *= 0.8;
+            m.dy *= 0.8;
+            fr++;
+            requestAnimationFrame(loop);
+          };
+          loop();
+        }
+      }
+    </script>
+  </body>
 </html>
