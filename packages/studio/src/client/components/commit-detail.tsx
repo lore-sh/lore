@@ -142,7 +142,7 @@ export function CommitDetail({ commitId, enableRevert = false }: CommitDetailPro
               <div className="ui-stack-2">
                 <button
                   type="button"
-                  className="ui-btn-primary"
+                  className="ui-btn-ghost"
                   disabled={mutation.isPending}
                   onClick={() => {
                     const confirmed = window.confirm(`Revert commit ${commit.commitId.slice(0, 12)}: ${commit.message}?`);

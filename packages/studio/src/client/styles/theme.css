@@ -1,8 +1,8 @@
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme static {
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
 
   --color-bg: var(--studio-bg);
   --color-bg-elevated: var(--studio-bg-elevated);
@@ -34,8 +34,10 @@
   --studio-fg-muted: #71717a;
   --studio-fg-soft: #a1a1aa;
   --studio-border: #e4e4e7;
-  --studio-accent: #2563eb;
+  --studio-accent: #6366f1;
   --studio-accent-contrast: #ffffff;
+  --studio-accent-subtle: rgba(99, 102, 241, 0.06);
+  --studio-accent-muted: rgba(99, 102, 241, 0.10);
 
   --studio-diff-add-bg: #dcfce7;
   --studio-diff-add-fg: #166534;
@@ -45,6 +47,9 @@
   --studio-status-ok: #16a34a;
   --studio-status-warn: #ca8a04;
   --studio-status-error: #dc2626;
+
+  --studio-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --studio-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 [data-theme="dark"] {
@@ -56,8 +61,10 @@
   --studio-fg-muted: #a1a1aa;
   --studio-fg-soft: #71717a;
   --studio-border: #27272a;
-  --studio-accent: #3b82f6;
+  --studio-accent: #818cf8;
   --studio-accent-contrast: #ffffff;
+  --studio-accent-subtle: rgba(129, 140, 248, 0.08);
+  --studio-accent-muted: rgba(129, 140, 248, 0.14);
 
   --studio-diff-add-bg: #052e16;
   --studio-diff-add-fg: #86efac;
@@ -67,4 +74,7 @@
   --studio-status-ok: #22c55e;
   --studio-status-warn: #eab308;
   --studio-status-error: #ef4444;
+
+  --studio-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.12);
+  --studio-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.15);
 }

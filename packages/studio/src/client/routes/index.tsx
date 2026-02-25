@@ -19,11 +19,36 @@ function totalRows(rowCounts: number[]): number {
 type CommitSummary = ReturnType<typeof history>[number];
 type TableOverview = ReturnType<typeof tableOverview>[number];
 
+function ActivityIcon() {
+  return (
+    <div className="ui-section-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+      </svg>
+    </div>
+  );
+}
+
+function TablesIcon() {
+  return (
+    <div className="ui-section-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <ellipse cx="12" cy="5" rx="9" ry="3" />
+        <path d="M21 12c0 1.66-4.03 3-9 3s-9-1.34-9-3" />
+        <path d="M3 5v14c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
+      </svg>
+    </div>
+  );
+}
+
 function ActivitySection({ history }: { history: CommitSummary[] }) {
   return (
     <section className="ui-surface">
       <header className="ui-section-head flex items-center justify-between">
-        <h2 className="ui-title">Activity</h2>
+        <div className="flex items-center gap-2">
+          <ActivityIcon />
+          <h2 className="ui-title">Activity</h2>
+        </div>
         <Link to="/timeline" search={{ page: 1, kind: "all" }} className="ui-link">
           View all →
         </Link>
@@ -45,7 +70,10 @@ function TablesSection({ tables }: { tables: TableOverview[] }) {
   return (
     <section id="tables" className="ui-surface">
       <header className="ui-section-head">
-        <h2 className="ui-title">Tables</h2>
+        <div className="flex items-center gap-2">
+          <TablesIcon />
+          <h2 className="ui-title">Tables</h2>
+        </div>
       </header>
       {tables.length === 0 ? (
         <p className="ui-empty">No tables yet. Data will appear here as you use Lore.</p>
@@ -69,11 +97,20 @@ export function DashboardPage() {
 
   return (
     <section className="ui-stack-4">
-      <p className="ui-context">
-        <span className="font-mono">{dbLabel(status.dbPath)}</span>
-        {" · "}
-        {tableRows.length} tables · {rowCount} rows · {status.storage.commitCount} commits
-      </p>
+      <div className="ui-stats">
+        <div className="ui-stat">
+          <span className="font-mono">{dbLabel(status.dbPath)}</span>
+        </div>
+        <div className="ui-stat">
+          <strong>{tableRows.length}</strong> tables
+        </div>
+        <div className="ui-stat">
+          <strong>{rowCount}</strong> rows
+        </div>
+        <div className="ui-stat">
+          <strong>{status.storage.commitCount}</strong> commits
+        </div>
+      </div>
 
       <ActivitySection history={history} />
       <TablesSection tables={tableRows} />
