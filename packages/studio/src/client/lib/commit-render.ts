@@ -99,6 +99,12 @@ export function renderOperationLine(operation: Operation): string {
       return `ADD CHECK on ${operation.table} - ${operation.expression}`;
     case "drop_check":
       return `DROP CHECK on ${operation.table} - ${operation.expression}`;
+    case "drop_index":
+      return `DROP INDEX ${operation.name}`;
+    case "drop_trigger":
+      return `DROP TRIGGER ${operation.name}`;
+    case "drop_view":
+      return `DROP VIEW ${operation.name}`;
     case "restore_table":
       return `RESTORE ${operation.table}`;
   }
@@ -217,6 +223,12 @@ export function renderOperationSyntax(operation: Operation): ReactNode[] {
         val(operation.expression),
         punct(")"),
       ];
+    case "drop_index":
+      return [kw("DROP INDEX "), val(operation.name)];
+    case "drop_trigger":
+      return [kw("DROP TRIGGER "), val(operation.name)];
+    case "drop_view":
+      return [kw("DROP VIEW "), val(operation.name)];
     case "restore_table":
       return [kw("RESTORE TABLE "), tbl(operation.table)];
   }

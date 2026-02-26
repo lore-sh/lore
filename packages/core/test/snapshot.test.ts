@@ -297,9 +297,10 @@ describe("snapshot / recover", () => {
     direct.close(false);
 
     const destructive = await writePlanFile(dir, "recover-delete-child-drop-parent.json", {
-      message: "delete child then drop parent",
+      message: "delete child then drop child+parent",
       operations: [
         { type: "delete", table: "child_requires_parent", where: { id: 1 } },
+        { type: "drop_table", table: "child_requires_parent" },
         { type: "drop_table", table: "parent_created_later" },
       ],
     });

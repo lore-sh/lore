@@ -1,13 +1,28 @@
 import { createCommit, type Commit } from "./commit";
-import { runInSavepoint, type Database } from "./db";
+import { runInSavepoint, runSchemaAwareTransaction, type Database } from "./db";
 import { captureState, diffState } from "./effect";
 import { CodedError } from "./error";
 import { schemaHash } from "./inspect";
 import { executeOperation, type Operation, type Plan } from "./operation";
 import { maybeCreateSnapshot } from "./snapshot";
 
-export async function apply(db: Database, plan: Plan): Promise<Commit> {
-  const commit = db.transaction(() => {
+export type ApplyResult = {
+  commit: Commit;
+  schemaHashAfter: string;
+  stateHashAfter: string;
+};
+
+export async function apply(db: Database, plan: Plan): Promise<ApplyResult> {
+  const commit = runSchemaAwareTransaction(db, () => {
+    const currentSchemaHash = schemaHash(db);
+    if (plan.baseSchemaHash.toLowerCase() !== currentSchemaHash.toLowerCase()) {
+      throw new CodedError("STALE_PLAN", "Plan was generated from an outdated schema", {
+        detail: {
+          expected: plan.baseSchemaHash,
+          actual: currentSchemaHash,
+        },
+      });
+    }
     const beforeSchemaHash = schemaHash(db);
     const beforeState = captureState(db);
     for (const operation of plan.operations) {
@@ -21,10 +36,17 @@ export async function apply(db: Database, plan: Plan): Promise<Commit> {
       beforeSchemaHash,
       beforeState,
     });
-  }, { behavior: "immediate" });
+  }, {
+    hasSchemaChanges: plan.operations.some((operation) => SCHEMA_OPERATION_TYPES.has(operation.type)),
+    context: "apply",
+  });
 
   await maybeCreateSnapshot(db, commit);
-  return commit;
+  return {
+    commit,
+    schemaHashAfter: commit.schemaHashAfter,
+    stateHashAfter: commit.stateHashAfter,
+  };
 }
 
 const SCHEMA_OPERATION_TYPES = new Set<Operation["type"]>([
@@ -35,11 +57,17 @@ const SCHEMA_OPERATION_TYPES = new Set<Operation["type"]>([
   "alter_column_type",
   "add_check",
   "drop_check",
+  "drop_index",
+  "drop_trigger",
+  "drop_view",
 ]);
 
 const DESTRUCTIVE_OPERATION_TYPES = new Set<Operation["type"]>([
   "drop_table",
   "drop_column",
+  "drop_index",
+  "drop_trigger",
+  "drop_view",
   "alter_column_type",
   "drop_check",
   "update",
@@ -99,7 +127,9 @@ export function check(db: Database, plan: Plan) {
   }> = [];
   for (let i = 0; i < plan.operations.length; i += 1) {
     const operation = plan.operations[i]!;
-    touchedTables.add(operation.table);
+    if ("table" in operation) {
+      touchedTables.add(operation.table);
+    }
     if (SCHEMA_OPERATION_TYPES.has(operation.type)) {
       schemaOperations += 1;
     }
@@ -110,7 +140,7 @@ export function check(db: Database, plan: Plan) {
         message: `Operation ${i} (${operation.type}) changes or removes existing data/schema.`,
         operationIndex: i,
         operationType: operation.type,
-        table: operation.table,
+        table: "table" in operation ? operation.table : undefined,
       });
     }
   }

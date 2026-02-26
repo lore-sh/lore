@@ -15,7 +15,10 @@ const MAX_PAGE_SIZE = 500;
 const DEFAULT_PAGE_SIZE = 50;
 
 export function hashSchema(descriptor: ReturnType<typeof describeSchema>): string {
-  return sha256Hex(descriptor.tables);
+  return sha256Hex({
+    tables: descriptor.tables,
+    views: descriptor.views,
+  });
 }
 
 export function serializeScalar(value: JsonPrimitive): JsonPrimitive {
@@ -224,7 +227,17 @@ export function describeSchema(db: Database) {
     };
   });
 
-  return { tables };
+  const views = db.$client
+    .query<{ name: string; sql: string | null }, []>(
+      "SELECT name, sql FROM sqlite_master WHERE type='view' ORDER BY name ASC",
+    )
+    .all()
+    .map((view) => ({
+      name: view.name,
+      sql: normalizeSqlNullable(view.sql),
+    }));
+
+  return { tables, views };
 }
 
 export function schemaHash(db: Database): string {

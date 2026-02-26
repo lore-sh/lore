@@ -22,6 +22,169 @@ export function asciiCaseFold(value: string): string {
   return value.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
 }
 
+const ID_START = /^(?:[_$]|\p{ID_Start})$/u;
+const ID_CONTINUE = /^(?:[_$]|\p{ID_Continue})$/u;
+
+function readCodePoint(sql: string, index: number): { value: string; next: number } | null {
+  if (index >= sql.length) {
+    return null;
+  }
+  const codePoint = sql.codePointAt(index);
+  if (codePoint === undefined) {
+    return null;
+  }
+  const value = String.fromCodePoint(codePoint);
+  return { value, next: index + value.length };
+}
+
+function readBareIdentifierToken(sql: string, start: number): { name: string; end: number } | null {
+  const first = readCodePoint(sql, start);
+  if (!first || !ID_START.test(first.value)) {
+    return null;
+  }
+  let i = first.next;
+  while (i < sql.length) {
+    const next = readCodePoint(sql, i);
+    if (!next || !ID_CONTINUE.test(next.value)) {
+      break;
+    }
+    i = next.next;
+  }
+  return { name: sql.slice(start, i), end: i };
+}
+
+function readEscapedIdentifierToken(sql: string, start: number, quote: string): { name: string; end: number } | null {
+  if (sql[start] !== quote) {
+    return null;
+  }
+  let i = start + 1;
+  let name = "";
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    if (ch === quote && sql[i + 1] === quote) {
+      name += quote;
+      i += 2;
+      continue;
+    }
+    if (ch === quote) {
+      return { name, end: i + 1 };
+    }
+    name += ch;
+    i += 1;
+  }
+  return null;
+}
+
+function readBracketIdentifierToken(sql: string, start: number): { name: string; end: number } | null {
+  if (sql[start] !== "[") {
+    return null;
+  }
+  const end = sql.indexOf("]", start + 1);
+  if (end < 0) {
+    return null;
+  }
+  return { name: sql.slice(start + 1, end), end: end + 1 };
+}
+
+export function sqlMentionsIdentifier(sql: string, identifier: string): boolean {
+  const target = asciiCaseFold(identifier);
+  let i = 0;
+  let inSingle = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  while (i < sql.length) {
+    const ch = sql[i]!;
+    const next = sql[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") {
+        inLineComment = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (inSingle) {
+      if (ch === "'" && next === "'") {
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+      }
+      i += 1;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      i += 1;
+      continue;
+    }
+
+    const doubleQuoted = readEscapedIdentifierToken(sql, i, '"');
+    if (doubleQuoted) {
+      if (asciiCaseFold(doubleQuoted.name) === target) {
+        return true;
+      }
+      i = doubleQuoted.end;
+      continue;
+    }
+
+    const backtickQuoted = readEscapedIdentifierToken(sql, i, "`");
+    if (backtickQuoted) {
+      if (asciiCaseFold(backtickQuoted.name) === target) {
+        return true;
+      }
+      i = backtickQuoted.end;
+      continue;
+    }
+
+    const bracketQuoted = readBracketIdentifierToken(sql, i);
+    if (bracketQuoted) {
+      if (asciiCaseFold(bracketQuoted.name) === target) {
+        return true;
+      }
+      i = bracketQuoted.end;
+      continue;
+    }
+
+    const bare = readBareIdentifierToken(sql, i);
+    if (bare) {
+      if (asciiCaseFold(bare.name) === target) {
+        return true;
+      }
+      i = bare.end;
+      continue;
+    }
+
+    i += 1;
+  }
+
+  return false;
+}
+
 const SINGLE = 1;
 const DOUBLE = 2;
 const BACKTICK = 4;
@@ -407,9 +570,6 @@ function readEscapedQuotedIdentifier(
   throw new CodedError("INVALID_OPERATION", `Malformed ${label} identifier in CREATE TABLE`);
 }
 
-const ID_START = /^(?:[_$]|\p{ID_Start})$/u;
-const ID_CONTINUE = /^(?:[_$]|\p{ID_Continue})$/u;
-
 function parseIdentifierToken(sql: string, start: number): { name: string; end: number; quoted: boolean } | null {
   const ch = sql[start];
   if (!ch) {
@@ -433,26 +593,14 @@ function parseIdentifierToken(sql: string, start: number): { name: string; end: 
     return { name: sql.slice(start + 1, end), end: end + 1, quoted: true };
   }
 
-  const readCodePoint = (index: number): { value: string; next: number } | null => {
-    if (index >= sql.length) {
-      return null;
-    }
-    const codePoint = sql.codePointAt(index);
-    if (codePoint === undefined) {
-      return null;
-    }
-    const value = String.fromCodePoint(codePoint);
-    return { value, next: index + value.length };
-  };
-
-  const first = readCodePoint(start);
+  const first = readCodePoint(sql, start);
   if (!first || !ID_START.test(first.value)) {
     return null;
   }
 
   let i = first.next;
   while (i < sql.length) {
-    const next = readCodePoint(i);
+    const next = readCodePoint(sql, i);
     if (!next || !ID_CONTINUE.test(next.value)) {
       break;
     }
@@ -822,6 +970,46 @@ export function rewriteDropCheckInCreateTable(ddlSql: string, expression: string
 
   if (removed === 0) {
     throw new CodedError("INVALID_OPERATION", "CHECK constraint not found");
+  }
+
+  return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;
+}
+
+export function rewriteDropColumnInCreateTable(ddlSql: string, column: string): string {
+  const payloadRange = findCreateTablePayloadRange(ddlSql);
+  const payload = ddlSql.slice(payloadRange.start, payloadRange.end);
+  const segments = splitTopLevelCommaList(payload);
+  const tableConstraintLead = new Set(["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"]);
+  let removed = false;
+
+  const rewrittenSegments = segments.filter((segment) => {
+    const lead = parseIdentifierToken(segment, skipLeadingTrivia(segment, 0));
+    if (!lead) {
+      return true;
+    }
+    if (!lead.quoted && tableConstraintLead.has(lead.name.toUpperCase())) {
+      return true;
+    }
+    if (lead.name !== column) {
+      return true;
+    }
+    removed = true;
+    return false;
+  });
+
+  if (!removed) {
+    throw new CodedError("INVALID_OPERATION", `Column does not exist in CREATE TABLE SQL: ${column}`);
+  }
+
+  const remainingColumns = rewrittenSegments.filter((segment) => {
+    const lead = parseIdentifierToken(segment, skipLeadingTrivia(segment, 0));
+    if (!lead) {
+      return false;
+    }
+    return lead.quoted || !tableConstraintLead.has(lead.name.toUpperCase());
+  });
+  if (remainingColumns.length === 0) {
+    throw new CodedError("INVALID_OPERATION", "drop_column cannot remove the last column");
   }
 
   return `${ddlSql.slice(0, payloadRange.start)}${rewrittenSegments.join(",")}${ddlSql.slice(payloadRange.end)}`;

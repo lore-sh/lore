@@ -8,7 +8,7 @@ import {
   readCommitsAfter,
 } from "./commit";
 import {
-  runInDeferredTransaction,
+  runSchemaAwareTransaction,
   runInSavepoint,
   tableExists,
   type Database,
@@ -24,7 +24,7 @@ import {
   type RowEffect,
   type SchemaEffect,
 } from "./effect";
-import { CodedError, type ErrorCode } from "./error";
+import { CodedError } from "./error";
 import { canonicalJson } from "./hash";
 import { schemaHash } from "./inspect";
 import { CommitTable } from "./schema";
@@ -170,8 +170,6 @@ function applyInverse(
   db: Database,
   rows: RowEffect[],
   schemas: SchemaEffect[],
-  errorCode: ErrorCode,
-  context: string,
 ): void {
   applyEffects(db, rows, schemas, "inverse", { disableTableTriggers: true });
   applyRowEffects(db, rows, "inverse", {
@@ -180,7 +178,6 @@ function applyInverse(
     includeSystemEffects: true,
     systemPolicy: "reconcile",
   });
-  assertForeignKeys(db, errorCode, context);
 }
 
 function sqliteConstraintConflict(error: unknown): ReturnType<typeof detectRowConflict>[number] | null {
@@ -210,7 +207,8 @@ function preflightInverseApply(
       db,
       "lore_revert_preflight",
       () => {
-        applyInverse(db, targetRows, targetSchemas, "REVERT_FAILED", "revert preflight");
+        applyInverse(db, targetRows, targetSchemas);
+        assertForeignKeys(db, "REVERT_FAILED", "revert preflight");
       },
       { rollbackOnSuccess: true },
     );
@@ -233,7 +231,8 @@ export function revert(
 ):
   | { ok: true; revertCommit: ReturnType<typeof createCommit> }
   | { ok: false; conflicts: Array<ReturnType<typeof detectRowConflict>[number]> } {
-  return runInDeferredTransaction(db, () => {
+  let hasSchemaChanges = false;
+  return runSchemaAwareTransaction(db, () => {
     const targetCommit = findCommit(db, commitId);
     if (!targetCommit) {
       throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
@@ -254,6 +253,7 @@ export function revert(
 
     const targetRows = commitRowEffects(db, commitId);
     const targetSchemas = commitSchemaEffects(db, commitId);
+    hasSchemaChanges = targetSchemas.length > 0;
     const seq = commitSeq(db, commitId);
     if (seq === null) {
       throw new CodedError("NOT_FOUND", `Commit not found: ${commitId}`);
@@ -271,7 +271,7 @@ export function revert(
 
     const beforeSchemaHash = schemaHash(db);
     const beforeState = captureState(db);
-    applyInverse(db, targetRows, targetSchemas, "REVERT_FAILED", "revert apply");
+    applyInverse(db, targetRows, targetSchemas);
 
     const revertCommitEntry = createCommit(db, {
       operations: [],
@@ -282,5 +282,8 @@ export function revert(
       beforeState,
     });
     return { ok: true, revertCommit: revertCommitEntry };
+  }, {
+    hasSchemaChanges: () => hasSchemaChanges,
+    context: "revert",
   });
 }

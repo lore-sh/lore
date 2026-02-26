@@ -64,6 +64,34 @@ describe("revertCommit", () => {
     expect(rows).toEqual([{ id: 1, body: "a" }]);
   });
 
+  testWithTmp("drop_view revert restores the dropped view definition", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDb({ dbPath });
+
+    const direct = new Database(dbPath);
+    direct.run("CREATE TABLE revert_view_tasks (id INTEGER PRIMARY KEY, title TEXT NOT NULL)");
+    direct.run("CREATE VIEW revert_view_open AS SELECT id, title FROM revert_view_tasks WHERE title <> ''");
+    direct.close(false);
+
+    const dropView = await writePlanFile(dir, "drop-view-for-revert.json", {
+      message: "drop revert view",
+      operations: [{ type: "drop_view", name: "revert_view_open" }],
+    });
+    const dropped = await applyPlan(currentDb(), dropView);
+
+    const reverted = revert(currentDb(), dropped.commitId);
+    expect(reverted.ok).toBe(true);
+    if (!reverted.ok) {
+      throw new Error("expected revert success for drop_view");
+    }
+
+    const restoredView = query(
+      currentDb(),
+      "SELECT name FROM sqlite_master WHERE type='view' AND name='revert_view_open' LIMIT 1",
+    );
+    expect(restoredView).toEqual([{ name: "revert_view_open" }]);
+  });
+
   testWithTmp("drop_table revert restores FK-related tables in dependency-safe schema order", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });
@@ -200,9 +228,10 @@ describe("revertCommit", () => {
     direct.close(false);
 
     const destructive = await writePlanFile(dir, "delete-child-drop-parent.json", {
-      message: "delete child then drop parent",
+      message: "delete child then drop child+parent",
       operations: [
         { type: "delete", table: "child_nodes", where: { id: 1 } },
+        { type: "drop_table", table: "child_nodes" },
         { type: "drop_table", table: "parent_nodes" },
       ],
     });
@@ -268,6 +297,48 @@ describe("revertCommit", () => {
     }
   });
 
+  testWithTmp("revert reports structured conflict for deferred FK violation ahead of commit-time crash", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDb({ dbPath });
+
+    const direct = new Database(dbPath);
+    direct.run("PRAGMA foreign_keys=ON");
+    direct.run("CREATE TABLE fk_parent (id INTEGER PRIMARY KEY)");
+    direct.run(`
+      CREATE TABLE fk_child (
+        id INTEGER PRIMARY KEY,
+        parent_id INTEGER NOT NULL,
+        FOREIGN KEY(parent_id) REFERENCES fk_parent(id)
+      )
+    `);
+    direct.run("INSERT INTO fk_parent(id) VALUES (1)");
+    direct.close(false);
+
+    const updateParentPk = await writePlanFile(dir, "update-parent-pk.json", {
+      message: "update parent pk",
+      operations: [{ type: "update", table: "fk_parent", values: { id: 2 }, where: { id: 1 } }],
+    });
+    const insertChild = await writePlanFile(dir, "insert-child-referencing-new-parent.json", {
+      message: "insert child row",
+      operations: [{ type: "insert", table: "fk_child", values: { id: 1, parent_id: 2 } }],
+    });
+
+    const updated = await applyPlan(currentDb(), updateParentPk);
+    await applyPlan(currentDb(), insertChild);
+
+    const result = revert(currentDb(), updated.commitId);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.conflicts.length).toBeGreaterThan(0);
+      expect(result.conflicts[0]?.reason.includes("foreign_key_check failed")).toBe(true);
+    }
+
+    const parentRows = query(currentDb(), "SELECT id FROM fk_parent ORDER BY id");
+    const childRows = query(currentDb(), "SELECT id, parent_id FROM fk_child ORDER BY id");
+    expect(parentRows).toEqual([{ id: 2 }]);
+    expect(childRows).toEqual([{ id: 1, parent_id: 2 }]);
+  });
+
   testWithTmp("schema rebuild + revert preserves FK/UNIQUE/CHECK/trigger semantics", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });
@@ -298,7 +369,10 @@ describe("revertCommit", () => {
 
     const dropNote = await writePlanFile(dir, "drop-note.json", {
       message: "drop note",
-      operations: [{ type: "drop_column", table: "constrained_items", column: "note" }],
+      operations: [
+        { type: "drop_trigger", table: "constrained_items", name: "trg_constrained_items_upper_note" },
+        { type: "drop_column", table: "constrained_items", column: "note" },
+      ],
     });
     const dropped = await applyPlan(currentDb(), dropNote);
     const reverted = revert(currentDb(), dropped.commitId);

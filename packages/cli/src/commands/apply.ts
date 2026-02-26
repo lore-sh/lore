@@ -9,13 +9,15 @@ export function parseApplyArgs(args: string[]): PlanInput {
 export async function runApply(db: Database, input: PlanInput): Promise<void> {
   const payload = await readPlanInput(input);
   const plan = parsePlan(payload);
-  const commit = await apply(db, plan);
+  const result = await apply(db, plan);
   const sync = await autoSync(db);
-  const warning = sizeWarning(db, commit.commitId);
+  const warning = sizeWarning(db, result.commit.commitId);
   console.log(
     toJson({
       status: "ok",
-      commit: summarizeCommit(commit),
+      commit: summarizeCommit(result.commit),
+      schema_hash_after: result.schemaHashAfter,
+      state_hash_after: result.stateHashAfter,
       operations: plan.operations.length,
       sync,
       warnings: warning ? [warning] : [],

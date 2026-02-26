@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { apply, initDb, openDb, parsePlan, revert, type Database } from "@lore/core";
+import { schemaHash } from "@lore/core/src/inspect";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,7 +40,12 @@ async function withInitializedDbPath<T>(dbPath: string, run: (db: Database) => P
 
 async function applyPlan(db: Database, planRef: string) {
   const payload = await Bun.file(planRef).text();
-  return apply(db, parsePlan(payload));
+  const parsed = JSON.parse(payload) as Record<string, unknown>;
+  if (!Object.hasOwn(parsed, "baseSchemaHash")) {
+    parsed.baseSchemaHash = schemaHash(db);
+  }
+  const result = await apply(db, parsePlan(JSON.stringify(parsed)));
+  return result.commit;
 }
 
 describe("studio api error mapping", () => {

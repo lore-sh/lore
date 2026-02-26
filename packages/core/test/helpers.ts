@@ -156,15 +156,31 @@ async function readPlanInput(planRef: string): Promise<string> {
   return Bun.file(planRef).text();
 }
 
+function normalizePlanForTest(db: Database, payload: string): string {
+  const parsed: unknown = JSON.parse(payload);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return payload;
+  }
+  if ("baseSchemaHash" in parsed) {
+    return payload;
+  }
+  const withHash = {
+    ...parsed,
+    baseSchemaHash: schemaHash(db),
+  };
+  return JSON.stringify(withHash);
+}
+
 export async function applyPlan(db: Database, planRef: string) {
   const payload = await readPlanInput(planRef);
-  const plan = parsePlan(payload);
-  return apply(db, plan);
+  const plan = parsePlan(normalizePlanForTest(db, payload));
+  const result = await apply(db, plan);
+  return result.commit;
 }
 
 export async function planCheck(db: Database, planRef: string) {
   const payload = await readPlanInput(planRef);
-  const plan = parsePlan(payload);
+  const plan = parsePlan(normalizePlanForTest(db, payload));
   return check(db, plan);
 }
 

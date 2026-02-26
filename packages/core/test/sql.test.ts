@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { quoteIdentifier, validateReadSql } from "../src/sql";
+import { quoteIdentifier, sqlMentionsIdentifier, validateReadSql } from "../src/sql";
 
 describe("sql helpers", () => {
   test("quoteIdentifier escapes valid identifiers", () => {
@@ -19,5 +19,18 @@ describe("sql helpers", () => {
   test("validateReadSql rejects multiple statements and write keywords", () => {
     expect(() => validateReadSql("SELECT 1; SELECT 2")).toThrow();
     expect(() => validateReadSql("DELETE FROM users")).toThrow();
+  });
+
+  test("sqlMentionsIdentifier ignores identifiers inside string literals and comments", () => {
+    expect(sqlMentionsIdentifier("SELECT 'users' AS label", "users")).toBe(false);
+    expect(sqlMentionsIdentifier("SELECT 1 -- users", "users")).toBe(false);
+    expect(sqlMentionsIdentifier("SELECT 1 /* users */", "users")).toBe(false);
+  });
+
+  test("sqlMentionsIdentifier detects bare and quoted identifiers", () => {
+    expect(sqlMentionsIdentifier("SELECT users.id FROM users", "users")).toBe(true);
+    expect(sqlMentionsIdentifier('SELECT "Users".id FROM "Users"', "users")).toBe(true);
+    expect(sqlMentionsIdentifier("SELECT [users].id FROM [users]", "users")).toBe(true);
+    expect(sqlMentionsIdentifier("SELECT `users`.id FROM `users`", "users")).toBe(true);
   });
 });

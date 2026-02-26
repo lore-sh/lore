@@ -24,6 +24,7 @@ import { canonicalJson, sha256Hex } from "./hash";
 import { hashSchema } from "./inspect";
 import { DRIZZLE_MIGRATIONS_TABLE, DRIZZLE_MIGRATIONS_TABLE_SQL, loadEngineMigrations, pendingEngineMigrations, type EngineMigration } from "./migration";
 import { Operation, type Operation as Op } from "./operation";
+import { buildPkWhereClause as buildPkWhereClauseSql, buildRowSelectSql } from "./replay-sql";
 import type { EncodedCell, EncodedRow } from "./schema";
 import {
   extractCheckConstraints,
@@ -554,6 +555,13 @@ async function listRemoteUserTables(executor: Client | Transaction): Promise<str
   return rowsFrom(result).map((row) => parseString(parseRowValue(row, "name"), "sqlite_master.name"));
 }
 
+async function listRemoteUserViews(executor: Client | Transaction): Promise<string[]> {
+  const result = await executor.execute({
+    sql: "SELECT name FROM sqlite_master WHERE type='view' AND name NOT GLOB '_lore_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+  });
+  return rowsFrom(result).map((row) => parseString(parseRowValue(row, "name"), "sqlite_master.name"));
+}
+
 async function remoteStateHash(executor: Client | Transaction): Promise<string> {
   try {
     return await stateHashForRemote(executor);
@@ -716,7 +724,13 @@ async function remoteSchemaHash(executor: Client | Transaction): Promise<string>
     });
   }
 
-  return hashSchema({ tables: descriptors });
+  const viewsResult = await executor.execute("SELECT name, sql FROM sqlite_master WHERE type='view' ORDER BY name ASC");
+  const views = rowsFrom(viewsResult).map((row) => ({
+    name: parseString(parseRowValue(row, "name"), "view.name"),
+    sql: normalizeSqlNullable(parseNullableStringLike(parseRowValue(row, "sql"), "view.sql")),
+  }));
+
+  return hashSchema({ tables: descriptors, views });
 }
 
 async function verifyProjectionAtCommit(executor: Client | Transaction, commitId: string): Promise<void> {
@@ -758,38 +772,9 @@ async function remoteTableColumns(executor: Client | Transaction, tableName: str
 }
 
 function buildPkWhereClause(pk: Record<string, string>): string {
-  const keys = Object.keys(pk).sort((a, b) => a.localeCompare(b));
-  if (keys.length === 0) {
-    throw projectionFailure("Primary key predicate must not be empty");
-  }
-  const clauses: string[] = [];
-  for (const key of keys) {
-    const literal = pk[key];
-    if (!literal) {
-      throw projectionFailure(`Primary key literal is missing for column ${key}`);
-    }
-    const quoted = quoteIdentifier(key, { unsafe: true });
-    clauses.push(literal.toUpperCase() === "NULL" ? `${quoted} IS NULL` : `${quoted} = ${literal}`);
-  }
-  return clauses.join(" AND ");
-}
-
-function buildRowSelectSql(tableName: string, columns: string[], keyColumns: string[], whereClause: string | null): string {
-  const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
-  const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
-  const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
-  const parts: string[] = [];
-  for (let i = 0; i < columns.length; i += 1) {
-    const column = columns[i]!;
-    const quotedColumn = quoteIdentifier(column, { unsafe: true });
-    parts.push(`quote(${quotedColumn}) AS ${quoteIdentifier(quoteAliases[i]!, { unsafe: true })}`);
-    parts.push(`hex(CAST(${quotedColumn} AS BLOB)) AS ${quoteIdentifier(hexAliases[i]!, { unsafe: true })}`);
-    parts.push(`typeof(${quotedColumn}) AS ${quoteIdentifier(typeAliases[i]!, { unsafe: true })}`);
-  }
-
-  const orderBy = keyColumns.map((key) => `${quoteIdentifier(key, { unsafe: true })} ASC`).join(", ");
-  const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
-  return `SELECT ${parts.join(", ")} FROM ${quoteIdentifier(tableName, { unsafe: true })}${whereSql} ORDER BY ${orderBy}`;
+  return buildPkWhereClauseSql(pk, (message) => {
+    throw projectionFailure(message);
+  });
 }
 
 function encodeRowFromRemote(
@@ -1150,8 +1135,17 @@ async function restoreTableSnapshot(
 
 async function applySingleSchemaEffect(executor: Client | Transaction, effect: SchemaEffect, direction: ReplayDirection): Promise<void> {
   const target = direction === "forward" ? effect.afterTable : effect.beforeTable;
+  const current = direction === "forward" ? effect.beforeTable : effect.afterTable;
   if (!target) {
+    if ((current?.kind ?? "table") === "view") {
+      await executor.execute(`DROP VIEW ${quoteIdentifier(effect.tableName, { unsafe: true })}`);
+      return;
+    }
     await executor.execute(`DROP TABLE ${quoteIdentifier(effect.tableName, { unsafe: true })}`);
+    return;
+  }
+  if (target.kind === "view") {
+    await executor.execute(target.ddlSql);
     return;
   }
   await restoreTableSnapshot(executor, effect.tableName, target);
@@ -1254,9 +1248,13 @@ async function assertStructuralIntegrity(executor: Client | Transaction, context
 
 async function rebuildProjectionFromCanonicalHistory(executor: Client | Transaction, headSeqInclusive: number): Promise<void> {
   const userTables = await listRemoteUserTables(executor);
+  const userViews = await listRemoteUserViews(executor);
 
   await executor.execute("PRAGMA foreign_keys=OFF");
   try {
+    for (const viewName of userViews) {
+      await executor.execute(`DROP VIEW IF EXISTS ${quoteIdentifier(viewName, { unsafe: true })}`);
+    }
     for (const tableName of userTables) {
       await executor.execute(`DROP TABLE IF EXISTS ${quoteIdentifier(tableName, { unsafe: true })}`);
     }

@@ -153,6 +153,7 @@ function applyPragmas(
   } = {},
 ): void {
   db.$client.run("PRAGMA foreign_keys=ON");
+  db.$client.run("PRAGMA legacy_alter_table=0");
   db.$client.run(`PRAGMA busy_timeout=${Math.max(0, Math.floor(options.busyTimeoutMs ?? 5000))}`);
   db.$client.run("PRAGMA journal_mode=WAL");
   db.$client.run("PRAGMA synchronous=NORMAL");
@@ -248,12 +249,54 @@ export function assertInitialized(db: Database): void {
   }
 }
 
-export function runInDeferredTransaction<T>(db: Database, fn: () => T): T {
+function assertForeignKeyCheck(db: Database, context: string): void {
+  const rows = db.$client.query<{
+    table: string;
+    rowid: number;
+    parent: string;
+    fkid: number;
+  }, []>("PRAGMA foreign_key_check").all();
+  if (rows.length === 0) {
+    return;
+  }
+  const first = rows[0]!;
+  throw new CodedError(
+    "FK_VIOLATION",
+    `${context}: foreign_key_check failed at ${first.table} rowid=${first.rowid} parent=${first.parent} fk=${first.fkid}`,
+  );
+}
+
+function assertQuickCheck(db: Database, context: string): void {
+  const row = db.$client.query<Record<string, unknown>, []>("PRAGMA quick_check(1)").get();
+  if (!row) {
+    throw new CodedError("INTEGRITY_ERROR", `${context}: quick_check returned no rows`);
+  }
+  const first = Object.values(row)[0];
+  if (first === "ok") {
+    return;
+  }
+  throw new CodedError("INTEGRITY_ERROR", `${context}: quick_check returned ${String(first)}`);
+}
+
+export function runSchemaAwareTransaction<T>(
+  db: Database,
+  fn: () => T,
+  options: { hasSchemaChanges: boolean | (() => boolean); context?: string },
+): T {
+  const context = options.context ?? "schema transaction";
   db.$client.run("PRAGMA foreign_keys=ON");
+  db.$client.run("PRAGMA defer_foreign_keys=ON");
   db.$client.run("BEGIN IMMEDIATE");
   try {
-    db.$client.run("PRAGMA defer_foreign_keys=ON");
     const result = fn();
+    const hasSchemaChanges =
+      typeof options.hasSchemaChanges === "function"
+        ? options.hasSchemaChanges()
+        : options.hasSchemaChanges;
+    if (hasSchemaChanges) {
+      assertForeignKeyCheck(db, context);
+      assertQuickCheck(db, context);
+    }
     db.$client.run("COMMIT");
     return result;
   } catch (error) {
@@ -287,6 +330,15 @@ export function listUserTables(db: Database): string[] {
   const rows = db.$client
     .query<{ name: string }, []>(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB '_lore_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
+    )
+    .all();
+  return rows.map((row) => row.name);
+}
+
+export function listUserViews(db: Database): string[] {
+  const rows = db.$client
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type='view' AND name NOT GLOB '_lore_*' AND name NOT GLOB '__drizzle_*' AND name NOT GLOB 'sqlite_*' ORDER BY name",
     )
     .all();
   return rows.map((row) => row.name);

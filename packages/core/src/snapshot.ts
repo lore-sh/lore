@@ -12,7 +12,7 @@ import {
   listUserTables,
   openDb,
   resolveDbPath,
-  runInDeferredTransaction,
+  runSchemaAwareTransaction,
   type Database,
 } from "./db";
 import { CommitTable, RefTable, SnapshotTable } from "./schema";
@@ -36,6 +36,7 @@ function openStagingWritableDatabase(stagingPath: string): Database {
   db.$client.run("PRAGMA journal_mode=DELETE");
   db.$client.run("PRAGMA synchronous=FULL");
   db.$client.run("PRAGMA foreign_keys=ON");
+  db.$client.run("PRAGMA legacy_alter_table=0");
   db.$client.run("PRAGMA busy_timeout=5000");
   return db;
 }
@@ -169,8 +170,11 @@ export async function recover(
   try {
     assertInitialized(replayDb);
     for (const replay of replayCommits) {
-      runInDeferredTransaction(replayDb, () => {
+      runSchemaAwareTransaction(replayDb, () => {
         replayCommit(replayDb, replay, { errorCode: "RECOVER_FAILED" });
+      }, {
+        hasSchemaChanges: replay.schemaEffects.length > 0,
+        context: `replay ${replay.commit.commitId}`,
       });
     }
     replayDb.$client.close(false);

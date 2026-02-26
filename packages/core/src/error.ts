@@ -9,7 +9,11 @@ const ERROR_CATALOG = {
   INVALID_JSON: { category: "client", httpStatus: 400 },
   INVALID_PLAN: { category: "client", httpStatus: 400 },
   INVALID_SQL: { category: "client", httpStatus: 400 },
+  STALE_PLAN: { category: "conflict", httpStatus: 409 },
+  DEPENDENCY_CONFLICT: { category: "conflict", httpStatus: 409 },
   APPLY_FAILED: { category: "internal", httpStatus: 500 },
+  FK_VIOLATION: { category: "internal", httpStatus: 500 },
+  INTEGRITY_ERROR: { category: "internal", httpStatus: 500 },
   UNSUPPORTED: { category: "client", httpStatus: 400 },
   NO_PRIMARY_KEY: { category: "client", httpStatus: 400 },
   REVERT_FAILED: { category: "internal", httpStatus: 500 },
@@ -36,10 +40,12 @@ export type ErrorCode = keyof typeof ERROR_CATALOG;
 export class CodedError extends Error {
   override readonly name = "CodedError";
   readonly code: ErrorCode;
+  readonly detail: unknown;
 
-  constructor(code: ErrorCode, message: string, options?: ErrorOptions) {
+  constructor(code: ErrorCode, message: string, options: (ErrorOptions & { detail?: unknown }) | undefined = undefined) {
     super(message, options);
     this.code = code;
+    this.detail = options?.detail;
   }
 
   static is(error: unknown): error is CodedError {
@@ -56,8 +62,11 @@ export class CodedError extends Error {
     return CodedError.is(error) && error.code === code;
   }
 
-  toJSON(): { code: ErrorCode; message: string } {
-    return { code: this.code, message: this.message };
+  toJSON(): { code: ErrorCode; message: string; detail?: unknown } {
+    if (this.detail === undefined) {
+      return { code: this.code, message: this.message };
+    }
+    return { code: this.code, message: this.message, detail: this.detail };
   }
 }
 
@@ -68,6 +77,7 @@ export interface HttpProblem {
   detail: string;
   instance: string;
   code: ErrorCode;
+  details?: unknown;
 }
 
 export function httpStatusFromError(code: ErrorCode): 400 | 404 | 409 | 500 {
@@ -75,7 +85,7 @@ export function httpStatusFromError(code: ErrorCode): 400 | 404 | 409 | 500 {
 }
 
 export function toHttpProblem(error: CodedError, instance: string): HttpProblem {
-  return {
+  const problem: HttpProblem = {
     type: `https://docs.getlore.sh/errors/${error.code.toLowerCase()}`,
     title: error.code,
     status: httpStatusFromError(error.code),
@@ -83,4 +93,8 @@ export function toHttpProblem(error: CodedError, instance: string): HttpProblem 
     instance,
     code: error.code,
   };
+  if (error.detail !== undefined) {
+    problem.details = error.detail;
+  }
+  return problem;
 }

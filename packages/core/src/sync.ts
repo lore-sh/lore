@@ -20,7 +20,7 @@ import {
   normalizeMetaString,
   openDb,
   resolveDbPath,
-  runInDeferredTransaction,
+  runSchemaAwareTransaction,
   setMetaValue,
   type Database,
 } from "./db";
@@ -230,8 +230,11 @@ export async function pull(db: Database) {
       if (findCommit(db, replay.commit.commitId)) {
         continue;
       }
-      runInDeferredTransaction(db, () => {
+      runSchemaAwareTransaction(db, () => {
         replayCommit(db, replay, { errorCode: "SYNC_DIVERGED" });
+      }, {
+        hasSchemaChanges: replay.schemaEffects.length > 0,
+        context: `replay ${replay.commit.commitId}`,
       });
       pulled += 1;
     }

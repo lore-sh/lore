@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { listUserTables, tableExists, type Database } from "./db";
+import { listUserTables, listUserViews, tableExists, type Database } from "./db";
 import { CodedError, type ErrorCode } from "./error";
 import { canonicalJson, sha256Hex } from "./hash";
 import { primaryKeys, tableDDL, tableInfo } from "./inspect";
 import { executeOperation, type Operation } from "./operation";
+import { buildPkWhereClause, buildRowSelectSql } from "./replay-sql";
 import { EncodedRow, TableSecondaryObject, isSqlStorageClass, type EncodedCell } from "./schema";
-import { quoteIdentifier } from "./sql";
+import { quoteIdentifier, sqlMentionsIdentifier } from "./sql";
 
 export const RowEffect = z.object({
   tableName: z.string(),
@@ -19,6 +20,7 @@ export const RowEffect = z.object({
 export type RowEffect = z.infer<typeof RowEffect>;
 
 export const TableSnapshot = z.object({
+  kind: z.enum(["table", "view"]).optional().default("table"),
   tableName: z.string(),
   ddlSql: z.string(),
   rows: z.array(EncodedRow),
@@ -35,20 +37,9 @@ export const SchemaEffect = z.object({
 export type SchemaEffect = z.infer<typeof SchemaEffect>;
 
 export function pkWhere(pk: Record<string, string>): string {
-  const keys = Object.keys(pk).sort((a, b) => a.localeCompare(b));
-  if (keys.length === 0) {
-    throw new CodedError("REVERT_FAILED", "PK predicate must not be empty");
-  }
-  const parts: string[] = [];
-  for (const key of keys) {
-    const literal = pk[key];
-    if (!literal) {
-      throw new CodedError("REVERT_FAILED", `Missing PK literal for ${key}`);
-    }
-    const quoted = quoteIdentifier(key, { unsafe: true });
-    parts.push(literal.toUpperCase() === "NULL" ? `${quoted} IS NULL` : `${quoted} = ${literal}`);
-  }
-  return parts.join(" AND ");
+  return buildPkWhereClause(pk, (message) => {
+    throw new CodedError("REVERT_FAILED", message);
+  });
 }
 
 function encodeRowFromResult(
@@ -104,23 +95,6 @@ function tableColumns(db: Database, table: string): string[] {
     throw new CodedError("APPLY_FAILED", `Unable to inspect table columns: ${table}`);
   }
   return info.map((column) => column.name);
-}
-
-function buildRowSelectSql(table: string, columns: string[], pkColumns: string[], whereClause: string | null): string {
-  const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
-  const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
-  const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
-  const parts: string[] = [];
-  for (let i = 0; i < columns.length; i++) {
-    const quotedCol = quoteIdentifier(columns[i]!, { unsafe: true });
-    parts.push(`quote(${quotedCol}) AS ${quoteIdentifier(quoteAliases[i]!, { unsafe: true })}`);
-    parts.push(`hex(CAST(${quotedCol} AS BLOB)) AS ${quoteIdentifier(hexAliases[i]!, { unsafe: true })}`);
-    parts.push(`typeof(${quotedCol}) AS ${quoteIdentifier(typeAliases[i]!, { unsafe: true })}`);
-  }
-
-  const orderBy = pkColumns.map((column) => `${quoteIdentifier(column, { unsafe: true })} ASC`).join(", ");
-  const whereSql = whereClause ? ` WHERE ${whereClause}` : "";
-  return `SELECT ${parts.join(", ")} FROM ${quoteIdentifier(table, { unsafe: true })}${whereSql} ORDER BY ${orderBy}`;
 }
 
 export function isSystemTable(table: string): boolean {
@@ -196,6 +170,7 @@ function captureTableState(db: Database, table: string) {
   }
 
   const snapshot: TableSnapshot = {
+    kind: "table",
     tableName: table,
     ddlSql,
     rows,
@@ -203,6 +178,7 @@ function captureTableState(db: Database, table: string) {
     references,
   };
   const schemaSignature = sha256Hex({
+    kind: snapshot.kind,
     ddlSql: snapshot.ddlSql,
     secondaryObjects: snapshot.secondaryObjects,
     references: snapshot.references,
@@ -210,15 +186,59 @@ function captureTableState(db: Database, table: string) {
   return { snapshot, schemaSignature, rowsByPk, keyColumns };
 }
 
-export function captureState(db: Database) {
-  const tables = listUserTables(db);
-  if (tableExists(db, "sqlite_sequence")) {
-    tables.push("sqlite_sequence");
+function captureViewState(db: Database, view: string, referenceCandidates: string[]) {
+  const row = db.$client
+    .query<{ name: string; sql: string | null }, [string]>(
+      "SELECT name, sql FROM sqlite_master WHERE type='view' AND name = ? COLLATE NOCASE LIMIT 1",
+    )
+    .get(view);
+  if (!row?.sql) {
+    throw new CodedError("APPLY_FAILED", `Unable to read CREATE VIEW SQL for ${view}`);
   }
-  tables.sort((a, b) => a.localeCompare(b));
+  const viewSql = row.sql;
+
+  const references = referenceCandidates
+    .filter((candidate) => candidate !== row.name && sqlMentionsIdentifier(viewSql, candidate))
+    .sort((a, b) => a.localeCompare(b));
+
+  const snapshot: TableSnapshot = {
+    kind: "view",
+    tableName: row.name,
+    ddlSql: viewSql,
+    rows: [],
+    secondaryObjects: [],
+    references,
+  };
+  const schemaSignature = sha256Hex({
+    kind: snapshot.kind,
+    ddlSql: snapshot.ddlSql,
+  });
+  return {
+    snapshot,
+    schemaSignature,
+    rowsByPk: new Map<string, { pk: Record<string, string>; row: EncodedRow; rowHash: string }>(),
+    keyColumns: [] as string[],
+  };
+}
+
+export function captureState(db: Database) {
+  const tableNames = listUserTables(db);
+  if (tableExists(db, "sqlite_sequence")) {
+    tableNames.push("sqlite_sequence");
+  }
+  tableNames.sort((a, b) => a.localeCompare(b));
+  const viewNames = listUserViews(db);
+  viewNames.sort((a, b) => a.localeCompare(b));
+  const referenceCandidates = [...tableNames.filter((name) => !isSystemTable(name)), ...viewNames].sort((a, b) =>
+    a.localeCompare(b),
+  );
+
   const captured = new Map<string, ReturnType<typeof captureTableState>>();
-  for (const table of tables) {
+  for (const table of tableNames) {
     captured.set(table, captureTableState(db, table));
+  }
+  for (const view of viewNames) {
+    captured.set(view, captureViewState(db, view, referenceCandidates));
   }
   return { tables: captured };
 }
@@ -249,6 +269,11 @@ export function diffState(
         beforeTable: beforeTable ? beforeTable.snapshot : null,
         afterTable: afterTable ? afterTable.snapshot : null,
       });
+      continue;
+    }
+
+    const kind = afterTable?.snapshot.kind ?? beforeTable?.snapshot.kind ?? "table";
+    if (kind === "view") {
       continue;
     }
 
@@ -567,8 +592,17 @@ function restoreDroppedTriggers(db: Database, dropped: Array<{ name: string; sql
 
 function applySingleSchemaEffect(db: Database, effect: SchemaEffect, direction: "forward" | "inverse"): void {
   const snapshot = direction === "forward" ? effect.afterTable : effect.beforeTable;
+  const current = direction === "forward" ? effect.beforeTable : effect.afterTable;
   if (!snapshot) {
+    if ((current?.kind ?? "table") === "view") {
+      executeOperation(db, { type: "drop_view", name: effect.tableName });
+      return;
+    }
     executeOperation(db, { type: "drop_table", table: effect.tableName });
+    return;
+  }
+  if (snapshot.kind === "view") {
+    db.$client.run(snapshot.ddlSql);
     return;
   }
   const restore: Operation = {
