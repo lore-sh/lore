@@ -4,9 +4,10 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
+    "prepare:install": "../../scripts/web/generate-install.sh",
+    "dev": "bun run prepare:install && astro dev",
+    "build": "bun run prepare:install && astro build",
+    "preview": "bun run prepare:install && astro preview",
     "astro": "astro"
   },
   "dependencies": {

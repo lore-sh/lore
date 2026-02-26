@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import {
   history,
-  commitSize,
-  historySize,
   findCommit,
   commitOperations,
   commitRowEffects,
@@ -12,6 +10,7 @@ import {
   status,
   verify,
 } from "../src";
+import { commitSize, historySize } from "../src/history";
 import { COMMIT_TABLE } from "../src/db";
 import { applyPlan, createTestContext, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 

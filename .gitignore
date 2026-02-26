@@ -8,4 +8,7 @@ bun.lock
 private/
 .claude/
 packages/*/dist/
+packages/core/src/generated/
+packages/studio/src/server/generated/
+packages/web/public/install
 *.tsbuildinfo

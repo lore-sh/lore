@@ -1,18 +1,12 @@
 import { revert, type Database } from "@lore/core";
-import { parseArgs } from "node:util";
 import { z } from "zod";
 import { summarizeCommit, toJson } from "../format";
+import { parseRequiredPositional } from "../parse";
 
 export const RevertArgsSchema = z.object({ commitId: z.string().min(1) });
 
 export function parseRevertArgs(args: string[]): z.infer<typeof RevertArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: true,
-    options: {},
-  });
-  const [commitId] = z.tuple([z.string().trim().min(1)]).parse(parsed.positionals);
+  const commitId = parseRequiredPositional(args);
   return RevertArgsSchema.parse({ commitId });
 }
 

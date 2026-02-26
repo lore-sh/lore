@@ -1,7 +1,5 @@
-import { createStudioApp } from "./app";
-import { join } from "node:path";
 import { openDb, type Database } from "@lore/core";
-import { shouldRebuildClientBundle } from "./client-bundle";
+import { createStudioApp } from "./app";
 import { DEFAULT_STUDIO_PORT, normalizeStudioPort, parseStudioPortArg } from "./port";
 import type { StartStudioServerOptions } from "./types";
 
@@ -48,25 +46,6 @@ function openBrowser(url: string): void {
     });
   } catch {
     // ignore browser-open errors and keep server running
-  }
-}
-
-function studioPackageRoot(): string {
-  return join(import.meta.dir, "../..");
-}
-
-function ensureClientBundle(): void {
-  const studioRoot = studioPackageRoot();
-  if (!shouldRebuildClientBundle(studioRoot)) {
-    return;
-  }
-  const result = Bun.spawnSync(["bun", "run", "--cwd", studioRoot, "build:client"], {
-    stdout: "inherit",
-    stderr: "inherit",
-    stdin: "ignore",
-  });
-  if (result.exitCode !== 0) {
-    throw new Error("Failed to build studio client assets");
   }
 }
 
@@ -139,7 +118,6 @@ export function attachServerCleanup(server: Bun.Server<unknown>, db: Database): 
 }
 
 export function startStudioServer(options: StartStudioServerOptions = {}): StartedStudioServer {
-  ensureClientBundle();
   const port = normalizeStudioPort(options.port);
   const host = options.host ?? DEFAULT_HOST;
   const db = openDb(options.dbPath);

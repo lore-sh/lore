@@ -1,6 +1,6 @@
 import { parseStudioPortArg, startStudioServer } from "@lore/studio";
-import { parseArgs } from "node:util";
 import { z } from "zod";
+import { parseCliArgs } from "../parse";
 
 export const StudioArgsSchema = z.object({
   port: z.number().int().positive().optional(),
@@ -8,16 +8,14 @@ export const StudioArgsSchema = z.object({
 });
 
 export function parseStudioArgs(args: string[]): z.infer<typeof StudioArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: false,
+  const parsed = parseCliArgs(args, {
     options: {
       port: { type: "string" },
       "no-open": { type: "boolean" },
     },
   });
-  const portRaw = parsed.values.port;
+  const portRawValue = parsed.values.port;
+  const portRaw = portRawValue === undefined ? undefined : z.string().parse(portRawValue);
   return StudioArgsSchema.parse({
     port: portRaw === undefined ? undefined : parseStudioPortArg(portRaw),
     open: !(parsed.values["no-open"] ?? false),

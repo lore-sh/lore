@@ -11,16 +11,14 @@ describe("db path resolution", () => {
   test("resolveDbPath returns CONFIG when no home env is available", () => {
     const env = {
       HOME: process.env.HOME,
-      USERPROFILE: process.env.USERPROFILE,
     };
 
     delete process.env.HOME;
-    delete process.env.USERPROFILE;
 
     try {
       try {
         resolveDbPath();
-        throw new Error("resolveDbPath should fail without HOME/USERPROFILE");
+        throw new Error("resolveDbPath should fail without HOME");
       } catch (error) {
         expect(CodedError.is(error)).toBe(true);
         if (CodedError.is(error)) {
@@ -32,11 +30,6 @@ describe("db path resolution", () => {
         delete process.env.HOME;
       } else {
         process.env.HOME = env.HOME;
-      }
-      if (env.USERPROFILE === undefined) {
-        delete process.env.USERPROFILE;
-      } else {
-        process.env.USERPROFILE = env.USERPROFILE;
       }
     }
   });

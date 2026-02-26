@@ -360,7 +360,7 @@
 
       <div class="install" id="install">
         <span class="prompt">$</span>
-        npm i -g @lore-sh/lore
+        curl -fsSL https://getlore.sh/install | bash
         <svg
           class="copy-icon"
           width="15"
@@ -412,7 +412,7 @@
         const iconCheck = el.querySelector<SVGElement>(".icon-check")!;
         const copyIcon = el.querySelector<SVGElement>(".copy-icon")!;
         el.addEventListener("click", () => {
-          navigator.clipboard.writeText("npm i -g @lore-sh/lore");
+          navigator.clipboard.writeText("curl -fsSL https://getlore.sh/install | bash");
           iconCopy.style.display = "none";
           iconCheck.style.display = "";
           copyIcon.style.color = "var(--green)";

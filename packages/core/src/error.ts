@@ -20,6 +20,7 @@ const ERROR_CATALOG = {
   SYNC_NOT_CONFIGURED: { category: "client", httpStatus: 400 },
   SYNC_NON_FAST_FORWARD: { category: "conflict", httpStatus: 409 },
   SYNC_DIVERGED: { category: "conflict", httpStatus: 409 },
+  IMMUTABLE_MIGRATION_EDITED: { category: "conflict", httpStatus: 409 },
   SYNC_AUTH_FAILED: { category: "client", httpStatus: 400 },
   SYNC_UNREACHABLE: { category: "internal", httpStatus: 500 },
   INTERNAL: { category: "internal", httpStatus: 500 },

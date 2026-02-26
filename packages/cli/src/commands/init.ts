@@ -1,11 +1,11 @@
 import { relative, resolve } from "node:path";
 import { stdin, stdout } from "node:process";
-import { parseArgs } from "node:util";
 import type { SkillPlatform } from "@lore/core";
 import { initDb } from "@lore/core";
 import { z } from "zod";
 import { cleanSkills, generateSkills } from "../skills";
 import type { GeneratedPlatform } from "../skills";
+import { parseCliArgs } from "../parse";
 import { promptConfirm } from "../prompts/confirm";
 import { promptMultiSelect } from "../prompts/multiselect";
 import type { MultiSelectOption } from "../prompts/multiselect";
@@ -198,10 +198,7 @@ export function parsePlatformList(value: string): SkillPlatform[] {
 }
 
 export function parseInitArgs(args: string[]): ParsedInitArgs {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: false,
+  const parsed = parseCliArgs(args, {
     options: {
       "no-skills": { type: "boolean" },
       "force-new": { type: "boolean" },
@@ -211,7 +208,8 @@ export function parseInitArgs(args: string[]): ParsedInitArgs {
       platforms: { type: "string" },
     },
   });
-  const platforms = parsed.values.platforms === undefined ? null : parsePlatformList(parsed.values.platforms);
+  const platformsValue = parsed.values.platforms;
+  const platforms = platformsValue === undefined ? null : parsePlatformList(z.string().parse(platformsValue));
   return ParsedInitArgsSchema.parse({
     noSkills: parsed.values["no-skills"] ?? false,
     forceNew: parsed.values["force-new"] ?? false,
@@ -263,10 +261,7 @@ export function promptHeartbeat(): Promise<boolean> {
 }
 
 export function parseCleanArgs(args: string[]): z.infer<typeof ParsedCleanArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: false,
+  const parsed = parseCliArgs(args, {
     options: {
       yes: { type: "boolean" },
       json: { type: "boolean" },

@@ -1,18 +1,12 @@
 import { recover, resolveDbPath } from "@lore/core";
-import { parseArgs } from "node:util";
 import { z } from "zod";
 import { toJson } from "../format";
+import { parseRequiredPositional } from "../parse";
 
 export const RecoverArgsSchema = z.object({ snapshotCommitId: z.string().min(1) });
 
 export function parseRecoverArgs(args: string[]): z.infer<typeof RecoverArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: true,
-    options: {},
-  });
-  const [snapshotCommitId] = z.tuple([z.string().trim().min(1)]).parse(parsed.positionals);
+  const snapshotCommitId = parseRequiredPositional(args);
   return RecoverArgsSchema.parse({ snapshotCommitId });
 }
 

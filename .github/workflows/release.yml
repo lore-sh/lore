@@ -1,0 +1,206 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test:ci
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: shellcheck install.sh scripts/release/*.sh scripts/web/*.sh
+
+      - name: Validate shell syntax
+        run: bash -n install.sh scripts/release/*.sh scripts/web/*.sh
+
+  build:
+    needs: quality
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            os: linux
+            arch: x64
+            target: bun-linux-x64
+          - runner: ubuntu-24.04-arm
+            os: linux
+            arch: arm64
+            target: bun-linux-arm64
+          - runner: macos-15-intel
+            os: darwin
+            arch: x64
+            target: bun-darwin-x64
+          - runner: macos-latest
+            os: darwin
+            arch: arm64
+            target: bun-darwin-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Build binary
+        id: build
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          binary_path="$(scripts/release/build-target.sh --version "$VERSION" --target "${{ matrix.target }}" --os "${{ matrix.os }}" --arch "${{ matrix.arch }}" --out-dir dist/release/bin)"
+          [[ "$binary_path" != *$'\n'* ]] || { echo "build-target.sh must output exactly one line" >&2; exit 1; }
+          [[ -f "$binary_path" ]] || { echo "Binary not found: $binary_path" >&2; exit 1; }
+          printf 'binary_path=%s\n' "$binary_path" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test binary
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          scripts/release/smoke-binary.sh --binary "${{ steps.build.outputs.binary_path }}" --version "$VERSION"
+
+      - name: Package archive
+        id: package
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          archive_path="$(scripts/release/package-target.sh --version "$VERSION" --os "${{ matrix.os }}" --arch "${{ matrix.arch }}" --binary "${{ steps.build.outputs.binary_path }}" --out-dir dist/release/artifacts)"
+          [[ "$archive_path" != *$'\n'* ]] || { echo "package-target.sh must output exactly one line" >&2; exit 1; }
+          [[ -f "$archive_path" ]] || { echo "Archive not found: $archive_path" >&2; exit 1; }
+          printf 'archive_path=%s\n' "$archive_path" >> "$GITHUB_OUTPUT"
+
+      - name: Upload target archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lore-archive-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ steps.package.outputs.archive_path }}
+          if-no-files-found: error
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Download archives
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          path: dist/release/artifacts
+          pattern: lore-archive-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          scripts/release/generate-checksums.sh --version "$VERSION" --artifacts-dir dist/release/artifacts
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lore-release-assets
+          path: dist/release/artifacts/*
+          if-no-files-found: error
+
+  installer-smoke:
+    needs: checksums
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: lore-release-assets
+          path: dist/release/artifacts
+
+      - name: Smoke test install script
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="$GITHUB_REF_NAME"
+          TMP_ROOT="$(mktemp -d)"
+          mkdir -p "$TMP_ROOT/releases/download/$TAG"
+          cp dist/release/artifacts/* "$TMP_ROOT/releases/download/$TAG/"
+
+          env \
+            LORE_VERSION="$VERSION" \
+            LORE_RELEASE_BASE_URL="file://$TMP_ROOT/releases/download" \
+            LORE_INSTALL_DIR="$TMP_ROOT/bin" \
+            bash -c "curl -fsSL file://$PWD/install.sh | bash"
+
+          scripts/release/smoke-binary.sh --binary "$TMP_ROOT/bin/lore" --version "$VERSION"
+
+  publish:
+    needs: installer-smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: lore-release-assets
+          path: dist/release/artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b
+        with:
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: dist/release/artifacts/*
+
+  attest:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: lore-release-assets
+          path: dist/release/artifacts
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661
+        with:
+          subject-path: dist/release/artifacts/*

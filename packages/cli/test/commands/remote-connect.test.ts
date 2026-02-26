@@ -46,15 +46,25 @@ describe("remote-connect command", () => {
         "--platform",
         "libsql",
         "--url",
-        "file:/tmp/remote.db",
+        "https://db.example.com",
         "--clear-token",
       ]),
     ).toEqual({
       interactive: false,
       platform: "libsql",
-      url: "file:/tmp/remote.db",
+      url: "https://db.example.com",
       authToken: null,
     });
+  });
+
+  test("rejects unsupported remote URL scheme", () => {
+    expect(() =>
+      parseRemoteConnectArgs([
+        "--platform",
+        "libsql",
+        "--url",
+        "file:/tmp/remote.db",
+      ])).toThrow("Remote URL scheme is not supported");
   });
 
   test("rejects --url missing value when next arg is a flag", () => {

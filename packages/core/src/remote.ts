@@ -1,7 +1,5 @@
-import { createClient, type Client, type InArgs, type ResultSet, type Row, type Transaction } from "@libsql/client";
-import { drizzle } from "drizzle-orm/libsql";
-import { migrate as migrateLibsql } from "drizzle-orm/libsql/migrator";
-import { basename, resolve } from "node:path";
+import { type Client, type InArgs, type ResultSet, type Row, type Transaction } from "@libsql/client";
+import { createClient as createWebClient } from "@libsql/client/web";
 import type { readCommit } from "./commit";
 import { readAuthToken } from "./config";
 import {
@@ -15,7 +13,6 @@ import {
   OP_TABLE,
   PRESERVED_META_DEFAULTS,
   REF_TABLE,
-  RESETTABLE_META_DEFAULTS,
   ROW_EFFECT_TABLE,
   SCHEMA_EFFECT_TABLE,
   SYNC_PROTOCOL_VERSION_META_KEY,
@@ -25,6 +22,7 @@ import { CodedError } from "./error";
 import { dependencyOrder, RowEffect, SchemaEffect } from "./effect";
 import { canonicalJson, sha256Hex } from "./hash";
 import { hashSchema } from "./inspect";
+import { DRIZZLE_MIGRATIONS_TABLE, DRIZZLE_MIGRATIONS_TABLE_SQL, loadEngineMigrations, pendingEngineMigrations, type EngineMigration } from "./migration";
 import { Operation, type Operation as Op } from "./operation";
 import type { EncodedCell, EncodedRow } from "./schema";
 import {
@@ -38,7 +36,6 @@ import {
 import { stateHashForRemote } from "./state";
 import type { RemotePlatform } from "./sync";
 
-const ENGINE_MIGRATION_DIR = resolve(import.meta.dir, "../migration");
 const REMOTE_REQUIRED_READ_TABLES = [
   META_TABLE,
   COMMIT_TABLE,
@@ -66,6 +63,7 @@ const SENSITIVE_QUERY_KEYS = [
   "password",
   "passwd",
 ] as const;
+const SUPPORTED_REMOTE_SCHEMES = new Set(["https:", "libsql:"]);
 
 function isSensitiveQueryKey(key: string): boolean {
   const normalized = key.toLowerCase();
@@ -99,7 +97,6 @@ export function maskSensitiveUrl(input: string): string {
 export function maskSensitiveText(input: string): string {
   let output = input;
   output = output.replace(/\b(?:https?|libsql|wss?):\/\/[^\s"'`]+/gi, (url) => maskSensitiveUrl(url));
-  output = output.replace(/\bfile:[^\s"'`]+/gi, (url) => maskSensitiveUrl(url));
   output = output.replace(
     /"(auth[_-]?token|access[_-]?token|refresh[_-]?token|token|authorization|api[_-]?key|password)"\s*:\s*"[^"]*"/gi,
     '"$1":"[REDACTED]"',
@@ -110,6 +107,21 @@ export function maskSensitiveText(input: string): string {
   );
   output = output.replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [REDACTED]");
   return output;
+}
+
+export function validateRemoteUrl(input: string): string {
+  const normalized = input.trim();
+  if (normalized.length === 0) {
+    throw new CodedError("CONFIG", "Remote URL must not be empty");
+  }
+  if (!URL.canParse(normalized)) {
+    throw new CodedError("CONFIG", `Remote URL is invalid: ${normalized}`);
+  }
+  const parsed = new URL(normalized);
+  if (!SUPPORTED_REMOTE_SCHEMES.has(parsed.protocol)) {
+    throw new CodedError("CONFIG", `Remote URL scheme is not supported: ${parsed.protocol}. Use https:// or libsql://.`);
+  }
+  return normalized;
 }
 
 function parseRemoteRow(row: Row): Record<string, unknown> {
@@ -124,13 +136,6 @@ export function parseRemoteDbName(remoteUrl: string): string | null {
     return null;
   }
   const parsed = new URL(remoteUrl);
-  if (parsed.protocol === "file:") {
-    const file = basename(parsed.pathname);
-    if (!file) {
-      return null;
-    }
-    return file.endsWith(".db") ? file.slice(0, -3) : file;
-  }
   const host = parsed.hostname.trim();
   if (!host) {
     return null;
@@ -348,7 +353,7 @@ export function openRemoteClient(
   authTokenOverride?: string | null,
 ): Client {
   const authToken = authTokenForPlatform(config, authTokenOverride);
-  return createClient(authToken ? { url: config.remoteUrl, authToken } : { url: config.remoteUrl });
+  return createWebClient(authToken ? { url: config.remoteUrl, authToken } : { url: config.remoteUrl });
 }
 
 function rowsFrom(result: ResultSet): Row[] {
@@ -388,6 +393,52 @@ function metaInsertStatement(key: string, value: string): { sql: string; args: I
     sql: "INSERT INTO _lore_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING",
     args: [key, value],
   };
+}
+
+async function ensureRemoteMigrationsTable(client: Client): Promise<void> {
+  await client.execute(DRIZZLE_MIGRATIONS_TABLE_SQL);
+}
+
+async function readRemoteAppliedMigrationHashesById(client: Client): Promise<Map<string, string>> {
+  const result = await client.execute(`SELECT id, hash FROM "${DRIZZLE_MIGRATIONS_TABLE}"`);
+  const applied = new Map<string, string>();
+  for (const row of rowsFrom(result)) {
+    const id = parseRowValue(row, "id");
+    const hash = parseRowValue(row, "hash");
+    if (typeof id !== "string" || typeof hash !== "string") {
+      throw new CodedError(
+        "CONFIG",
+        `Remote database uses an unsupported ${DRIZZLE_MIGRATIONS_TABLE} format. Recreate remote schema with write access.`,
+      );
+    }
+    applied.set(id, hash);
+  }
+  return applied;
+}
+
+async function applyRemoteMigration(client: Client, migration: EngineMigration): Promise<void> {
+  const tx = await client.transaction("write");
+  try {
+    await tx.executeMultiple(migration.sql);
+    await tx.execute({
+      sql: `INSERT INTO "${DRIZZLE_MIGRATIONS_TABLE}" (id, hash, created_at) VALUES (?, ?, ?)`,
+      args: [migration.id, migration.hash, Date.now()],
+    });
+    await tx.commit();
+  } catch (error) {
+    await tx.rollback();
+    throw error;
+  }
+}
+
+async function applyRemoteEngineMigrations(client: Client): Promise<void> {
+  await ensureRemoteMigrationsTable(client);
+  const migrations = await loadEngineMigrations();
+  const appliedById = await readRemoteAppliedMigrationHashesById(client);
+  const pending = pendingEngineMigrations(migrations, appliedById);
+  for (const migration of pending) {
+    await applyRemoteMigration(client, migration);
+  }
 }
 
 async function getRemoteMetaValue(executor: Client | Transaction, key: string): Promise<string | null> {
@@ -437,13 +488,11 @@ async function persistMaterializationErrorBestEffort(client: Client, error: unkn
 }
 
 export async function ensureRemoteInitialized(client: Client): Promise<void> {
-  const db = drizzle({ client });
-  await migrateLibsql(db, { migrationsFolder: ENGINE_MIGRATION_DIR });
+  await applyRemoteEngineMigrations(client);
 
-  const metaDefaults = [...RESETTABLE_META_DEFAULTS, ...PRESERVED_META_DEFAULTS];
   await client.batch(
     [
-      ...metaDefaults.map(([key, value]) => metaInsertStatement(key, value)),
+      ...PRESERVED_META_DEFAULTS.map(([key, value]) => metaInsertStatement(key, value)),
       {
         sql: "INSERT INTO _lore_ref(name, commit_id, updated_at) VALUES (?, NULL, ?) ON CONFLICT(name) DO NOTHING",
         args: [MAIN_REF_NAME, Date.now()],

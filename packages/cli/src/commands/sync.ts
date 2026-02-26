@@ -1,11 +1,9 @@
 import { sync, type Database } from "@lore/core";
-import { z } from "zod";
 import { toJson } from "../format";
-
-export const SyncArgsSchema = z.array(z.string()).length(0, "sync does not accept arguments");
+import { parseNoArgs } from "../parse";
 
 export function parseSyncArgs(args: string[]): void {
-  SyncArgsSchema.parse(args);
+  parseNoArgs(args, "sync");
 }
 
 export async function runSync(db: Database): Promise<void> {

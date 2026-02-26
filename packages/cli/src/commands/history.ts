@@ -1,15 +1,12 @@
 import { listCommits, type Database } from "@lore/core";
-import { parseArgs } from "node:util";
 import { z } from "zod";
 import { formatTimestamp, printTable, toJson } from "../format";
+import { parseCliArgs } from "../parse";
 
 export const HistoryArgsSchema = z.object({ verbose: z.boolean(), json: z.boolean() });
 
 export function parseHistoryArgs(args: string[]): z.infer<typeof HistoryArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: false,
+  const parsed = parseCliArgs(args, {
     options: {
       verbose: { type: "boolean" },
       json: { type: "boolean" },

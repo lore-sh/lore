@@ -50,6 +50,27 @@ describe("main command dispatch", () => {
     expect(text).not.toContain("lore apply <json>");
   });
 
+  test("--version and -v print version", async () => {
+    const originalLog = console.log;
+    const logs: string[] = [];
+    console.log = (...args: unknown[]) => {
+      logs.push(args.join(" "));
+    };
+    try {
+      await runCli(["--version"]);
+      await runCli(["-v"]);
+    } finally {
+      console.log = originalLog;
+    }
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toBe(logs[1]);
+    expect(logs[0]).toBe("dev");
+  });
+
+  test("legacy version subcommand is rejected", async () => {
+    await expectUnknownCommand("version");
+  });
+
   test("validates db command args before opening database", async () => {
     const home = mkdtempSync(join(tmpdir(), "lore-cli-home-"));
     const snapshot = {

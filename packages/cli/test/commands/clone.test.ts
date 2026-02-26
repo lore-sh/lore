@@ -20,4 +20,10 @@ describe("clone command", () => {
     expect(() => parseCloneArgs([])).toThrow();
     expect(() => parseCloneArgs(["libsql://db.turso.io"])).toThrow();
   });
+
+  test("parseCloneArgs rejects unsupported URL schemes", () => {
+    expect(() => parseCloneArgs(["file:/tmp/remote.db", "--platform", "libsql"])).toThrow(
+      "Remote URL scheme is not supported",
+    );
+  });
 });

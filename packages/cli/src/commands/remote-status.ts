@@ -1,11 +1,9 @@
 import { remoteStatus, type Database } from "@lore/core";
-import { z } from "zod";
 import { toJson } from "../format";
-
-export const RemoteStatusArgsSchema = z.array(z.string()).length(0, "remote status does not accept arguments");
+import { parseNoArgs } from "../parse";
 
 export function parseRemoteStatusArgs(args: string[]): void {
-  RemoteStatusArgsSchema.parse(args);
+  parseNoArgs(args, "remote status");
 }
 
 export async function runRemoteStatus(db: Database): Promise<void> {

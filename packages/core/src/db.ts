@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { CodedError } from "./error";
+import { DRIZZLE_MIGRATIONS_TABLE, DRIZZLE_MIGRATIONS_TABLE_SQL, loadEngineMigrations, pendingEngineMigrations, type EngineMigration } from "./migration";
 import { MetaTable, RefTable } from "./schema";
 import * as schema from "./schema";
 import { validateReadSql } from "./sql";
@@ -36,7 +36,6 @@ export const LAST_MATERIALIZED_AT_META_KEY = "last_materialized_at";
 export const LAST_MATERIALIZED_ERROR_META_KEY = "last_materialized_error";
 export const LAST_VERIFIED_AT_META_KEY = "last_verified_at";
 export const LAST_VERIFIED_OK_META_KEY = "last_verified_ok";
-export const RESETTABLE_META_DEFAULTS: ReadonlyArray<readonly [string, string]> = [];
 export const PRESERVED_META_DEFAULTS = [
   [LAST_PUSHED_COMMIT_META_KEY, ""],
   [LAST_PULLED_COMMIT_META_KEY, ""],
@@ -47,16 +46,15 @@ export const PRESERVED_META_DEFAULTS = [
   [LAST_MATERIALIZED_AT_META_KEY, ""],
   [LAST_MATERIALIZED_ERROR_META_KEY, ""],
 ] as const;
-const MIGRATIONS_DIR = resolve(import.meta.dir, "../migration");
 
 export function isEnoent(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 export function resolveHomeDir(): string {
-  const home = process.env.HOME ?? process.env.USERPROFILE;
+  const home = process.env.HOME;
   if (!home) {
-    throw new CodedError("CONFIG", "HOME (or USERPROFILE) is required to resolve the home directory.");
+    throw new CodedError("CONFIG", "HOME is required to resolve the home directory.");
   }
   return resolve(home);
 }
@@ -97,6 +95,51 @@ function ensureDatabaseDirectory(dbPath: string): void {
   mkdirSync(dirname(dbPath), { recursive: true });
 }
 
+function ensureMigrationsTable(db: Database): void {
+  db.$client.run(DRIZZLE_MIGRATIONS_TABLE_SQL);
+}
+
+function readAppliedMigrationHashesById(db: Database): Map<string, string> {
+  const rows = db.$client.query<{ id: unknown; hash: unknown }, []>(`SELECT id, hash FROM "${DRIZZLE_MIGRATIONS_TABLE}"`).all();
+  const applied = new Map<string, string>();
+  for (const row of rows) {
+    if (typeof row.id !== "string" || typeof row.hash !== "string") {
+      throw new CodedError(
+        "NOT_INITIALIZED",
+        `Database uses an unsupported ${DRIZZLE_MIGRATIONS_TABLE} format. Recreate it with lore init --force-new.`,
+      );
+    }
+    applied.set(row.id, row.hash);
+  }
+  return applied;
+}
+
+function applyMigration(db: Database, migration: EngineMigration): void {
+  db.$client.run("BEGIN IMMEDIATE");
+  try {
+    db.$client.exec(migration.sql);
+    db.$client
+      .query<{ id: string; hash: string; created_at: number }, [string, string, number]>(
+        `INSERT INTO "${DRIZZLE_MIGRATIONS_TABLE}" (id, hash, created_at) VALUES (?, ?, ?)`,
+      )
+      .run(migration.id, migration.hash, Date.now());
+    db.$client.run("COMMIT");
+  } catch (error) {
+    db.$client.run("ROLLBACK");
+    throw error;
+  }
+}
+
+export async function applyEngineMigrations(db: Database): Promise<void> {
+  ensureMigrationsTable(db);
+  const migrations = await loadEngineMigrations();
+  const appliedById = readAppliedMigrationHashesById(db);
+  const pending = pendingEngineMigrations(migrations, appliedById);
+  for (const migration of pending) {
+    applyMigration(db, migration);
+  }
+}
+
 function assertDatabaseFileExists(dbPath: string): void {
   if (!existsSync(dbPath)) {
     throw notInitializedError(dbPath);
@@ -135,17 +178,8 @@ export function openDb(
   }
 }
 
-function initializeStorage(db: Database): void {
-  if (!existsSync(MIGRATIONS_DIR)) {
-    throw new CodedError("CONFIG", `Engine migrations directory not found: ${MIGRATIONS_DIR}`);
-  }
-  migrate(db, { migrationsFolder: MIGRATIONS_DIR });
-  for (const [key, value] of RESETTABLE_META_DEFAULTS) {
-    db.insert(MetaTable)
-      .values({ key, value })
-      .onConflictDoUpdate({ target: MetaTable.key, set: { value } })
-      .run();
-  }
+async function initializeStorage(db: Database): Promise<void> {
+  await applyEngineMigrations(db);
   for (const [key, value] of PRESERVED_META_DEFAULTS) {
     db.insert(MetaTable)
       .values({ key, value })
@@ -172,7 +206,7 @@ export async function initDb(
   const db = drizzle({ connection: { source: dbPath }, schema });
   try {
     applyPragmas(db);
-    initializeStorage(db);
+    await initializeStorage(db);
     assertInitialized(db);
   } finally {
     db.$client.close(false);

@@ -1,15 +1,12 @@
 import { verify, type Database } from "@lore/core";
-import { parseArgs } from "node:util";
 import { z } from "zod";
 import { toJson } from "../format";
+import { parseCliArgs } from "../parse";
 
 export const VerifyArgsSchema = z.object({ full: z.boolean() });
 
 export function parseVerifyArgs(args: string[]): z.infer<typeof VerifyArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: false,
+  const parsed = parseCliArgs(args, {
     options: {
       full: { type: "boolean" },
     },

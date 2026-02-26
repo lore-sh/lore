@@ -1,7 +1,7 @@
-import { clone } from "@lore/core";
-import { parseArgs } from "node:util";
+import { CodedError, clone, validateRemoteUrl } from "@lore/core";
 import { z } from "zod";
 import { toJson } from "../format";
+import { parseCliArgs } from "../parse";
 import { RemotePlatformSchema } from "./remote-connect";
 
 export const CloneArgsSchema = z.object({
@@ -18,10 +18,19 @@ export function parseClonePlatform(value: string): z.infer<typeof RemotePlatform
   return parsed.data;
 }
 
+function normalizeCloneUrl(url: string): string {
+  try {
+    return validateRemoteUrl(url);
+  } catch (error) {
+    if (CodedError.is(error)) {
+      throw new Error(error.message);
+    }
+    throw error;
+  }
+}
+
 export function parseCloneArgs(args: string[]): z.infer<typeof CloneArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
+  const parsed = parseCliArgs(args, {
     allowPositionals: true,
     options: {
       platform: { type: "string" },
@@ -33,7 +42,7 @@ export function parseCloneArgs(args: string[]): z.infer<typeof CloneArgsSchema> 
   const forceNew = z.boolean().parse(parsed.values["force-new"] ?? false);
   return CloneArgsSchema.parse({
     platform: parseClonePlatform(platform),
-    url,
+    url: normalizeCloneUrl(url),
     forceNew,
   });
 }

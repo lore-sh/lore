@@ -1,11 +1,9 @@
 import { pull, type Database } from "@lore/core";
-import { z } from "zod";
 import { toJson } from "../format";
-
-export const PullArgsSchema = z.array(z.string()).length(0, "pull does not accept arguments");
+import { parseNoArgs } from "../parse";
 
 export function parsePullArgs(args: string[]): void {
-  PullArgsSchema.parse(args);
+  parseNoArgs(args, "pull");
 }
 
 export async function runPull(db: Database): Promise<void> {

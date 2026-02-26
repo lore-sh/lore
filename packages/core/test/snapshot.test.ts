@@ -4,13 +4,12 @@ import {
   listCommits,
   initDb,
   CodedError,
-  maybeCreateSnapshot,
   query,
   recover,
   revert,
   verify,
 } from "../src";
-import { promotePrepared } from "../src/snapshot";
+import { maybeCreateSnapshot, promotePrepared } from "../src/snapshot";
 import { COMMIT_TABLE, DEFAULT_SNAPSHOT_INTERVAL } from "../src/db";
 import { applyPlan, createTestContext, currentDb, writePlanFile, withTmpDirCleanup } from "./helpers";
 

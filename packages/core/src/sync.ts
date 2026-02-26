@@ -38,6 +38,7 @@ import {
   normalizeToken,
   openRemoteClient,
   parseRemoteDbName,
+  validateRemoteUrl,
   pushCommit,
   readRemoteSyncProtocolVersion,
   remoteConfigForDisplay,
@@ -55,10 +56,11 @@ export function syncConfig() {
   if (!remote) {
     return null;
   }
+  const remoteUrl = validateRemoteUrl(remote.url);
   return {
     platform: remote.platform,
-    remoteUrl: remote.url,
-    remoteDbName: parseRemoteDbName(remote.url),
+    remoteUrl,
+    remoteDbName: parseRemoteDbName(remoteUrl),
   };
 }
 
@@ -271,15 +273,31 @@ function syncConfigFromInputs(options: {
   url: string;
 }) {
   const platform = parseRemotePlatform(options.platform);
-  const trimmedUrl = options.url.trim();
-  if (trimmedUrl.length === 0) {
-    throw new CodedError("CONFIG", "Remote URL must not be empty");
-  }
+  const remoteUrl = validateRemoteUrl(options.url);
   return {
     platform,
-    remoteUrl: trimmedUrl,
-    remoteDbName: parseRemoteDbName(trimmedUrl),
+    remoteUrl,
+    remoteDbName: parseRemoteDbName(remoteUrl),
   };
+}
+
+function syncIdentity(config: {
+  platform: RemotePlatform;
+  remoteUrl: string;
+  remoteDbName: string | null;
+}): string {
+  return `${config.platform}\u0000${config.remoteUrl}\u0000${config.remoteDbName ?? ""}`;
+}
+
+function previousSyncConfigForConnect() {
+  try {
+    return syncConfig();
+  } catch (error) {
+    if (CodedError.hasCode(error, "CONFIG")) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function connect(
@@ -291,9 +309,9 @@ export async function connect(
   },
 ) {
   const config = syncConfigFromInputs(options);
-  const previousConfig = syncConfig();
-  const previousIdentity = previousConfig ? `${previousConfig.platform}\u0000${previousConfig.remoteUrl}\u0000${previousConfig.remoteDbName ?? ""}` : null;
-  const nextIdentity = `${config.platform}\u0000${config.remoteUrl}\u0000${config.remoteDbName ?? ""}`;
+  const previousConfig = previousSyncConfigForConnect();
+  const previousIdentity = previousConfig ? syncIdentity(previousConfig) : null;
+  const nextIdentity = syncIdentity(config);
   const remoteChanged = previousIdentity !== nextIdentity;
   const client = openRemoteClient(config, options.authToken);
   try {
@@ -503,3 +521,5 @@ export function sizeWarning(db: Database, commitId: string): string | null {
   }
   return `Commit payload is large (${payloadSize} bytes). Frequent update/delete operations can grow history quickly.`;
 }
+
+export { validateRemoteUrl } from "./remote";

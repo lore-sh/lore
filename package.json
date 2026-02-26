@@ -12,6 +12,7 @@
   "scripts": {
     "lore": "bun run ./packages/cli/src/main.ts",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "test:ci": "bun test"
   }
 }

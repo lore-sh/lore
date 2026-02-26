@@ -1,7 +1,7 @@
 import { CodedError, check, parsePlan, type Database } from "@lore/core";
-import { parseArgs } from "node:util";
 import { z } from "zod";
 import { toJson } from "../format";
+import { parseCliArgs } from "../parse";
 
 type CheckResult = ReturnType<typeof check>;
 type CheckIssue = CheckResult["errors"][number];
@@ -24,9 +24,7 @@ export const PlanInputSchema = z.discriminatedUnion("kind", [
 export type PlanInput = z.infer<typeof PlanInputSchema>;
 
 export function parsePlanInput(args: string[]): PlanInput {
-  const parsed = parseArgs({
-    strict: true,
-    args,
+  const parsed = parseCliArgs(args, {
     allowPositionals: true,
     options: {
       file: { type: "string", short: "f" },

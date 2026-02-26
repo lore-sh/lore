@@ -1,8 +1,8 @@
 import { stdin, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
-import { parseArgs } from "node:util";
-import { connect, type Database } from "@lore/core";
+import { CodedError, connect, type Database, validateRemoteUrl } from "@lore/core";
 import { z } from "zod";
+import { parseCliArgs } from "../parse";
 import { promptRadioSelection, type RadioOption } from "../prompts/radio";
 
 export const RemotePlatformSchema = z.enum(["turso", "libsql"]);
@@ -30,10 +30,7 @@ function parsePlatformValue(value: string): z.infer<typeof RemotePlatformSchema>
 }
 
 export function parseRemoteConnectArgs(args: string[]): z.infer<typeof ParsedRemoteConnectArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: false,
+  const parsed = parseCliArgs(args, {
     options: {
       platform: { type: "string" },
       url: { type: "string" },
@@ -41,9 +38,12 @@ export function parseRemoteConnectArgs(args: string[]): z.infer<typeof ParsedRem
       "clear-token": { type: "boolean" },
     },
   });
-  const platformRaw = parsed.values.platform;
-  const url = parsed.values.url;
-  const token = parsed.values.token;
+  const platformRawValue = parsed.values.platform;
+  const urlValue = parsed.values.url;
+  const tokenValue = parsed.values.token;
+  const platformRaw = platformRawValue === undefined ? undefined : z.string().parse(platformRawValue);
+  const url = urlValue === undefined ? undefined : z.string().parse(urlValue);
+  const token = tokenValue === undefined ? undefined : z.string().parse(tokenValue);
   const clearToken = parsed.values["clear-token"] ?? false;
 
   if (token !== undefined && clearToken) {
@@ -61,7 +61,7 @@ export function parseRemoteConnectArgs(args: string[]): z.infer<typeof ParsedRem
   return ParsedRemoteConnectArgsSchema.parse({
     interactive: false,
     platform,
-    url,
+    url: normalizeRemoteUrl(url),
     authToken: clearToken ? null : token,
   });
 }
@@ -80,6 +80,17 @@ function normalizeRequired(input: string, label: string): string {
     throw new Error(`${label} is required.`);
   }
   return normalized;
+}
+
+function normalizeRemoteUrl(url: string): string {
+  try {
+    return validateRemoteUrl(url);
+  } catch (error) {
+    if (CodedError.is(error)) {
+      throw new Error(error.message);
+    }
+    throw error;
+  }
 }
 
 function promptPlatformSelection(): Promise<z.infer<typeof RemotePlatformSchema>> {
@@ -213,7 +224,7 @@ export async function promptRemoteConnect() {
   let tokenActionRaw = "";
   try {
     const urlLabel = platform === "turso" ? "? Turso database URL: " : "? libSQL endpoint URL: ";
-    url = normalizeRequired(await prompt.question(urlLabel), "Remote URL");
+    url = normalizeRemoteUrl(normalizeRequired(await prompt.question(urlLabel), "Remote URL"));
     tokenActionRaw = (await prompt.question("? Auth token action [keep|set|clear] (default: keep): "))
       .trim()
       .toLowerCase();

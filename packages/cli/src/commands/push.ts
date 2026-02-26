@@ -1,11 +1,9 @@
 import { push, type Database } from "@lore/core";
-import { z } from "zod";
 import { toJson } from "../format";
-
-export const PushArgsSchema = z.array(z.string()).length(0, "push does not accept arguments");
+import { parseNoArgs } from "../parse";
 
 export function parsePushArgs(args: string[]): void {
-  PushArgsSchema.parse(args);
+  parseNoArgs(args, "push");
 }
 
 export async function runPush(db: Database): Promise<void> {

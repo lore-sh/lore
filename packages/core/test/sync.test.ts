@@ -1,16 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmod } from "node:fs/promises";
-import {
+import { installHttpRemoteFixture, registerHttpRemoteFixture } from "./fixtures/http-remote";
+
+installHttpRemoteFixture();
+
+const { readAuthToken, writeAuthToken, writeRemoteConfig } = await import("../src/config");
+const { LAST_SYNC_STATE_META_KEY, SYNC_PROTOCOL_VERSION_META_KEY } = await import("../src/db");
+const { stateHash } = await import("../src/inspect");
+const { classifySyncBoundaryError, openRemoteClient } = await import("../src/remote");
+const { stateHashForRemote } = await import("../src/state");
+const { syncConfig } = await import("../src/sync");
+const { applyPlan, createTestContext, currentDb, withDbPath, withTmpDirCleanup, writePlanFile } = await import("./helpers");
+
+const {
   autoSync,
-  classifySyncBoundaryError,
   clone,
   connect,
-  openRemoteClient,
-  syncConfig,
   remoteStatus,
   sync,
-  stateHash,
   status,
   initDb,
   CodedError,
@@ -19,16 +27,12 @@ import {
   query,
   revert,
   verify,
-} from "../src";
-import { readAuthToken, writeAuthToken, writeRemoteConfig } from "../src/config";
-import { LAST_SYNC_STATE_META_KEY, SYNC_PROTOCOL_VERSION_META_KEY } from "../src/db";
-import { stateHashForRemote } from "../src/state";
-import { applyPlan, createTestContext, currentDb, withDbPath, withTmpDirCleanup, writePlanFile } from "./helpers";
+} = await import("../src");
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
 
 function remoteUrlFor(path: string): string {
-  return `file:${path}`;
+  return registerHttpRemoteFixture(path);
 }
 
 describe("sync with Turso protocol", () => {
@@ -910,6 +914,59 @@ describe("sync with Turso protocol", () => {
         }
       }
       expect(syncConfig()).toBeNull();
+    });
+  });
+
+  testWithTmp("connect rejects unsupported remote URL scheme", async () => {
+    const local = createTestContext();
+    await initDb({ dbPath: local.dbPath });
+
+    await withDbPath(local.dbPath, async () => {
+      try {
+        await connect(currentDb(), { platform: "libsql", url: "file:/tmp/remote.db" });
+        throw new Error("connect should fail for unsupported URL scheme");
+      } catch (error) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
+          expect(error.code).toBe("CONFIG");
+          expect(error.message).toContain("scheme is not supported");
+        }
+      }
+    });
+  });
+
+  testWithTmp("syncConfig rejects unsupported remote URL scheme from config file", async () => {
+    const local = createTestContext();
+    await initDb({ dbPath: local.dbPath });
+
+    await withDbPath(local.dbPath, async () => {
+      writeRemoteConfig({
+        platform: "libsql",
+        url: "file:/tmp/remote.db",
+      });
+      expect(() => syncConfig()).toThrow("scheme is not supported");
+    });
+  });
+
+  testWithTmp("connect overwrites invalid existing remote URL config", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDb({ dbPath: local.dbPath });
+
+    await withDbPath(local.dbPath, async () => {
+      writeRemoteConfig({
+        platform: "libsql",
+        url: "file:/tmp/remote.db",
+      });
+      expect(() => syncConfig()).toThrow("scheme is not supported");
+
+      await connect(currentDb(), { platform: "libsql", url: remoteUrl });
+
+      const config = syncConfig();
+      expect(config?.platform).toBe("libsql");
+      expect(config?.remoteUrl).toBe(remoteUrl);
+      expect(status(currentDb()).sync.state).toBe("pending");
     });
   });
 

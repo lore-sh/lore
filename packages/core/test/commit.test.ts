@@ -5,12 +5,10 @@ import {
   initDb,
   listCommits,
   openDb,
-  readCommit,
-  replayCommit,
-  rowHash,
-  runInDeferredTransaction,
 } from "../src";
-import { ROW_EFFECT_TABLE } from "../src/db";
+import { readCommit, replayCommit } from "../src/commit";
+import { ROW_EFFECT_TABLE, runInDeferredTransaction } from "../src/db";
+import { rowHash } from "../src/effect";
 import { applyPlan, createTestContext, withTmpDirCleanup, writePlanFile } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));

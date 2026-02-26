@@ -1,15 +1,12 @@
 import { status, type Database } from "@lore/core";
-import { parseArgs } from "node:util";
 import { z } from "zod";
 import { printTable, toJson } from "../format";
+import { parseCliArgs } from "../parse";
 
 export const StatusArgsSchema = z.object({ json: z.boolean() });
 
 export function parseStatusArgs(args: string[]): z.infer<typeof StatusArgsSchema> {
-  const parsed = parseArgs({
-    strict: true,
-    args,
-    allowPositionals: false,
+  const parsed = parseCliArgs(args, {
     options: {
       json: { type: "boolean" },
     },
