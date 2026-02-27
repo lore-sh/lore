@@ -211,7 +211,8 @@ const structuredData = {
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: 1.5rem;
+        padding: clamp(2rem, 4vh, 4rem) 1.5rem clamp(1.5rem, 3vh, 3rem);
+        gap: 0;
       }
 
       .hero h1 {
@@ -220,7 +221,7 @@ const structuredData = {
         line-height: 1.1;
         letter-spacing: -0.04em;
         max-width: 18ch;
-        margin-bottom: clamp(0.4rem, 1vh, 0.7rem);
+        margin-bottom: clamp(0.6rem, 1.5vh, 1rem);
       }
 
       .hero h1 em {
@@ -232,93 +233,249 @@ const structuredData = {
       }
 
       .sub {
-        font-size: clamp(0.88rem, 1.2vw, 1.02rem);
+        font-size: clamp(0.88rem, 1.2vw, 1.05rem);
         color: var(--tx-2);
-        max-width: none;
-        white-space: nowrap;
+        max-width: 48ch;
         line-height: 1.65;
-        margin-bottom: clamp(1.4rem, 3vh, 2.2rem);
+        margin-bottom: clamp(1rem, 2vh, 1.5rem);
       }
 
-      .install {
+      .sub-sp {
+        display: none;
+      }
+
+      .replaces {
         display: flex;
         align-items: center;
-        gap: 0.7rem;
-        padding: 0.65rem 1.2rem;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: rgba(244, 244, 245, 0.75);
+        font-weight: 500;
+        margin-bottom: clamp(1rem, 2vh, 1.5rem);
+      }
+
+      .replaces-from {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+      }
+
+      .replaces-app {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+      }
+
+      .replaces-dot {
+        opacity: 0.5;
+      }
+
+      .replaces-arrow {
+        margin: 0 0.1rem;
+      }
+
+      .replaces-to {
+        color: var(--tx);
+      }
+
+      .steps {
+        width: 100%;
+        max-width: 580px;
         border: 1px solid var(--border-h);
-        border-radius: 3px;
+        border-radius: 10px;
         background: rgba(17, 17, 20, 0.6);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        font-family: var(--mono);
-        font-size: clamp(0.9rem, 1.1vw, 1rem);
-        color: var(--tx);
-        cursor: pointer;
-        transition:
-          border-color 0.15s,
-          background 0.15s;
-        margin-bottom: clamp(2rem, 4vh, 3.5rem);
+        margin-bottom: clamp(0.8rem, 1.5vh, 1.2rem);
       }
 
-      .install:hover {
-        border-color: rgba(255, 255, 255, 0.18);
+      .steps {
+        overflow: hidden;
+      }
+
+      .step {
+        padding: 0.75rem 1.2rem;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+      }
+
+      .step:last-child {
+        border-bottom: none;
+      }
+
+      .step-header {
+        margin-bottom: 0.45rem;
+      }
+
+      .step-num {
+        display: none;
+      }
+
+      .step-label {
+        font-size: 0.72rem;
+        font-weight: 500;
+        color: var(--tx-2);
+        background: rgba(255, 255, 255, 0.05);
+        padding: 0.15rem 0.45rem;
+        border-radius: 4px;
+        display: inline-block;
+      }
+
+      .step-body {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .step.copiable {
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      .step.copiable:hover {
         background: rgba(24, 24, 28, 0.7);
       }
 
-      .install .prompt {
+      .cmd {
+        font-family: var(--mono);
+        font-size: clamp(0.88rem, 1.1vw, 1rem);
+        color: var(--tx);
+        white-space: nowrap;
+      }
+
+      .cmd .prompt {
         color: var(--tx-3);
         user-select: none;
       }
 
-      .install .copy-icon {
+      .copy-icon {
         color: var(--tx-3);
         transition: color 0.15s;
-        margin-left: 0.2rem;
+        margin-left: auto;
+        flex-shrink: 0;
       }
 
-      .install:hover .copy-icon {
+      .step.copiable:hover .copy-icon {
         color: var(--tx-2);
       }
 
-      .video-wrap {
+      .step-body-talk {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+
+      .example-quote {
+        font-family: var(--mono);
+        font-size: clamp(0.88rem, 1.1vw, 1rem);
+        color: var(--tx);
+        line-height: 1.5;
+      }
+
+      .agent-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1rem;
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--tx-2);
+      }
+
+      .agent {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+
+      .agent img {
+        flex-shrink: 0;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .demo-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.55rem 1.2rem;
+        font-family: var(--font);
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--tx-2);
+        background: rgba(17, 17, 20, 0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--border-h);
+        border-radius: 8px;
+        cursor: pointer;
+        transition:
+          color 0.15s,
+          border-color 0.15s;
+      }
+
+      .demo-btn:hover {
+        color: var(--tx);
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s;
+      }
+
+      .modal-overlay.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .modal {
         position: relative;
-        width: 100%;
-        max-width: 900px;
+        width: 92vw;
+        max-width: 1200px;
+      }
+
+      .modal-close {
+        position: absolute;
+        top: -2.5rem;
+        right: 0;
+        background: none;
+        border: none;
+        color: var(--tx-3);
+        cursor: pointer;
+        padding: 0.25rem;
+        transition: color 0.15s;
+      }
+
+      .modal-close:hover {
+        color: var(--tx);
+      }
+
+      .modal-video {
         border-radius: 12px;
         overflow: hidden;
         border: 1px solid var(--border-h);
-        box-shadow:
-          0 0 0 1px rgba(255, 255, 255, 0.03),
-          0 8px 40px rgba(0, 0, 0, 0.4);
-        cursor: pointer;
+        box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
       }
 
-      .video-wrap video {
+      .modal-video video {
+        display: block;
         width: 100%;
         height: auto;
       }
 
-      .video-wrap .play-indicator {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.3);
-        opacity: 1;
-        transition: opacity 0.2s;
-        pointer-events: none;
-      }
-
-      .video-wrap .play-indicator svg {
-        width: 56px;
-        height: 56px;
-        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
-      }
-
-      .video-wrap.playing .play-indicator {
-        opacity: 0;
-      }
 
       .foot {
         position: relative;
@@ -375,18 +532,45 @@ const structuredData = {
         .sp-br {
           display: block;
         }
-        .sub {
-          white-space: normal;
+        .sub-full {
+          display: none;
+        }
+        .sub-sp {
+          display: block;
           max-width: 32ch;
         }
 
-        .install {
-          font-size: 0.85rem;
-          padding: 0.55rem 1rem;
+        .steps {
+          display: none;
         }
 
-        .video-wrap {
-          border-radius: 8px;
+        .replaces {
+          flex-direction: column;
+          align-items: center;
+          gap: 0.6rem;
+          font-size: 0.85rem;
+        }
+
+        .replaces-from {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 0.5rem;
+        }
+
+        .replaces-dot {
+          display: none;
+        }
+
+        .replaces-app {
+          gap: 0.45rem;
+          padding: 0.45rem 0.7rem;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.06);
+          border-radius: 6px;
+        }
+
+        .replaces-arrow {
+          transform: rotate(90deg);
         }
       }
 
@@ -430,46 +614,93 @@ const structuredData = {
     <main class="hero">
       <h1>The database <br class="sp-br" /><em>of your life</em></h1>
 
-      <p class="sub">
+      <p class="sub sub-full">
+        Your data, scattered across apps.
+        Lore puts it all in one SQLite file, managed by AI, on your machine.
+      </p>
+      <p class="sub sub-sp">
         One SQLite file on your machine. AI structures everything. You just talk.
       </p>
 
-      <div class="install" id="install">
-        <span class="prompt">$</span>
-        curl -fsSL https://getlore.sh/install | bash
-        <svg
-          class="copy-icon"
-          width="15"
-          height="15"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <g class="icon-copy">
-            <rect x="5" y="5" width="9" height="9" rx="1.5"></rect>
-            <path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"></path>
-          </g>
-          <path class="icon-check" d="M4 8.5L7 11.5L12 4.5" style="display:none"></path>
-        </svg>
+      <div class="replaces">
+        <div class="replaces-from">
+          <span class="replaces-app"><img src="/icons/google-calendar.svg" alt="" width="18" height="18" />Calendar</span>
+          <span class="replaces-dot">&middot;</span>
+          <span class="replaces-app"><img src="/icons/notion.svg" alt="" width="18" height="18" />Notion</span>
+          <span class="replaces-dot">&middot;</span>
+          <span class="replaces-app"><img src="/icons/todoist.svg" alt="" width="18" height="18" />Todoist</span>
+          <span class="replaces-dot">&middot;</span>
+          <span class="replaces-app"><img src="/icons/trello.svg" alt="" width="18" height="18" />Trello</span>
+        </div>
+        <span class="replaces-arrow">&rarr;</span>
+        <span class="replaces-to">one local, AI-native database</span>
       </div>
 
-      <div class="video-wrap" id="video-wrap">
-        <video
-          muted
-          loop
-          playsinline
-          poster="/demo-poster.jpg"
-          src="/demo.mp4"
-        ></video>
-        <div class="play-indicator">
-          <svg viewBox="0 0 24 24" fill="white" stroke="none">
-            <polygon points="6,3 20,12 6,21" />
-          </svg>
+      <div class="steps">
+        <div class="step copiable" data-copy="curl -fsSL https://getlore.sh/install | bash">
+          <div class="step-header">
+            <span class="step-num">1</span>
+            <span class="step-label">Install</span>
+          </div>
+          <div class="step-body">
+            <code class="cmd"><span class="prompt">$</span> curl -fsSL <wbr>https://getlore.sh/install | bash</code>
+            <svg class="copy-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <g class="icon-copy"><rect x="5" y="5" width="9" height="9" rx="1.5"></rect><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"></path></g>
+              <path class="icon-check" d="M4 8.5L7 11.5L12 4.5" style="display:none"></path>
+            </svg>
+          </div>
+        </div>
+        <div class="step step-extra copiable" data-copy="lore init">
+          <div class="step-header">
+            <span class="step-num">2</span>
+            <span class="step-label">Initialize</span>
+          </div>
+          <div class="step-body">
+            <code class="cmd"><span class="prompt">$</span> lore init</code>
+            <svg class="copy-icon" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <g class="icon-copy"><rect x="5" y="5" width="9" height="9" rx="1.5"></rect><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"></path></g>
+              <path class="icon-check" d="M4 8.5L7 11.5L12 4.5" style="display:none"></path>
+            </svg>
+          </div>
+        </div>
+        <div class="step step-extra">
+          <div class="step-header">
+            <span class="step-num">3</span>
+            <span class="step-label">Talk to your agent</span>
+          </div>
+          <div class="step-body step-body-talk">
+            <p class="example-quote">"I have a dentist appointment tomorrow at 2pm"</p>
+            <div class="agent-list">
+              <span class="agent"><img src="/icons/openclaw.png" alt="" width="18" height="18" /> OpenClaw</span>
+              <span class="agent"><img src="/icons/claude.svg" alt="" width="18" height="18" /> Claude Code</span>
+              <span class="agent"><img src="/icons/openai.svg" alt="" width="18" height="18" /> Codex CLI</span>
+              <span class="agent"><img src="/icons/cursor.svg" alt="" width="18" height="18" /> Cursor</span>
+            </div>
+          </div>
         </div>
       </div>
+
+      <div class="hero-actions">
+        <button class="demo-btn" id="demo-btn" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6,3 20,12 6,21" /></svg>
+          Watch demo
+        </button>
+        <a class="demo-btn" href="/docs/getting-started">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
+          Docs
+        </a>
+      </div>
+
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal">
+        <button class="modal-close" id="modal-close" type="button" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <div class="modal-video">
+          <video muted loop playsinline controls poster="/demo-poster.jpg" src="/demo.mp4"></video>
+        </div>
+      </div>
+    </div>
     </main>
 
     <footer class="foot">
@@ -483,34 +714,34 @@ const structuredData = {
 
     <script>
       {
-        const el = document.getElementById("install")!;
-        const iconCopy = el.querySelector<SVGElement>(".icon-copy")!;
-        const iconCheck = el.querySelector<SVGElement>(".icon-check")!;
-        const copyIcon = el.querySelector<SVGElement>(".copy-icon")!;
-        el.addEventListener("click", () => {
-          navigator.clipboard.writeText("curl -fsSL https://getlore.sh/install | bash");
-          iconCopy.style.display = "none";
-          iconCheck.style.display = "";
-          copyIcon.style.color = "var(--green)";
-          setTimeout(() => {
-            iconCopy.style.display = "";
-            iconCheck.style.display = "none";
-            copyIcon.style.color = "";
-          }, 1200);
-        });
+        for (const el of document.querySelectorAll<HTMLElement>(".step.copiable")) {
+          const iconCopy = el.querySelector<SVGElement>(".icon-copy")!;
+          const iconCheck = el.querySelector<SVGElement>(".icon-check")!;
+          const copyIcon = el.querySelector<SVGElement>(".copy-icon")!;
+          el.addEventListener("click", () => {
+            navigator.clipboard.writeText(el.dataset.copy!);
+            iconCopy.style.display = "none";
+            iconCheck.style.display = "";
+            copyIcon.style.color = "var(--green)";
+            setTimeout(() => {
+              copyIcon.style.color = "";
+              setTimeout(() => {
+                iconCopy.style.display = "";
+                iconCheck.style.display = "none";
+              }, 150);
+            }, 1200);
+          });
+        }
       }
       {
-        const wrap = document.getElementById("video-wrap")!;
-        const video = wrap.querySelector<HTMLVideoElement>("video")!;
-        wrap.addEventListener("click", () => {
-          if (video.paused) {
-            video.play();
-            wrap.classList.add("playing");
-          } else {
-            video.pause();
-            wrap.classList.remove("playing");
-          }
-        });
+        const overlay = document.getElementById("modal-overlay")!;
+        const video = overlay.querySelector<HTMLVideoElement>("video")!;
+        const open = () => { overlay.classList.add("open"); video.play(); };
+        const close = () => { overlay.classList.remove("open"); video.pause(); };
+        document.getElementById("demo-btn")!.addEventListener("click", open);
+        document.getElementById("modal-close")!.addEventListener("click", close);
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+        document.addEventListener("keydown", (e) => { if (e.key === "Escape" && overlay.classList.contains("open")) close(); });
       }
       {
         const canvas = document.getElementById("bg") as HTMLCanvasElement;
