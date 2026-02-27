@@ -9,6 +9,7 @@ export type EngineMigration = Readonly<{
 }>;
 
 export const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
+const STATEMENT_BREAKPOINT = "--> statement-breakpoint";
 export const DRIZZLE_MIGRATIONS_TABLE_SQL = `CREATE TABLE IF NOT EXISTS "${DRIZZLE_MIGRATIONS_TABLE}" (
   id TEXT PRIMARY KEY,
   hash TEXT NOT NULL,
@@ -92,6 +93,13 @@ export async function loadEngineMigrations(): Promise<EngineMigration[]> {
   const migrations = (await embeddedMigrations()) ?? fsMigrations();
   assertUniqueMigrationIds(migrations);
   return migrations;
+}
+
+export function migrationStatements(sql: string): string[] {
+  return sql
+    .split(STATEMENT_BREAKPOINT)
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
 }
 
 export function pendingEngineMigrations(

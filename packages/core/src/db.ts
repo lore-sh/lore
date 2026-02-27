@@ -2,7 +2,14 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { CodedError } from "./error";
-import { DRIZZLE_MIGRATIONS_TABLE, DRIZZLE_MIGRATIONS_TABLE_SQL, loadEngineMigrations, pendingEngineMigrations, type EngineMigration } from "./migration";
+import {
+  DRIZZLE_MIGRATIONS_TABLE,
+  DRIZZLE_MIGRATIONS_TABLE_SQL,
+  loadEngineMigrations,
+  migrationStatements,
+  pendingEngineMigrations,
+  type EngineMigration,
+} from "./migration";
 import { MetaTable, RefTable } from "./schema";
 import * as schema from "./schema";
 import { validateReadSql } from "./sql";
@@ -117,7 +124,9 @@ function readAppliedMigrationHashesById(db: Database): Map<string, string> {
 function applyMigration(db: Database, migration: EngineMigration): void {
   db.$client.run("BEGIN IMMEDIATE");
   try {
-    db.$client.exec(migration.sql);
+    for (const statement of migrationStatements(migration.sql)) {
+      db.$client.run(statement);
+    }
     db.$client
       .query<{ id: string; hash: string; created_at: number }, [string, string, number]>(
         `INSERT INTO "${DRIZZLE_MIGRATIONS_TABLE}" (id, hash, created_at) VALUES (?, ?, ?)`,

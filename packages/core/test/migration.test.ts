@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { CodedError, connect, initDb, push } from "../src";
+import { migrationStatements } from "../src/migration";
 import { installHttpRemoteFixture, registerHttpRemoteFixture } from "./fixtures/http-remote";
 import { createTestContext, currentDb, withDbPath, withTmpDirCleanup } from "./helpers";
 
@@ -64,5 +65,22 @@ describe("migration immutability", () => {
         expect(CodedError.hasCode(error, "IMMUTABLE_MIGRATION_EDITED")).toBe(true);
       }
     });
+  });
+});
+
+describe("migrationStatements", () => {
+  test("splits drizzle statement breakpoints and skips blanks", () => {
+    const sql = `
+      CREATE TABLE one (id INTEGER);
+      --> statement-breakpoint
+
+      CREATE INDEX idx_one_id ON one (id);--> statement-breakpoint
+      CREATE TABLE two (id INTEGER);
+    `;
+    expect(migrationStatements(sql)).toEqual([
+      "CREATE TABLE one (id INTEGER);",
+      "CREATE INDEX idx_one_id ON one (id);",
+      "CREATE TABLE two (id INTEGER);",
+    ]);
   });
 });

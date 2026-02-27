@@ -22,7 +22,14 @@ import { CodedError } from "./error";
 import { dependencyOrder, RowEffect, SchemaEffect } from "./effect";
 import { canonicalJson, sha256Hex } from "./hash";
 import { hashSchema } from "./inspect";
-import { DRIZZLE_MIGRATIONS_TABLE, DRIZZLE_MIGRATIONS_TABLE_SQL, loadEngineMigrations, pendingEngineMigrations, type EngineMigration } from "./migration";
+import {
+  DRIZZLE_MIGRATIONS_TABLE,
+  DRIZZLE_MIGRATIONS_TABLE_SQL,
+  loadEngineMigrations,
+  migrationStatements,
+  pendingEngineMigrations,
+  type EngineMigration,
+} from "./migration";
 import { Operation, type Operation as Op } from "./operation";
 import type { EncodedCell, EncodedRow } from "./schema";
 import {
@@ -421,7 +428,9 @@ async function readRemoteAppliedMigrationHashesById(client: Client): Promise<Map
 async function applyRemoteMigration(client: Client, migration: EngineMigration): Promise<void> {
   const tx = await client.transaction("write");
   try {
-    await tx.executeMultiple(migration.sql);
+    for (const statement of migrationStatements(migration.sql)) {
+      await tx.execute(statement);
+    }
     await tx.execute({
       sql: `INSERT INTO "${DRIZZLE_MIGRATIONS_TABLE}" (id, hash, created_at) VALUES (?, ?, ?)`,
       args: [migration.id, migration.hash, Date.now()],
