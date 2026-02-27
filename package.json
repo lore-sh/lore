@@ -11,7 +11,7 @@
   },
   "scripts": {
     "lore": "bun run ./packages/cli/src/main.ts",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "bun run --workspaces typecheck",
     "test": "bun test",
     "test:ci": "bun test"
   }

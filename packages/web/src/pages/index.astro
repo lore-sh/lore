@@ -52,7 +52,7 @@ const structuredData = {
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
-    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(structuredData)} />
 
     <link rel="icon" type="image/png" href="/service-icon.png" sizes="512x512" />
     <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
@@ -60,10 +60,14 @@ const structuredData = {
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="/site.webmanifest" />
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
 
@@ -77,7 +81,7 @@ const structuredData = {
         --tx-3: #6e6e77;
         --accent-h: #818cf8;
         --green: #4ade80;
-        --font: "Plus Jakarta Sans", system-ui, sans-serif;
+        --font: "Satoshi", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
         --mono: "JetBrains Mono", ui-monospace, monospace;
       }
 
@@ -142,13 +146,35 @@ const structuredData = {
         align-items: center;
         gap: 0.55rem;
         font-weight: 700;
-        font-size: 1.05rem;
+        font-size: 1.15rem;
         letter-spacing: -0.01em;
       }
 
       .logo img {
         width: 26px;
         height: 26px;
+      }
+
+      .nav-right {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+      }
+
+      .docs-link {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--tx-2);
+        padding: 0.35rem 0.5rem;
+        border-radius: 6px;
+        transition:
+          color 0.15s,
+          background 0.15s;
+      }
+
+      .docs-link:hover {
+        color: var(--tx);
+        background: rgba(255, 255, 255, 0.05);
       }
 
       .gh-btn {
@@ -189,8 +215,8 @@ const structuredData = {
       }
 
       .hero h1 {
-        font-weight: 800;
-        font-size: clamp(2.4rem, 5vw, 3.4rem);
+        font-weight: 700;
+        font-size: clamp(2.6rem, 5.5vw, 3.8rem);
         line-height: 1.1;
         letter-spacing: -0.04em;
         max-width: 18ch;
@@ -220,7 +246,7 @@ const structuredData = {
         gap: 0.7rem;
         padding: 0.65rem 1.2rem;
         border: 1px solid var(--border-h);
-        border-radius: 10px;
+        border-radius: 3px;
         background: rgba(17, 17, 20, 0.6);
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
@@ -383,19 +409,22 @@ const structuredData = {
         <img src="/service-icon.png" alt="" width="26" height="26" />
         <span>Lore</span>
       </a>
-      <a
-        class="gh-btn"
-        href="https://github.com/lore-sh/lore"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
+      <div class="nav-right">
+        <a class="docs-link" href="/docs/getting-started">Docs</a>
+        <a
+          class="gh-btn"
+          href="https://github.com/lore-sh/lore"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
         <svg viewBox="0 0 16 16" fill="currentColor">
           <path
             d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"
           ></path>
         </svg>
         GitHub
-      </a>
+        </a>
+      </div>
     </nav>
 
     <main class="hero">

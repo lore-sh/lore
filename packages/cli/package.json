@@ -10,5 +10,8 @@
     "@lore/core": "workspace:*",
     "@lore/studio": "workspace:*",
     "zod": "^3.25.76"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit"
   }
 }

@@ -4,13 +4,17 @@
 
 ## Docs
 
-- [Getting Started](https://getlore.sh/): Product overview and one-line install command.
-- [GitHub Repository](https://github.com/lore-sh/lore): Source code for CLI, core engine, studio UI, and website.
-- [Full Documentation](https://getlore.sh/llms-full.txt): How Lore works, CLI commands, use cases, and the operation plan format.
+- [Getting Started](https://getlore.sh/docs/getting-started): Install Lore and create your first AI-managed database.
+- [How It Works](https://getlore.sh/docs/how-it-works): The two-layer architecture that separates AI planning from database execution.
+- [CLI Reference](https://getlore.sh/docs/cli-reference): Complete reference for all commands, flags, and options.
+- [Operation Plans](https://getlore.sh/docs/operation-plans): The JSON plan format, all operation types, and how schema and data operations work.
+- [Versioning](https://getlore.sh/docs/versioning): Commits, effect tracking, history, and revert.
+- [Integrity](https://getlore.sh/docs/integrity): Verify the hash chain, recover from snapshots, and ensure data integrity.
+- [Remote Sync](https://getlore.sh/docs/remote-sync): Sync with Turso or LibSQL remotes using push, pull, and clone.
+- [AI Integration](https://getlore.sh/docs/ai-integration): How skill files teach AI agents to manage your database.
+- [Full Documentation](https://getlore.sh/llms-full.txt): All documentation in a single file.
 
 ## Optional
 
-- [CLI Package](https://github.com/lore-sh/lore/tree/main/packages/cli): CLI source code.
-- [Core Package](https://github.com/lore-sh/lore/tree/main/packages/core): Engine source code.
-- [Studio Package](https://github.com/lore-sh/lore/tree/main/packages/studio): Web UI source code.
+- [GitHub Repository](https://github.com/lore-sh/lore): Source code for CLI, core engine, studio UI, and website.
 - [Install Script](https://getlore.sh/install): Shell installer script.

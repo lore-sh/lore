@@ -10,5 +10,8 @@
     "drizzle-orm": "^0.44.7",
     "drizzle-kit": "^0.31.7",
     "zod": "^4.1.5"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit"
   }
 }

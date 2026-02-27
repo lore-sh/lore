@@ -26,7 +26,7 @@ This separation means AI reasoning can evolve independently from data safety gua
 - **Querying your data**: "How much did I spend on food this month?" → AI generates a SQL query, Lore executes it read-only.
 - **Personal dashboards**: Build a custom UI with vibe coding. It reads from `lore.db` directly. Don't like the UI? Rebuild it — your data stays.
 
-The vision: **you own your data, apps are just UI.** Unlike SaaS where the service owns your data, Lore keeps everything in one local file. If a service dies, your data doesn't.
+The vision: **you own your data, apps are just UI.** Unlike SaaS where the service dies and your data goes with it, Lore keeps everything in one local file.
 
 ## Installation
 
@@ -82,7 +82,7 @@ AI agents write operation plans as JSON. A plan contains a message and a list of
 Schema changes and data changes can coexist in a single plan — creating a table and inserting rows in one atomic commit.
 
 Supported operations:
-- Schema: `create_table`, `add_column`, `drop_table`, `drop_column`, `alter_column_type`
+- Schema: `create_table`, `add_column`, `drop_table`, `drop_column`, `alter_column_type`, `add_check`, `drop_check`, `drop_index`, `drop_trigger`, `drop_view`
 - Data: `insert`, `update`, `delete`
 
 ## Safety
@@ -96,4 +96,5 @@ Supported operations:
 ## Key Links
 
 - Website: https://getlore.sh/
+- Docs: https://getlore.sh/docs/getting-started
 - Source: https://github.com/lore-sh/lore

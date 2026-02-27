@@ -1,0 +1,633 @@
+---
+interface DocEntry {
+  id: string;
+  data: { title: string; description: string; order: number };
+}
+
+interface Props {
+  title: string;
+  description: string;
+  docs: DocEntry[];
+  current: string;
+}
+
+const { title, description, docs, current } = Astro.props;
+const siteUrl = "https://getlore.sh";
+const pageTitle = `${title} | Lore Docs`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content="index,follow" />
+    <meta name="theme-color" content="#09090b" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="canonical" href={`${siteUrl}/docs/${current}`} />
+
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Lore" />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={`${siteUrl}/docs/${current}`} />
+
+    <link rel="icon" type="image/png" href="/service-icon.png" sizes="512x512" />
+    <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <link
+      href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <style is:global>
+      :root {
+        --bg: #09090b;
+        --bg-2: #111113;
+        --border: rgba(255, 255, 255, 0.06);
+        --border-h: rgba(255, 255, 255, 0.1);
+        --tx: #f4f4f5;
+        --tx-2: #a1a1aa;
+        --tx-3: #6e6e77;
+        --accent-h: #818cf8;
+        --accent-dim: rgba(129, 140, 248, 0.12);
+        --font: "Satoshi", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+        --sidebar-w: 260px;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        font-family: var(--font);
+        font-feature-settings: 'cv11' 1, 'ss01' 1;
+        color: var(--tx);
+        background: var(--bg);
+        min-height: 100dvh;
+      }
+
+      a { color: inherit; text-decoration: none; }
+
+      /* ── Nav ── */
+      .nav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        padding: 0.85rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+        background: rgba(9, 9, 11, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+      }
+
+      .nav-left {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      .logo {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.55rem;
+        font-weight: 700;
+        font-size: 1.15rem;
+        letter-spacing: -0.01em;
+      }
+
+      .logo img { width: 26px; height: 26px; }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 0.15rem;
+      }
+
+      .nav-link {
+        padding: 0.3rem 0.7rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--tx-2);
+        transition: color 0.15s, background 0.15s;
+      }
+
+      .nav-link:hover {
+        color: var(--tx);
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .nav-link.active {
+        color: var(--tx);
+      }
+
+      .gh-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.85rem;
+        border: 1px solid var(--border-h);
+        border-radius: 8px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: var(--tx-2);
+        transition: color 0.15s, border-color 0.15s;
+      }
+
+      .gh-btn:hover {
+        color: var(--tx);
+        border-color: rgba(255, 255, 255, 0.18);
+      }
+
+      .gh-btn svg { width: 15px; height: 15px; }
+
+      .hamburger {
+        display: none;
+        background: none;
+        border: none;
+        color: var(--tx-2);
+        cursor: pointer;
+        padding: 0.3rem;
+      }
+
+      .hamburger svg { width: 22px; height: 22px; }
+
+      /* ── Layout ── */
+      .layout {
+        display: flex;
+        min-height: calc(100dvh - 57px);
+      }
+
+      /* ── Sidebar ── */
+      .sidebar {
+        position: sticky;
+        top: 57px;
+        width: var(--sidebar-w);
+        height: calc(100dvh - 57px);
+        overflow-y: auto;
+        border-right: 1px solid var(--border);
+        padding: 1.25rem 0;
+        flex-shrink: 0;
+      }
+
+      .sidebar-link {
+        display: block;
+        padding: 0.45rem 1.25rem;
+        font-size: 0.88rem;
+        font-weight: 500;
+        color: var(--tx-3);
+        border-left: 2px solid transparent;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+      }
+
+      .sidebar-link:hover {
+        color: var(--tx-2);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .sidebar-link.active {
+        color: var(--accent-h);
+        border-left-color: var(--accent-h);
+        background: var(--accent-dim);
+      }
+
+      /* ── Content ── */
+      .content {
+        flex: 1;
+        min-width: 0;
+        max-width: 780px;
+        margin: 0 auto;
+        padding: 2.5rem 3rem 4rem;
+      }
+
+      /* ── Prose: Typography ── */
+      .prose h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        line-height: 1.15;
+        margin-bottom: 0.75rem;
+        color: var(--tx);
+      }
+
+      .prose h2 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        margin-top: 2.75rem;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+        color: var(--tx);
+      }
+
+      .prose h3 {
+        font-size: 1rem;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        margin-top: 2rem;
+        margin-bottom: 0.5rem;
+        color: var(--tx);
+      }
+
+      .prose p {
+        font-size: 0.935rem;
+        line-height: 1.7;
+        color: var(--tx-2);
+        margin-bottom: 1rem;
+      }
+
+      .prose > *:first-child { margin-top: 0; }
+
+      .prose a {
+        color: var(--accent-h);
+        text-decoration: underline;
+        text-decoration-color: rgba(129, 140, 248, 0.35);
+        text-underline-offset: 2px;
+        transition: text-decoration-color 0.15s;
+      }
+
+      .prose a:hover {
+        text-decoration-color: var(--accent-h);
+      }
+
+      .prose strong { color: var(--tx); font-weight: 600; }
+      .prose em { color: var(--tx-2); }
+
+      .prose hr {
+        border: none;
+        border-top: 1px solid var(--border);
+        margin: 2.25rem 0;
+      }
+
+      /* ── Prose: Lists ── */
+      .prose ul, .prose ol {
+        padding-left: 1.5rem;
+        margin-bottom: 1rem;
+      }
+
+      .prose li {
+        font-size: 0.935rem;
+        line-height: 1.75;
+        color: var(--tx-2);
+        margin-bottom: 0.3rem;
+      }
+
+      .prose li::marker { color: var(--tx-3); }
+
+      .prose li > ul, .prose li > ol {
+        margin-top: 0.3rem;
+        margin-bottom: 0.3rem;
+      }
+
+      .prose li > p {
+        margin-bottom: 0.5rem;
+      }
+
+      /* ── Prose: Inline code ── */
+      .prose :not(pre) > code {
+        font-family: var(--mono);
+        font-size: 0.82em;
+        background: rgba(255, 255, 255, 0.07);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        padding: 0.15em 0.4em;
+        border-radius: 5px;
+        word-break: break-word;
+        color: var(--tx);
+      }
+
+      /* ── Prose: Code blocks (Shiki) ── */
+      .prose pre {
+        margin-bottom: 1.25rem;
+        border-radius: 6px;
+        border: 1px solid var(--border-h);
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .prose pre.astro-code {
+        background: #0d1117 !important;
+        padding: 1rem 1.25rem;
+      }
+
+
+      .prose pre code {
+        font-family: var(--mono);
+        background: none !important;
+        border: none;
+        padding: 0;
+        border-radius: 0;
+        font-size: 0.84rem;
+        line-height: 1.7;
+        word-break: normal;
+        color: inherit;
+      }
+
+      .prose pre code .line {
+        display: inline;
+      }
+
+      /* ── Prose: Blockquote ── */
+      .prose blockquote {
+        border-left: 3px solid var(--accent-h);
+        padding: 0.65rem 1.1rem;
+        margin-bottom: 1.25rem;
+        background: var(--accent-dim);
+        border-radius: 0 8px 8px 0;
+      }
+
+      .prose blockquote p {
+        color: var(--tx-2);
+        margin-bottom: 0;
+        font-size: 0.9rem;
+      }
+
+      .prose blockquote code {
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      /* ── Prose: Tables ── */
+      .prose .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        margin-bottom: 1.25rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+      }
+
+      .prose table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+        margin-bottom: 0;
+      }
+
+      .prose th {
+        text-align: left;
+        font-weight: 600;
+        color: var(--tx);
+        padding: 0.6rem 0.85rem;
+        border-bottom: 1px solid var(--border-h);
+        background: rgba(255, 255, 255, 0.02);
+        white-space: nowrap;
+      }
+
+      .prose td {
+        padding: 0.55rem 0.85rem;
+        color: var(--tx-2);
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+
+      .prose tr:last-child td {
+        border-bottom: none;
+      }
+
+      .prose td code, .prose th code {
+        font-size: 0.8em;
+        padding: 0.1em 0.3em;
+      }
+
+      /* Standalone tables (not wrapped) */
+      .prose > table {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 1.25rem;
+      }
+
+      /* ── Prose: Spacing between elements ── */
+      .prose h2 + p,
+      .prose h3 + p {
+        margin-top: 0;
+      }
+
+      .prose p + pre,
+      .prose ul + pre,
+      .prose ol + pre {
+        margin-top: 0.25rem;
+      }
+
+      .prose pre + h2 {
+        margin-top: 2.75rem;
+      }
+
+      .prose pre + h3 {
+        margin-top: 2rem;
+      }
+
+      .prose pre + p {
+        margin-top: 0;
+      }
+
+      .prose blockquote + h3,
+      .prose blockquote + h2 {
+        margin-top: 2rem;
+      }
+
+      /* ── Prev/Next ── */
+      .prev-next {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border);
+      }
+
+      .pn-link {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        transition: border-color 0.15s, background 0.15s;
+        max-width: 50%;
+      }
+
+      .pn-link:hover {
+        border-color: var(--border-h);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .pn-next { margin-left: auto; text-align: right; }
+
+      .pn-label {
+        font-size: 0.75rem;
+        color: var(--tx-3);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 600;
+      }
+
+      .pn-title {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--accent-h);
+      }
+
+      /* ── Mobile overlay ── */
+      .sidebar-overlay {
+        display: none;
+      }
+
+      @media (max-width: 860px) {
+        .hamburger { display: block; }
+        .gh-btn { display: none; }
+
+        .sidebar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100dvh;
+          z-index: 30;
+          background: var(--bg);
+          padding-top: 5rem;
+          transform: translateX(-100%);
+          transition: transform 0.25s ease;
+        }
+
+        .sidebar.open {
+          transform: translateX(0);
+        }
+
+        .sidebar-overlay {
+          display: none;
+          position: fixed;
+          inset: 0;
+          z-index: 25;
+          background: rgba(0, 0, 0, 0.5);
+        }
+
+        .sidebar-overlay.open {
+          display: block;
+        }
+
+        .content {
+          padding: 1.5rem 1.25rem 3rem;
+        }
+
+        .prev-next {
+          flex-direction: column;
+        }
+
+        .pn-link { max-width: 100%; }
+        .pn-next { text-align: left; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          transition-duration: 0s !important;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <nav class="nav">
+      <div class="nav-left">
+        <a class="logo" href="/">
+          <img src="/service-icon.png" alt="" width="26" height="26" />
+          <span>Lore</span>
+        </a>
+        <div class="nav-links">
+          <a class="nav-link active" href="/docs/getting-started">Docs</a>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <a
+          class="gh-btn"
+          href="https://github.com/lore-sh/lore"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z" />
+          </svg>
+          GitHub
+        </a>
+        <button class="hamburger" id="menu-btn" aria-label="Toggle menu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+      </div>
+    </nav>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar">
+        {docs.map((doc) => (
+          <a
+            class:list={["sidebar-link", { active: doc.id === current }]}
+            href={`/docs/${doc.id}`}
+          >
+            {doc.data.title}
+          </a>
+        ))}
+      </aside>
+
+      <main class="content">
+        <article class="prose">
+          <slot />
+        </article>
+      </main>
+    </div>
+
+    <script>
+      {
+        const btn = document.getElementById("menu-btn")!;
+        const sidebar = document.getElementById("sidebar")!;
+        const overlay = document.getElementById("sidebar-overlay")!;
+
+        const close = () => {
+          sidebar.classList.remove("open");
+          overlay.classList.remove("open");
+        };
+
+        btn.addEventListener("click", () => {
+          const open = sidebar.classList.toggle("open");
+          overlay.classList.toggle("open", open);
+        });
+
+        overlay.addEventListener("click", close);
+
+        sidebar.querySelectorAll("a").forEach((link) => {
+          link.addEventListener("click", close);
+        });
+
+      }
+    </script>
+  </body>
+</html>

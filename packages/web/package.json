@@ -13,10 +13,13 @@
     "dev": "bun run prepare:install && astro dev",
     "build": "bun run prepare:install && astro build",
     "preview": "bun run prepare:install && astro preview",
+    "typecheck": "astro check",
     "astro": "astro"
   },
   "type": "module",
   "devDependencies": {
+    "@astrojs/check": "^0.9.3",
+    "typescript": "^5.9.2",
     "@types/react": "^19.2.14"
   }
 }
