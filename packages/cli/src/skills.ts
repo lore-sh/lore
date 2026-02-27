@@ -124,7 +124,7 @@ function normalizePlatforms(platforms?: SkillPlatform[] | undefined): SkillPlatf
 function loreSkillContent(): string {
   return `---
 name: Lore
-description: Detects information worth remembering from conversation — schedules, tasks, expenses, decisions, learnings, thoughts — and stores it in a personal database proactively. Also recalls and analyzes stored data. Activate whenever user mentions dates, plans, purchases, reflections, or asks about past data.
+description: Detects structured information from conversation — schedules, tasks, expenses, deadlines, goals, habits — and stores it in a personal database proactively. Also recalls and analyzes stored data. Activate whenever user mentions dates, plans, purchases, or asks about past data.
 ---
 
 # Lore
@@ -133,38 +133,36 @@ A personal database that AI manages on behalf of humans. You design the schema, 
 
 ## Core Behavior
 
-1. **Proactive storage**: When conversation contains information worth remembering, store it immediately. Do not ask for permission. Briefly mention what you stored after the fact.
+1. **Proactive storage**: When conversation contains structured information worth tracking (schedules, tasks, expenses, deadlines, goals, habits, contacts), store it immediately. Do not ask for permission. Briefly mention what you stored after the fact.
 2. **Schema ownership**: You own the schema. Read current schema, decide if it fits the data, create or alter tables as needed. Continuously optimize naming and structure.
 3. **Autonomous evolution**: When new attributes appear, add columns. When names are unclear, rename. When tables grow unwieldy, split them. Schema changes and data mutations go in the same apply.
 4. **State-first writes**: Prefer current-state tables over append-only logs. Use \`update\` when an existing entity changes, \`insert\` for genuinely new entities, and \`update + insert\` only when you intentionally need both current state and event history.
 5. **Recall on demand**: When users ask about their data, query it with SQL and present results clearly.
-6. **Language fidelity for stored content**: Keep user-facing values (for example \`title\`, \`detail\`, \`note\`, \`item\`, \`insight\`) in the language explicitly requested by the user. If no explicit instruction exists, follow the language used in the current user message. Do not translate unless asked.
+6. **Language fidelity for stored content**: Keep user-facing values (for example \`title\`, \`detail\`, \`note\`, \`item\`, \`location\`) in the language explicitly requested by the user. If no explicit instruction exists, follow the language used in the current user message. Do not translate unless asked.
 
 ## What to Store
 
-Store anything that would be useful to remember later. If you think "this person might want to recall this," store it.
+Store structured information that benefits from tracking, querying, and recall — the kind of data you would put in a calendar, task manager, expense tracker, or contact list.
 
-**Store immediately (high confidence):**
+**Store immediately:**
 - Schedules and appointments: "dentist next Tuesday", "meeting at 3pm"
 - Tasks and todos: "need to buy groceries", "renew passport before June"
 - Expenses and purchases: "spent 850 yen on ramen", "bought a keyboard"
 - Deadlines: "report due March 15", "visa expires June"
 - Goals and plans: "want to read 20 books this year", "planning to move in April"
-- Life events: "started new job", "signed lease for new apartment"
-- Decisions and reasons: "chose Next.js over Remix because of file-based routing"
-- Learnings and insights: "TIL: SQLite WAL mode improves read concurrency"
 - Health and habits: "ran 5km", "started intermittent fasting"
-- People and context: "met Tanaka from the Sales team at Acme Corp"
+- People and contacts: "met Tanaka from Sales at Acme Corp"
+- Life events with dates: "started new job on March 1", "signed lease for new apartment"
+- Wishlists and lists: "want to buy a standing desk", "reading list: Designing Data-Intensive Applications"
 
-**Store when relevant to ongoing work:**
-- Reasoning and thought process during coding or debugging
-- Architecture decisions and trade-offs considered
-- Problem-solving context that would help future sessions
+**Do not proactively store (but store if user explicitly asks):**
+- Decisions, reasoning, or thought processes (memory/documentation, not structured data)
+- Learnings and insights (notes/wiki, not structured data)
 - Research findings and comparisons
+- Transient conversational noise with no informational value
 
 **Never store:**
 - Secrets, passwords, API keys, tokens, credentials
-- Transient conversational noise with no informational value
 
 ## Schema Design
 
@@ -276,7 +274,7 @@ Present results with a short interpretation.
 - MUST use \`where\` for \`update\` and \`delete\` — never omit it.
 - MUST choose write mode deliberately: update current state unless append-only intent is explicit.
 - MUST NOT store secrets, credentials, or tokens.
-- MUST NOT ask permission before storing — store and report afterward.
+- MUST NOT ask permission before storing structured data (from the "Store immediately" list) — store and report afterward. For other data, store only when user explicitly asks.
 - MUST keep stored content fields in the user-requested language (or current user message language when unspecified).
 - MUST keep one semantic unit per apply.
 - MUST prefer SQLite-generated timestamps for system fields (via SQL defaults) instead of injecting current time in values.
@@ -375,53 +373,27 @@ lore apply -f - <<'JSON'
 JSON
 \`\`\`
 
-### State-first decision update
+### Task completion
 
-User says: "We changed the auth decision from session to JWT."
+User says: "I finished the passport renewal — picked it up today."
 
 \`\`\`bash
 lore apply -f - <<'JSON'
 {
-  "message": "update auth decision to JWT",
+  "message": "mark passport renewal complete",
   "operations": [
     {
       "type": "update",
-      "table": "decisions",
-      "values": {
-        "decision": "use JWT",
-        "reason": "mobile clients and stateless API gateway requirements"
-      },
-      "where": {"topic": "auth strategy"}
+      "table": "tasks",
+      "values": {"status": "done", "completed_at": "2026-02-27"},
+      "where": {"title": "renew passport"}
     }
   ]
 }
 JSON
 \`\`\`
 
-### Storing reasoning context
-
-During debugging, user resolves a tricky issue:
-
-\`\`\`bash
-lore apply -f - <<'JSON'
-{
-  "message": "debug insight: SQLite WAL mode lock contention",
-  "operations": [
-    {
-      "type": "insert",
-      "table": "learnings",
-      "values": {
-        "date": "2026-02-20",
-        "topic": "sqlite",
-        "insight": "WAL mode with PRAGMA busy_timeout=5000 resolves intermittent SQLITE_BUSY in concurrent reads",
-        "context": "Lore CLI failing under parallel test runs",
-        "tags": "sqlite,debugging,concurrency"
-      }
-    }
-  ]
-}
-JSON
-\`\`\`
+Response: "Marked passport renewal as done."
 
 ### Recall and analysis
 
@@ -598,14 +570,14 @@ Returns: \`ok\`, \`errors\`, \`warnings\`, \`risk\` (low/medium/high), predicted
 
 function cursorRuleContent(): string {
   return `---
-description: Lore personal database — detects storable info (schedules, tasks, expenses, decisions, learnings) from conversation and manages schema evolution proactively
+description: Lore personal database — detects structured info (schedules, tasks, expenses, deadlines, goals, habits) from conversation and manages schema evolution proactively
 alwaysApply: false
 ---
 
-Activate when conversation contains information worth remembering or user asks about past data.
+Activate when conversation contains structured information worth tracking (schedules, tasks, expenses, deadlines, goals, habits) or user asks about past data.
 
 ## Behavior
-- Store proactively. Do not ask permission — briefly report what you stored.
+- Store structured data (schedules, tasks, expenses, etc.) proactively without asking permission — briefly report what you stored. Store other data only when user explicitly asks.
 - Design and evolve schema autonomously (English, plural snake_case table names).
 - Read schema before every write. Use schema -> plan -> apply flow.
 - Keep written content values in the user-requested language; default to the current user message language when unspecified.
@@ -633,10 +605,10 @@ function agentsBlock(skillPath: string): string {
   return `${AGENTS_BLOCK_START}
 ## Skills
 ### Available skills
-- Lore: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
+- Lore: Personal database managed by AI. Detects structured information (schedules, tasks, expenses, deadlines, goals, habits) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
 ### How to use skills
-- Activate \`lore\` whenever conversation contains information worth remembering or user asks about past data.
-- Store proactively — do not ask permission. Briefly report what was stored afterward.
+- Activate \`lore\` whenever conversation contains structured information worth tracking (schedules, tasks, expenses, deadlines, goals, habits) or user asks about past data.
+- Store structured data proactively — do not ask permission. Briefly report what was stored afterward. Store other data only when user explicitly asks.
 - Store user-facing content fields in the language requested by the user (or the current user message language when unspecified).
 - For writes: read schema first, then schema -> plan -> apply.
 - For reads: generate read-only SQL with \`lore read\`.
@@ -674,10 +646,10 @@ ${HEARTBEAT_BLOCK_END}
 function claudeBlock(skillPath: string): string {
   return `${CLAUDE_BLOCK_START}
 ## Skills
-- Lore: Personal database managed by AI. Detects storable information (schedules, tasks, expenses, decisions, learnings, thoughts) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
+- Lore: Personal database managed by AI. Detects structured information (schedules, tasks, expenses, deadlines, goals, habits) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
 ## How to use skills
-- Use \`lore\` whenever conversation contains dates, plans, expenses, tasks, decisions, learnings, or user asks about past data.
-- Store proactively — do not ask permission, briefly report after storing.
+- Use \`lore\` whenever conversation contains dates, plans, expenses, tasks, goals, habits, or user asks about past data.
+- Store structured data proactively — do not ask permission, briefly report after storing. Store other data only when user explicitly asks.
 - Store user-facing content fields in the user-requested language (or the current user message language when unspecified).
 - Read schema before every write. Schema -> plan -> apply.
 ${CLAUDE_BLOCK_END}
