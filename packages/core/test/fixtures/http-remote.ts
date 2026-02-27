@@ -234,7 +234,7 @@ class BunFixtureTransaction implements Transaction {
 
   async executeMultiple(sql: string): Promise<void> {
     this.#assertOpen();
-    this.#db.exec(sql);
+    this.#db.run(sql);
   }
 
   async rollback(): Promise<void> {
@@ -325,7 +325,7 @@ class BunFixtureClient implements Client {
 
   async executeMultiple(sql: string): Promise<void> {
     this.#assertOpen();
-    this.#db.exec(sql);
+    this.#db.run(sql);
   }
 
   async sync(): Promise<Replicated> {
