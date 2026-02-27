@@ -54,7 +54,7 @@ shopt -u nullglob
 CHECKSUM_FILE="$ARTIFACTS_DIR/lore_${VERSION}_checksums.txt"
 : > "$CHECKSUM_FILE"
 for archive in "${ARCHIVES[@]}"; do
-  checksum="$(${HASH_CMD[@]} "$archive" | awk '{print $1}')"
+  checksum="$("${HASH_CMD[@]}" "$archive" | awk '{print $1}')"
   printf '%s  %s\n' "$checksum" "$(basename "$archive")" >> "$CHECKSUM_FILE"
 done
 
