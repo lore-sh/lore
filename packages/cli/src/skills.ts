@@ -601,18 +601,34 @@ Activate when conversation contains structured information worth tracking (sched
 `;
 }
 
-function agentsBlock(skillPath: string): string {
-  return `${AGENTS_BLOCK_START}
-## Skills
-### Available skills
-- Lore: Personal database managed by AI. Detects structured information (schedules, tasks, expenses, deadlines, goals, habits) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
-### How to use skills
-- Activate \`lore\` whenever conversation contains structured information worth tracking (schedules, tasks, expenses, deadlines, goals, habits) or user asks about past data.
+function skillBlock(
+  skillPath: string,
+  markers: { start: string; end: string },
+  subHeadings: boolean,
+): string {
+  const desc = `Lore: Personal database managed by AI. Detects structured information (schedules, tasks, expenses, deadlines, goals, habits) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})`;
+  const usage = `- Activate \`lore\` whenever conversation contains structured information worth tracking (schedules, tasks, expenses, deadlines, goals, habits) or user asks about past data.
 - Store structured data proactively — do not ask permission. Briefly report what was stored afterward. Store other data only when user explicitly asks.
 - Store user-facing content fields in the language requested by the user (or the current user message language when unspecified).
 - For writes: read schema first, then schema -> plan -> apply.
-- For reads: generate read-only SQL with \`lore read\`.
-${AGENTS_BLOCK_END}
+- For reads: generate read-only SQL with \`lore read\`.`;
+
+  if (subHeadings) {
+    return `${markers.start}
+## Skills
+### Available skills
+- ${desc}
+### How to use skills
+${usage}
+${markers.end}
+`;
+  }
+  return `${markers.start}
+## Skills
+- ${desc}
+## How to use skills
+${usage}
+${markers.end}
 `;
 }
 
@@ -643,18 +659,8 @@ ${HEARTBEAT_BLOCK_END}
 `;
 }
 
-function claudeBlock(skillPath: string): string {
-  return `${CLAUDE_BLOCK_START}
-## Skills
-- Lore: Personal database managed by AI. Detects structured information (schedules, tasks, expenses, deadlines, goals, habits) from conversation and stores proactively. Handles schema design, evolution, and data recall. (file: ${skillPath})
-## How to use skills
-- Use \`lore\` whenever conversation contains dates, plans, expenses, tasks, goals, habits, or user asks about past data.
-- Store structured data proactively — do not ask permission, briefly report after storing. Store other data only when user explicitly asks.
-- Store user-facing content fields in the user-requested language (or the current user message language when unspecified).
-- Read schema before every write. Schema -> plan -> apply.
-${CLAUDE_BLOCK_END}
-`;
-}
+const AGENTS_BLOCK_FORMAT = { start: AGENTS_BLOCK_START, end: AGENTS_BLOCK_END };
+const CLAUDE_BLOCK_FORMAT = { start: CLAUDE_BLOCK_START, end: CLAUDE_BLOCK_END };
 
 async function writeText(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
@@ -769,7 +775,7 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
   if (selectedSet.has("codex")) {
     await upsertManagedBlock(
       paths.codexAgentsPath,
-      agentsBlock(paths.sharedSkillPath),
+      skillBlock(paths.sharedSkillPath, AGENTS_BLOCK_FORMAT, true),
       AGENTS_BLOCKS,
       "# AGENTS.md\n",
     );
@@ -781,7 +787,7 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
   if (selectedSet.has("opencode")) {
     await upsertManagedBlock(
       paths.opencodeAgentsPath,
-      agentsBlock(paths.sharedSkillPath),
+      skillBlock(paths.sharedSkillPath, AGENTS_BLOCK_FORMAT, true),
       AGENTS_BLOCKS,
       "# AGENTS.md\n",
     );
@@ -801,7 +807,7 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
     await writeSkillBundle(paths.claudeSkillPath, paths.claudeContractsPath);
     await upsertManagedBlock(
       paths.claudeDocPath,
-      claudeBlock(paths.claudeSkillPath),
+      skillBlock(paths.claudeSkillPath, CLAUDE_BLOCK_FORMAT, false),
       CLAUDE_BLOCKS,
       "# CLAUDE.md\n",
     );
@@ -821,7 +827,7 @@ export async function generateSkills(options: GenerateSkillsOptions = {}): Promi
     await writeSkillBundle(paths.openclawSkillPath, paths.openclawContractsPath);
     await upsertManagedBlock(
       paths.openclawAgentsPath,
-      agentsBlock(paths.openclawSkillPath),
+      skillBlock(paths.openclawSkillPath, AGENTS_BLOCK_FORMAT, true),
       AGENTS_BLOCKS,
       "# AGENTS.md\n",
     );
