@@ -4,9 +4,8 @@ import { CodedError, type ErrorCode } from "./error";
 import { canonicalJson, sha256Hex } from "./hash";
 import { primaryKeys, tableDDL, tableInfo } from "./inspect";
 import { executeOperation, type Operation } from "./operation";
-import { buildPkWhereClause, buildRowSelectSql } from "./replay-sql";
 import { EncodedRow, TableSecondaryObject, isSqlStorageClass, type EncodedCell } from "./schema";
-import { quoteIdentifier, sqlMentionsIdentifier } from "./sql";
+import { buildPkWhereClause, buildRowSelectSql, quoteIdentifier, sqlMentionsIdentifier } from "./sql";
 
 export const RowEffect = z.object({
   tableName: z.string(),
@@ -36,11 +35,6 @@ export const SchemaEffect = z.object({
 });
 export type SchemaEffect = z.infer<typeof SchemaEffect>;
 
-export function pkWhere(pk: Record<string, string>): string {
-  return buildPkWhereClause(pk, (message) => {
-    throw new CodedError("REVERT_FAILED", message);
-  });
-}
 
 function encodeRowFromResult(
   row: Record<string, unknown>,
@@ -397,6 +391,14 @@ export function rowHash(row: EncodedRow | null): string | null {
   return sha256Hex(row);
 }
 
+function buildPkWhereClauseOrRevertFailed(pk: Record<string, string>): string {
+  const whereClause = buildPkWhereClause(pk);
+  if (!whereClause.ok) {
+    throw new CodedError("REVERT_FAILED", whereClause.message);
+  }
+  return whereClause.whereClause;
+}
+
 export function readRow(db: Database, table: string, pk: Record<string, string>): EncodedRow | null {
   if (!tableExists(db, table)) {
     if (isSystemTable(table)) {
@@ -412,7 +414,7 @@ export function readRow(db: Database, table: string, pk: Record<string, string>)
   const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
   const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
   const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
-  const whereClause = pkWhere(pk);
+  const whereClause = buildPkWhereClauseOrRevertFailed(pk);
   const sql = `${buildRowSelectSql(table, columns, keyColumns, whereClause)} LIMIT 1`;
   const row = db.$client.query<Record<string, unknown>, []>(sql).get();
   if (!row) {
@@ -453,11 +455,11 @@ function updateEncodedRow(db: Database, table: string, pk: Record<string, string
       return `${quoteIdentifier(column, { unsafe: true })} = ${cell.sqlLiteral}`;
     })
     .join(", ");
-  db.$client.run(`UPDATE ${quoteIdentifier(table, { unsafe: true })} SET ${setSql} WHERE ${pkWhere(pk)}`);
+  db.$client.run(`UPDATE ${quoteIdentifier(table, { unsafe: true })} SET ${setSql} WHERE ${buildPkWhereClauseOrRevertFailed(pk)}`);
 }
 
 function deleteByPk(db: Database, table: string, pk: Record<string, string>): void {
-  db.$client.run(`DELETE FROM ${quoteIdentifier(table, { unsafe: true })} WHERE ${pkWhere(pk)}`);
+  db.$client.run(`DELETE FROM ${quoteIdentifier(table, { unsafe: true })} WHERE ${buildPkWhereClauseOrRevertFailed(pk)}`);
 }
 
 function referencedTables(db: Database, table: string): string[] {

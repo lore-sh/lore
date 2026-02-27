@@ -563,6 +563,85 @@ describe("sync with Turso protocol", () => {
     }
   });
 
+  testWithTmp("malformed historical PK literal during materialization is classified as SYNC_DIVERGED", async () => {
+    const local = createTestContext();
+    const remote = createTestContext();
+    const remoteUrl = remoteUrlFor(remote.dbPath);
+    await initDb({ dbPath: local.dbPath });
+
+    const createPlan = await writePlanFile(local.dir, "create-malformed-pk.json", {
+      message: "create malformed pk tasks",
+      operations: [
+        {
+          type: "create_table",
+          table: "malformed_pk_tasks",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "title", type: "TEXT", notNull: true },
+          ],
+        },
+      ],
+    });
+    const insertPlan = await writePlanFile(local.dir, "insert-malformed-pk.json", {
+      message: "insert malformed pk task",
+      operations: [{ type: "insert", table: "malformed_pk_tasks", values: { id: 1, title: "a" } }],
+    });
+
+    let createCommitId = "";
+    let insertCommitId = "";
+    await withDbPath(local.dbPath, async () => {
+      await connect(currentDb(), { platform: "libsql", url: remoteUrl });
+      const c1 = await applyPlan(currentDb(), createPlan);
+      const c2 = await applyPlan(currentDb(), insertPlan);
+      createCommitId = c1.commitId;
+      insertCommitId = c2.commitId;
+      await push(currentDb());
+    });
+
+    const remoteDb = new Database(remote.dbPath);
+    try {
+      remoteDb
+        .query("UPDATE _lore_row_effect SET pk_json = ? WHERE commit_id = ? AND effect_index = 0")
+        .run(JSON.stringify({ id: "" }), insertCommitId);
+      remoteDb.query("DELETE FROM malformed_pk_tasks WHERE id = 1").run();
+      remoteDb
+        .query(
+          "INSERT INTO _lore_meta(key, value) VALUES ('last_materialized_commit', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        )
+        .run(createCommitId);
+    } finally {
+      remoteDb.close(false);
+    }
+
+    await withDbPath(local.dbPath, async () => {
+      try {
+        await push(currentDb());
+        throw new Error("push should fail when malformed historical PK literal is replayed");
+      } catch (error) {
+        expect(CodedError.is(error)).toBe(true);
+        if (CodedError.is(error)) {
+          expect(error.code).toBe("SYNC_DIVERGED");
+          expect(error.message.startsWith("Remote projection failed:")).toBe(true);
+          expect(error.message.includes("Primary key literal is missing for column id")).toBe(true);
+        }
+      }
+      expect(status(currentDb()).sync.state).toBe("conflict");
+    });
+
+    const remoteDbAfter = new Database(remote.dbPath);
+    try {
+      const projectionError = remoteDbAfter
+        .query<{ value: string }, []>(
+          "SELECT value FROM _lore_meta WHERE key='last_materialized_error' LIMIT 1",
+        )
+        .get();
+      expect((projectionError?.value ?? "").startsWith("Remote projection failed:")).toBe(true);
+      expect((projectionError?.value ?? "").includes("Primary key literal is missing for column id")).toBe(true);
+    } finally {
+      remoteDbAfter.close(false);
+    }
+  });
+
   testWithTmp("remote status detects projection drift even without push", async () => {
     const local = createTestContext();
     const remote = createTestContext();

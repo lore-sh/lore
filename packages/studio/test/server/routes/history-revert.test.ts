@@ -42,8 +42,7 @@ async function applyPlan(db: Database, planRef: string) {
   if (!Object.hasOwn(parsed, "baseSchemaHash")) {
     parsed.baseSchemaHash = schemaHash(db);
   }
-  const result = await apply(db, parsePlan(JSON.stringify(parsed)));
-  return result.commit;
+  return apply(db, parsePlan(JSON.stringify(parsed)));
 }
 
 describe("studio history and revert routes", () => {

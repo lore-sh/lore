@@ -24,9 +24,10 @@ import { canonicalJson, sha256Hex } from "./hash";
 import { hashSchema } from "./inspect";
 import { DRIZZLE_MIGRATIONS_TABLE, DRIZZLE_MIGRATIONS_TABLE_SQL, loadEngineMigrations, pendingEngineMigrations, type EngineMigration } from "./migration";
 import { Operation, type Operation as Op } from "./operation";
-import { buildPkWhereClause as buildPkWhereClauseSql, buildRowSelectSql } from "./replay-sql";
 import type { EncodedCell, EncodedRow } from "./schema";
 import {
+  buildPkWhereClause,
+  buildRowSelectSql,
   extractCheckConstraints,
   normalizeSqlNullable,
   parseColumnDefinitionsFromCreateTable,
@@ -771,11 +772,6 @@ async function remoteTableColumns(executor: Client | Transaction, tableName: str
   return names;
 }
 
-function buildPkWhereClause(pk: Record<string, string>): string {
-  return buildPkWhereClauseSql(pk, (message) => {
-    throw projectionFailure(message);
-  });
-}
 
 function encodeRowFromRemote(
   row: Record<string, unknown>,
@@ -810,6 +806,14 @@ function encodeRowFromRemote(
   return encoded;
 }
 
+function buildPkWhereClauseOrProjectionFailure(pk: Record<string, string>): string {
+  const whereClause = buildPkWhereClause(pk);
+  if (!whereClause.ok) {
+    throw projectionFailure(whereClause.message);
+  }
+  return whereClause.whereClause;
+}
+
 async function fetchObservedRowByPk(executor: Client | Transaction, tableName: string, pk: Record<string, string>): Promise<EncodedRow | null> {
   if (!(await remoteTableExists(executor, tableName))) {
     if (isSystemSideEffectTable(tableName)) {
@@ -823,7 +827,7 @@ async function fetchObservedRowByPk(executor: Client | Transaction, tableName: s
   const quoteAliases = columns.map((_, i) => `__lore_quote_${i}`);
   const hexAliases = columns.map((_, i) => `__lore_hex_${i}`);
   const typeAliases = columns.map((_, i) => `__lore_type_${i}`);
-  const whereClause = buildPkWhereClause(pk);
+  const whereClause = buildPkWhereClauseOrProjectionFailure(pk);
   const sql = `${buildRowSelectSql(tableName, columns, keyColumns, whereClause)} LIMIT 1`;
   const result = await executor.execute(sql);
   const row = rowsFrom(result)[0];
@@ -871,12 +875,12 @@ async function updateEncodedRow(
     })
     .join(", ");
   await executor.execute(
-    `UPDATE ${quoteIdentifier(tableName, { unsafe: true })} SET ${setSql} WHERE ${buildPkWhereClause(pk)}`,
+    `UPDATE ${quoteIdentifier(tableName, { unsafe: true })} SET ${setSql} WHERE ${buildPkWhereClauseOrProjectionFailure(pk)}`,
   );
 }
 
 async function deleteByPk(executor: Client | Transaction, tableName: string, pk: Record<string, string>): Promise<void> {
-  await executor.execute(`DELETE FROM ${quoteIdentifier(tableName, { unsafe: true })} WHERE ${buildPkWhereClause(pk)}`);
+  await executor.execute(`DELETE FROM ${quoteIdentifier(tableName, { unsafe: true })} WHERE ${buildPkWhereClauseOrProjectionFailure(pk)}`);
 }
 
 async function referencedTables(executor: Client | Transaction, tableName: string): Promise<string[]> {

@@ -6,24 +6,17 @@ import { schemaHash } from "./inspect";
 import { executeOperation, type Operation, type Plan } from "./operation";
 import { maybeCreateSnapshot } from "./snapshot";
 
-export type ApplyResult = {
-  commit: Commit;
-  schemaHashAfter: string;
-  stateHashAfter: string;
-};
-
-export async function apply(db: Database, plan: Plan): Promise<ApplyResult> {
+export async function apply(db: Database, plan: Plan): Promise<Commit> {
   const commit = runSchemaAwareTransaction(db, () => {
-    const currentSchemaHash = schemaHash(db);
-    if (plan.baseSchemaHash.toLowerCase() !== currentSchemaHash.toLowerCase()) {
+    const beforeSchemaHash = schemaHash(db);
+    if (plan.baseSchemaHash.toLowerCase() !== beforeSchemaHash.toLowerCase()) {
       throw new CodedError("STALE_PLAN", "Plan was generated from an outdated schema", {
         detail: {
           expected: plan.baseSchemaHash,
-          actual: currentSchemaHash,
+          actual: beforeSchemaHash,
         },
       });
     }
-    const beforeSchemaHash = schemaHash(db);
     const beforeState = captureState(db);
     for (const operation of plan.operations) {
       executeOperation(db, operation);
@@ -42,11 +35,7 @@ export async function apply(db: Database, plan: Plan): Promise<ApplyResult> {
   });
 
   await maybeCreateSnapshot(db, commit);
-  return {
-    commit,
-    schemaHashAfter: commit.schemaHashAfter,
-    stateHashAfter: commit.stateHashAfter,
-  };
+  return commit;
 }
 
 const SCHEMA_OPERATION_TYPES = new Set<Operation["type"]>([

@@ -174,8 +174,7 @@ function normalizePlanForTest(db: Database, payload: string): string {
 export async function applyPlan(db: Database, planRef: string) {
   const payload = await readPlanInput(planRef);
   const plan = parsePlan(normalizePlanForTest(db, payload));
-  const result = await apply(db, plan);
-  return result.commit;
+  return apply(db, plan);
 }
 
 export async function planCheck(db: Database, planRef: string) {

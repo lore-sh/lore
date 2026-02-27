@@ -533,6 +533,49 @@ describe("revertCommit", () => {
     }
   });
 
+  testWithTmp("malformed historical PK literal is classified as REVERT_FAILED conflict during preflight", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDb({ dbPath });
+
+    const setup = await writePlanFile(dir, "malformed-pk-setup.json", {
+      message: "setup malformed pk revert test",
+      operations: [
+        {
+          type: "create_table",
+          table: "malformed_pk_items",
+          columns: [
+            { name: "id", type: "INTEGER", primaryKey: true },
+            { name: "body", type: "TEXT", notNull: true },
+          ],
+        },
+        { type: "insert", table: "malformed_pk_items", values: { id: 1, body: "a" } },
+      ],
+    });
+    const updatePlan = await writePlanFile(dir, "malformed-pk-update.json", {
+      message: "update malformed pk row",
+      operations: [{ type: "update", table: "malformed_pk_items", values: { body: "b" }, where: { id: 1 } }],
+    });
+
+    await applyPlan(currentDb(), setup);
+    const updated = await applyPlan(currentDb(), updatePlan);
+    currentDb().$client
+      .query("UPDATE _lore_row_effect SET pk_json = ? WHERE commit_id = ? AND effect_index = 0")
+      .run(JSON.stringify({ id: "" }), updated.commitId);
+
+    const result = revert(currentDb(), updated.commitId);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(
+        result.conflicts.some(
+          (conflict) =>
+            conflict.kind === "schema" &&
+            conflict.table === "(unknown)" &&
+            conflict.reason.includes("Primary key literal is missing for column id"),
+        ),
+      ).toBe(true);
+    }
+  });
+
   testWithTmp("typed and BLOB values round-trip losslessly through commit and revert", async () => {
     const { dir, dbPath } = createTestContext();
     await initDb({ dbPath });

@@ -199,7 +199,7 @@ export const Operation = z.discriminatedUnion("type", [
 ]);
 export type Operation = z.infer<typeof Operation>;
 
-export type DependencyConflictDetail = {
+type DependencyConflictDetail = {
   operation: "drop_column" | "drop_table";
   table?: string;
   column?: string;
@@ -347,38 +347,28 @@ type SqliteSchemaObject =
   | { type: "index"; name: string; tableName: string; sql: string }
   | { type: "trigger"; name: string; tableName: string; sql: string }
   | { type: "view"; name: string; tableName: string; sql: string };
-type ExternalSchemaObject = Extract<SqliteSchemaObject, { type: "trigger" | "view" }>;
-type RewrittenSchemaObject = {
-  before: SqliteSchemaObject;
-  after: SqliteSchemaObject;
-};
 
-function listSqliteSchemaObjects(db: Database): SqliteSchemaObject[] {
-  return db.$client
-    .query<SqliteSchemaObject, []>(`
-      SELECT type, name, tbl_name AS tableName, sql
-      FROM sqlite_master
-      WHERE type IN ('index', 'trigger', 'view') AND sql IS NOT NULL
-    `)
-    .all();
-}
+function listRewrittenSchemaObjects(db: Database, runProbe: () => void) {
+  const querySchemaObjects = () =>
+    db.$client
+      .query<SqliteSchemaObject, []>(
+        "SELECT type, name, tbl_name AS tableName, sql FROM sqlite_master WHERE type IN ('index', 'trigger', 'view') AND sql IS NOT NULL",
+      )
+      .all();
 
-function sqliteSchemaObjectKey(object: Pick<SqliteSchemaObject, "type" | "name">): string {
-  return `${object.type}:${asciiCaseFold(object.name)}`;
-}
-
-function listRewrittenSchemaObjects(db: Database, runProbe: () => void): RewrittenSchemaObject[] {
   return runInSavepoint(
     db,
     "lore_dependency_probe",
     () => {
-      const before = listSqliteSchemaObjects(db);
-      const beforeByKey = new Map(before.map((object) => [sqliteSchemaObjectKey(object), object] as const));
+      const before = querySchemaObjects();
+      const beforeByKey = new Map(
+        before.map((object) => [`${object.type}:${asciiCaseFold(object.name)}`, object] as const),
+      );
       runProbe();
-      const after = listSqliteSchemaObjects(db);
-      const rewritten: RewrittenSchemaObject[] = [];
+      const after = querySchemaObjects();
+      const rewritten: Array<{ before: SqliteSchemaObject; after: SqliteSchemaObject }> = [];
       for (const object of after) {
-        const prev = beforeByKey.get(sqliteSchemaObjectKey(object));
+        const prev = beforeByKey.get(`${object.type}:${asciiCaseFold(object.name)}`);
         if (!prev || prev.sql === object.sql) {
           continue;
         }
@@ -399,111 +389,14 @@ function createProbeIdentifier(prefix: string, exists: (candidate: string) => bo
   }
 }
 
-function listTableRenameRewrittenSchemaObjects(db: Database, targetTable: string): RewrittenSchemaObject[] {
+function listTableRenameRewrittenSchemaObjects(db: Database, targetTable: string) {
   const probeTableName = createProbeIdentifier("__lore_probe_table_", (candidate) => tableExists(db, candidate));
   return listRewrittenSchemaObjects(db, () => {
     db.$client.run(`ALTER TABLE ${quoteIdentifier(targetTable)} RENAME TO ${quoteIdentifier(probeTableName)}`);
   });
 }
 
-function listExternalSchemaObjectsForTableSwap(
-  db: Database,
-  targetTable: string,
-): ExternalSchemaObject[] {
-  const targetLower = asciiCaseFold(targetTable);
-  const rewrittenObjects = listTableRenameRewrittenSchemaObjects(db, targetTable);
-  const externalObjects: ExternalSchemaObject[] = [];
-  for (const rewritten of rewrittenObjects) {
-    const object = rewritten.before;
-    if (object.type === "view") {
-      externalObjects.push(object);
-      continue;
-    }
-    if (object.type === "trigger" && asciiCaseFold(object.tableName) !== targetLower) {
-      externalObjects.push(object);
-    }
-  }
-  return externalObjects;
-}
-
-function listDropTableSchemaObjectConflicts(db: Database, targetTable: string): DependencyConflictDetail["conflicts"] {
-  const targetLower = asciiCaseFold(targetTable);
-  const rewrittenObjects = listTableRenameRewrittenSchemaObjects(db, targetTable);
-
-  const conflicts: DependencyConflictDetail["conflicts"] = [];
-  for (const rewritten of rewrittenObjects) {
-    const object = rewritten.before;
-    if (object.type === "view") {
-      conflicts.push({
-        type: "view",
-        name: object.name,
-        reason: `View ${object.name} depends on ${targetTable}`,
-      });
-      continue;
-    }
-    if (object.type !== "trigger") {
-      continue;
-    }
-    if (asciiCaseFold(object.tableName) === targetLower) {
-      continue;
-    }
-    conflicts.push({
-      type: "trigger",
-      name: object.name,
-      table: object.tableName,
-      reason: `Trigger ${object.name} depends on ${targetTable}`,
-    });
-  }
-  return conflicts;
-}
-
-function listDropColumnSchemaObjectConflicts(
-  db: Database,
-  target: { table: string; column: string; tableInfo: Array<{ name: string }> },
-): DependencyConflictDetail["conflicts"] {
-  const existingColumns = new Set(target.tableInfo.map((column) => asciiCaseFold(column.name)));
-  const probeColumnName = createProbeIdentifier("__lore_probe_column_", (candidate) =>
-    existingColumns.has(asciiCaseFold(candidate)),
-  );
-  const rewrittenObjects = listRewrittenSchemaObjects(db, () => {
-    db.$client.run(
-      `ALTER TABLE ${quoteIdentifier(target.table)} RENAME COLUMN ${quoteIdentifier(target.column)} TO ${quoteIdentifier(probeColumnName)}`,
-    );
-  });
-
-  const conflicts: DependencyConflictDetail["conflicts"] = [];
-  for (const rewritten of rewrittenObjects) {
-    const object = rewritten.after;
-    if (object.type === "index" && sqliteIdentifierEquals(object.tableName, target.table)) {
-      conflicts.push({
-        type: "index",
-        name: object.name,
-        table: target.table,
-        reason: `Index ${object.name} depends on ${target.table}.${target.column}`,
-      });
-      continue;
-    }
-    if (object.type === "trigger") {
-      conflicts.push({
-        type: "trigger",
-        name: object.name,
-        table: object.tableName,
-        reason: `Trigger ${object.name} depends on ${target.table}.${target.column}`,
-      });
-      continue;
-    }
-    if (object.type === "view") {
-      conflicts.push({
-        type: "view",
-        name: object.name,
-        reason: `View ${object.name} depends on ${target.table}.${target.column}`,
-      });
-    }
-  }
-  return conflicts;
-}
-
-function buildDependencyConflictError(detail: Omit<DependencyConflictDetail, "suggestedOps">): CodedError {
+function buildDependencyConflictError(detail: Omit<DependencyConflictDetail, "suggestedOps">) {
   const suggestedOps: Operation[] = [];
   const seen = new Set<string>();
   for (const conflict of detail.conflicts) {
@@ -542,7 +435,7 @@ function listInboundForeignKeyConflicts(
   db: Database,
   targetTable: string,
   options: { column?: string; targetColumnIsPrimaryKey?: boolean },
-): DependencyConflictDetail["conflicts"] {
+) {
   const conflicts: DependencyConflictDetail["conflicts"] = [];
   const rows = db.$client
     .query<{ name: string }, []>(
@@ -582,37 +475,26 @@ function listInboundForeignKeyConflicts(
   return conflicts;
 }
 
-function listGeneratedColumnConflicts(
-  tableDdlSql: string,
-  tableInfo: Array<{ name: string }>,
-  targetColumn: string,
-): DependencyConflictDetail["conflicts"] {
-  const conflicts: DependencyConflictDetail["conflicts"] = [];
-  const originalColumnName = new Map(tableInfo.map((column) => [column.name.toLowerCase(), column.name]));
-  const defs = parseColumnDefinitionsFromCreateTable(tableDdlSql);
-  for (const [columnName, def] of defs) {
-    if (columnName === targetColumn.toLowerCase()) {
-      continue;
-    }
-    const upper = def.toUpperCase();
-    const generated = upper.includes(" GENERATED ") || /(?:^|[^A-Za-z0-9_])AS\s*\(/i.test(def);
-    if (!generated || !sqlMentionsIdentifier(def, targetColumn)) {
-      continue;
-    }
-    conflicts.push({
-      type: "generated",
-      name: originalColumnName.get(columnName) ?? columnName,
-      reason: `Generated column ${columnName} references ${targetColumn}`,
-    });
-  }
-  return conflicts;
-}
-
 function executeDropTable(db: Database, operation: DropTable): void {
-  const conflicts: DependencyConflictDetail["conflicts"] = [
-    ...listInboundForeignKeyConflicts(db, operation.table, {}),
-    ...listDropTableSchemaObjectConflicts(db, operation.table),
-  ];
+  const conflicts = [...listInboundForeignKeyConflicts(db, operation.table, {})];
+  const targetLower = asciiCaseFold(operation.table);
+  for (const rewritten of listTableRenameRewrittenSchemaObjects(db, operation.table)) {
+    const object = rewritten.before;
+    if (object.type === "view") {
+      conflicts.push({
+        type: "view" as const,
+        name: object.name,
+        reason: `View ${object.name} depends on ${operation.table}`,
+      });
+    } else if (object.type === "trigger" && asciiCaseFold(object.tableName) !== targetLower) {
+      conflicts.push({
+        type: "trigger" as const,
+        name: object.name,
+        table: object.tableName,
+        reason: `Trigger ${object.name} depends on ${operation.table}`,
+      });
+    }
+  }
   if (conflicts.length > 0) {
     throw buildDependencyConflictError({
       operation: "drop_table",
@@ -630,18 +512,61 @@ function executeDropColumn(db: Database, operation: DropColumn): void {
     throw new CodedError("INVALID_OPERATION", `Column does not exist: ${operation.table}.${operation.column}`);
   }
   const targetColumn = targetInfo.name;
-  const conflicts: DependencyConflictDetail["conflicts"] = [
-    ...listDropColumnSchemaObjectConflicts(db, {
-      table: state.resolvedTableName,
-      column: targetColumn,
-      tableInfo: state.tableInfo,
-    }),
+  const conflicts: DependencyConflictDetail["conflicts"] = [];
+  const existingColumns = new Set(state.tableInfo.map((column) => asciiCaseFold(column.name)));
+  const probeColumnName = createProbeIdentifier("__lore_probe_column_", (candidate) =>
+    existingColumns.has(asciiCaseFold(candidate)),
+  );
+  for (const rewritten of listRewrittenSchemaObjects(db, () => {
+    db.$client.run(
+      `ALTER TABLE ${quoteIdentifier(state.resolvedTableName)} RENAME COLUMN ${quoteIdentifier(targetColumn)} TO ${quoteIdentifier(probeColumnName)}`,
+    );
+  })) {
+    const object = rewritten.after;
+    if (object.type === "index" && sqliteIdentifierEquals(object.tableName, state.resolvedTableName)) {
+      conflicts.push({
+        type: "index",
+        name: object.name,
+        table: state.resolvedTableName,
+        reason: `Index ${object.name} depends on ${state.resolvedTableName}.${targetColumn}`,
+      });
+    } else if (object.type === "trigger") {
+      conflicts.push({
+        type: "trigger",
+        name: object.name,
+        table: object.tableName,
+        reason: `Trigger ${object.name} depends on ${state.resolvedTableName}.${targetColumn}`,
+      });
+    } else if (object.type === "view") {
+      conflicts.push({
+        type: "view",
+        name: object.name,
+        reason: `View ${object.name} depends on ${state.resolvedTableName}.${targetColumn}`,
+      });
+    }
+  }
+  conflicts.push(
     ...listInboundForeignKeyConflicts(db, state.resolvedTableName, {
       column: targetColumn,
       targetColumnIsPrimaryKey: targetInfo.pk > 0,
     }),
-    ...listGeneratedColumnConflicts(state.tableDdlSql, state.tableInfo, targetColumn),
-  ];
+  );
+  const originalColumnName = new Map(state.tableInfo.map((column) => [column.name.toLowerCase(), column.name]));
+  for (const [columnName, def] of parseColumnDefinitionsFromCreateTable(state.tableDdlSql)) {
+    if (columnName === targetColumn.toLowerCase()) {
+      continue;
+    }
+    const generated = def.toUpperCase().includes(" GENERATED ") || /(?:^|[^A-Za-z0-9_])AS\s*\(/i.test(def);
+    if (!generated || !sqlMentionsIdentifier(def, targetColumn)) {
+      continue;
+    }
+    conflicts.push({
+      type: "generated",
+      name: originalColumnName.get(columnName) ?? columnName,
+      reason: `Generated column ${columnName} references ${targetColumn}`,
+    });
+  }
+
   if (conflicts.length > 0) {
     throw buildDependencyConflictError({
       operation: "drop_column",
@@ -666,49 +591,37 @@ function executeDropColumn(db: Database, operation: DropColumn): void {
   });
 }
 
-function resolveDropIndexTarget(db: Database, operation: DropIndex): { name: string; tableName: string } {
+function resolveSchemaObjectTarget(
+  db: Database,
+  type: "index" | "trigger",
+  name: string,
+  expectedTable: string,
+): { name: string; tableName: string } {
+  const label = type === "index" ? "Index" : "Trigger";
   const row = db.$client
     .query<{ name: string; tableName: string }, [string]>(
-      "SELECT name, tbl_name AS tableName FROM sqlite_master WHERE type='index' AND name = ? COLLATE NOCASE LIMIT 1",
+      `SELECT name, tbl_name AS tableName FROM sqlite_master WHERE type='${type}' AND name = ? COLLATE NOCASE LIMIT 1`,
     )
-    .get(operation.name);
+    .get(name);
   if (!row) {
-    throw new CodedError("INVALID_OPERATION", `Index does not exist: ${operation.name}`);
+    throw new CodedError("INVALID_OPERATION", `${label} does not exist: ${name}`);
   }
-  if (!sqliteIdentifierEquals(row.tableName, operation.table)) {
+  if (!sqliteIdentifierEquals(row.tableName, expectedTable)) {
     throw new CodedError(
       "INVALID_OPERATION",
-      `Index ${row.name} belongs to table ${row.tableName}, not ${operation.table}`,
-    );
-  }
-  return row;
-}
-
-function resolveDropTriggerTarget(db: Database, operation: DropTrigger): { name: string; tableName: string } {
-  const row = db.$client
-    .query<{ name: string; tableName: string }, [string]>(
-      "SELECT name, tbl_name AS tableName FROM sqlite_master WHERE type='trigger' AND name = ? COLLATE NOCASE LIMIT 1",
-    )
-    .get(operation.name);
-  if (!row) {
-    throw new CodedError("INVALID_OPERATION", `Trigger does not exist: ${operation.name}`);
-  }
-  if (!sqliteIdentifierEquals(row.tableName, operation.table)) {
-    throw new CodedError(
-      "INVALID_OPERATION",
-      `Trigger ${row.name} belongs to table ${row.tableName}, not ${operation.table}`,
+      `${label} ${row.name} belongs to table ${row.tableName}, not ${expectedTable}`,
     );
   }
   return row;
 }
 
 function executeDropIndex(db: Database, operation: DropIndex): void {
-  const target = resolveDropIndexTarget(db, operation);
+  const target = resolveSchemaObjectTarget(db, "index", operation.name, operation.table);
   db.$client.run(`DROP INDEX ${quoteIdentifier(target.name)}`);
 }
 
 function executeDropTrigger(db: Database, operation: DropTrigger): void {
-  const target = resolveDropTriggerTarget(db, operation);
+  const target = resolveSchemaObjectTarget(db, "trigger", operation.name, operation.table);
   db.$client.run(`DROP TRIGGER ${quoteIdentifier(target.name)}`);
 }
 
@@ -795,7 +708,14 @@ function rebuildTableWithRewrittenDdl(
   const quotedTempTable = quoteIdentifier(tempTable);
   const columnList = options.columnList ?? state.tableInfo.map((column) => quoteIdentifier(column.name)).join(", ");
   const selectList = options.selectList ?? columnList;
-  const externalObjects = listExternalSchemaObjectsForTableSwap(db, state.resolvedTableName);
+  const targetLower = asciiCaseFold(state.resolvedTableName);
+  const externalObjects: SqliteSchemaObject[] = [];
+  for (const rewritten of listTableRenameRewrittenSchemaObjects(db, state.resolvedTableName)) {
+    const object = rewritten.before;
+    if (object.type === "view" || (object.type === "trigger" && asciiCaseFold(object.tableName) !== targetLower)) {
+      externalObjects.push(object);
+    }
+  }
 
   runInSavepoint(db, options.savepointName, () => {
     for (const object of externalObjects) {

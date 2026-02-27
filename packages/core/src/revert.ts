@@ -28,6 +28,7 @@ import { CodedError } from "./error";
 import { canonicalJson } from "./hash";
 import { schemaHash } from "./inspect";
 import { CommitTable } from "./schema";
+import { buildPkWhereClause } from "./sql";
 
 export function detectSchemaConflicts(
   schemaEffects: SchemaEffect[],
@@ -112,6 +113,15 @@ export function detectRowConflict(
         });
         missingTables.add(effect.tableName);
       }
+      continue;
+    }
+    const whereClause = buildPkWhereClause(pk);
+    if (!whereClause.ok) {
+      conflicts.push({
+        kind: "schema",
+        table: "(unknown)",
+        reason: whereClause.message,
+      });
       continue;
     }
     const currentRow = readRow(db, effect.tableName, pk);

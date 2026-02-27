@@ -249,35 +249,6 @@ export function assertInitialized(db: Database): void {
   }
 }
 
-function assertForeignKeyCheck(db: Database, context: string): void {
-  const rows = db.$client.query<{
-    table: string;
-    rowid: number;
-    parent: string;
-    fkid: number;
-  }, []>("PRAGMA foreign_key_check").all();
-  if (rows.length === 0) {
-    return;
-  }
-  const first = rows[0]!;
-  throw new CodedError(
-    "FK_VIOLATION",
-    `${context}: foreign_key_check failed at ${first.table} rowid=${first.rowid} parent=${first.parent} fk=${first.fkid}`,
-  );
-}
-
-function assertQuickCheck(db: Database, context: string): void {
-  const row = db.$client.query<Record<string, unknown>, []>("PRAGMA quick_check(1)").get();
-  if (!row) {
-    throw new CodedError("INTEGRITY_ERROR", `${context}: quick_check returned no rows`);
-  }
-  const first = Object.values(row)[0];
-  if (first === "ok") {
-    return;
-  }
-  throw new CodedError("INTEGRITY_ERROR", `${context}: quick_check returned ${String(first)}`);
-}
-
 export function runSchemaAwareTransaction<T>(
   db: Database,
   fn: () => T,
@@ -294,8 +265,21 @@ export function runSchemaAwareTransaction<T>(
         ? options.hasSchemaChanges()
         : options.hasSchemaChanges;
     if (hasSchemaChanges) {
-      assertForeignKeyCheck(db, context);
-      assertQuickCheck(db, context);
+      const fkRows = db.$client.query<{ table: string; rowid: number; parent: string; fkid: number }, []>(
+        "PRAGMA foreign_key_check",
+      ).all();
+      if (fkRows.length > 0) {
+        const fk = fkRows[0]!;
+        throw new CodedError(
+          "FK_VIOLATION",
+          `${context}: foreign_key_check failed at ${fk.table} rowid=${fk.rowid} parent=${fk.parent} fk=${fk.fkid}`,
+        );
+      }
+      const qcRow = db.$client.query<Record<string, unknown>, []>("PRAGMA quick_check(1)").get();
+      const qcResult = qcRow ? Object.values(qcRow)[0] : undefined;
+      if (qcResult !== "ok") {
+        throw new CodedError("INTEGRITY_ERROR", `${context}: quick_check returned ${String(qcResult ?? "no rows")}`);
+      }
     }
     db.$client.run("COMMIT");
     return result;
