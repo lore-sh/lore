@@ -14,6 +14,7 @@ import { parseSchemaArgs, runSchema } from "./schema";
 import { parseStatusArgs, runStatus } from "./status";
 import { parseStudioArgs, runStudio } from "./studio";
 import { parseSyncArgs, runSync } from "./sync";
+import { parseUpdateArgs, runUpdate } from "./update";
 import { parseVerifyArgs, runVerify } from "./verify";
 
 type DbCommandExecutor = (db: Database) => void | Promise<void>;
@@ -53,6 +54,15 @@ const COMMAND_MANIFEST: CommandDefinition[] = [
     prepare: (args) => {
       const parsed = parseCleanArgs(args);
       return () => runClean(parsed);
+    },
+  },
+  {
+    name: "update",
+    usage: ["lore update [--version <semver>]"],
+    requiresDb: false,
+    prepare: (args) => {
+      const parsed = parseUpdateArgs(args);
+      return () => runUpdate(parsed);
     },
   },
   {

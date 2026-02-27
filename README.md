@@ -81,6 +81,7 @@ Every change is wrapped in a transaction, tracked with before/after effects, and
 | Command | Description |
 |---------|-------------|
 | `lore init` | Initialize database and install AI skill files |
+| `lore update [--version <semver>]` | Update Lore CLI to latest (or specific) release |
 | `lore schema [table]` | Print current database schema |
 | `lore plan -f <file\|->` | Dry-run a plan (validate without applying) |
 | `lore apply -f <file\|->` | Apply a plan and create a versioned commit |

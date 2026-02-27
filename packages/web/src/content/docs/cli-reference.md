@@ -15,6 +15,14 @@ lore --help       # Show help
 
 ## Commands
 
+### lore update
+
+Update Lore CLI to the latest release (or install a specific version).
+
+```bash
+lore update [--version <semver>]
+```
+
 ### lore init
 
 Initialize a new Lore database and install AI skill files.
