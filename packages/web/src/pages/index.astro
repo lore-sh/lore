@@ -1,4 +1,26 @@
 ---
+const siteUrl = "https://getlore.sh";
+const pageUrl = `${siteUrl}/`;
+const title = "Lore | The database of your life";
+const description =
+  "A local SQLite database managed by AI agents. Talk naturally and your data is structured, versioned, and stored on your machine.";
+const ogImageUrl = `${siteUrl}/og-image.png`;
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Lore",
+  description,
+  url: pageUrl,
+  downloadUrl: `${siteUrl}/install`,
+  applicationCategory: "DatabaseApplication",
+  isAccessibleForFree: true,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  sameAs: ["https://github.com/lore-sh/lore"],
+};
 ---
 
 <!doctype html>
@@ -6,19 +28,44 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="A local SQLite database managed by AI agents. Talk naturally — your data is structured, versioned, and stored on your machine."
-    />
-    <link rel="icon" type="image/svg+xml" href="/service-icon.svg" />
-    <link rel="icon" href="/favicon.ico" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+    <meta name="application-name" content="Lore" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#09090b" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="canonical" href={pageUrl} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Lore" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={pageUrl} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Lore hero card with logo, tagline, and install command" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+
+    <link rel="icon" type="image/png" href="/service-icon.png" sizes="512x512" />
+    <link rel="icon" type="image/png" href="/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest" href="/site.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
-    <title>Lore — Your Life, One Database</title>
 
     <style>
       :root {
@@ -333,14 +380,14 @@
 
     <nav class="nav">
       <a class="logo" href="/">
-        <img src="/service-icon.svg" alt="" width="26" height="26" />
+        <img src="/service-icon.png" alt="" width="26" height="26" />
         <span>Lore</span>
       </a>
       <a
         class="gh-btn"
         href="https://github.com/lore-sh/lore"
         target="_blank"
-        rel="noopener"
+        rel="noopener noreferrer"
       >
         <svg viewBox="0 0 16 16" fill="currentColor">
           <path
@@ -401,7 +448,7 @@
       <a
         href="https://github.com/lore-sh/lore"
         target="_blank"
-        rel="noopener">GitHub</a
+        rel="noopener noreferrer">GitHub</a
       >
     </footer>
 
@@ -601,7 +648,7 @@ void main(){
               gl.RGBA, gl.UNSIGNED_BYTE, bgImg
             );
           };
-          bgImg.src = "/lore-bg.png";
+          bgImg.src = "/lore-bg.webp";
 
           const ul = (n: string) => gl.getUniformLocation(upd, n);
           const rl = (n: string) => gl.getUniformLocation(rnd, n);

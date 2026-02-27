@@ -1,8 +1,13 @@
 {
   "name": "@lore/web",
-  "private": true,
-  "type": "module",
   "version": "0.1.0",
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "astro": "^5.17.1",
+    "react": "^19.2.4",
+    "satori": "^0.19.2"
+  },
+  "private": true,
   "scripts": {
     "prepare:install": "../../scripts/web/generate-install.sh",
     "dev": "bun run prepare:install && astro dev",
@@ -10,7 +15,8 @@
     "preview": "bun run prepare:install && astro preview",
     "astro": "astro"
   },
-  "dependencies": {
-    "astro": "^5.17.1"
+  "type": "module",
+  "devDependencies": {
+    "@types/react": "^19.2.14"
   }
 }

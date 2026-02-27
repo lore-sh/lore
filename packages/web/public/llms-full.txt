@@ -1,0 +1,99 @@
+# Lore
+
+> Lore is an open-source personal database for the AI era. Data lives in local SQLite, AI agents handle structuring, and every change is versioned like Git. No schema design, no migrations, no cloud required.
+
+## What Is Lore
+
+Lore is an open-source personal database where you speak naturally and AI structures your data. Your data lives in a single local SQLite file (`~/.lore/lore.db`), not scattered across dozens of SaaS apps. Every change is recorded as an atomic, hash-chained commit — so you can inspect history, revert mistakes, and recover from anything.
+
+The key idea: **schema is not something you design — it grows as you use it.** You say "dentist on Feb 3rd" or "lunch ramen 850 yen", and the AI figures out the tables and columns. Lore just makes sure it's applied safely.
+
+## How It Works
+
+Lore separates AI reasoning from data execution:
+
+1. **You** speak naturally to an AI agent (e.g. OpenClaw, Claude Code, Codex, Cursor).
+2. **The AI** generates a structured operation plan (JSON).
+3. **Lore** validates and applies the plan as an atomic commit.
+
+Lore itself contains no AI and needs no API keys. It is a deterministic engine that guarantees safety, versioning, and integrity. The AI lives outside, in editor skills that Lore generates during setup.
+
+This separation means AI reasoning can evolve independently from data safety guarantees.
+
+## Use Cases
+
+- **Life logging**: "Morning: 3 meetings. Lunch: ramen 850 yen. Evening: gym." → AI structures this into calendar, expenses, and activity tables automatically.
+- **Querying your data**: "How much did I spend on food this month?" → AI generates a SQL query, Lore executes it read-only.
+- **Personal dashboards**: Build a custom UI with vibe coding. It reads from `lore.db` directly. Don't like the UI? Rebuild it — your data stays.
+
+The vision: **you own your data, apps are just UI.** Unlike SaaS where the service owns your data, Lore keeps everything in one local file. If a service dies, your data doesn't.
+
+## Installation
+
+```bash
+curl -fsSL https://getlore.sh/install | bash
+```
+
+Then initialize:
+
+```bash
+lore init
+```
+
+This creates your database and optionally generates AI skill files for your editor (Claude Code, Cursor, Codex CLI, OpenCode, OpenClaw).
+
+## CLI Commands
+
+All commands are prefixed with `lore`.
+
+- `lore init`: Initialize a new database and generate AI skill files.
+- `lore schema [<table>]`: Display the database schema.
+- `lore plan -f <file|->`: Validate an operation plan without applying (dry-run).
+- `lore apply -f <file|->`: Apply an operation plan as an atomic commit.
+- `lore read --sql "<SELECT...>"`: Execute read-only queries.
+- `lore status`: Show database status.
+- `lore history`: View the commit log.
+- `lore revert <commit_id>`: Revert a commit with conflict detection.
+- `lore verify`: Verify database integrity.
+- `lore studio`: Open the web UI for browsing data and history.
+- `lore remote connect`: Configure remote sync (Turso or LibSQL).
+- `lore push` / `lore pull` / `lore sync`: Sync with a remote database.
+- `lore clone <url>`: Clone a remote database locally.
+- `lore recover <commit_id>`: Recover from a snapshot.
+- `lore clean`: Remove generated skill files.
+
+## Operation Plan Format
+
+AI agents write operation plans as JSON. A plan contains a message and a list of operations:
+
+```json
+{
+  "message": "Add dinner expense for Feb 18",
+  "operations": [
+    {
+      "type": "insert",
+      "table": "expenses",
+      "values": { "date": "2026-02-18", "item": "dinner", "amount": 1200 }
+    }
+  ]
+}
+```
+
+Schema changes and data changes can coexist in a single plan — creating a table and inserting rows in one atomic commit.
+
+Supported operations:
+- Schema: `create_table`, `add_column`, `drop_table`, `drop_column`, `alter_column_type`
+- Data: `insert`, `update`, `delete`
+
+## Safety
+
+- **Git-like versioning**: Every change is an atomic commit with a SHA-256 hash. Full history is preserved and never rewritten.
+- **Effect tracking**: Every operation records before/after state at the row and schema level. Reverts are precise, not guesswork.
+- **Conflict detection**: Reverting checks for conflicts with later commits before applying.
+- **Integrity verification**: `lore verify` checks the entire hash chain for corruption or tampering.
+- **Snapshots**: Periodic full database snapshots enable recovery even from severe corruption.
+
+## Key Links
+
+- Website: https://getlore.sh/
+- Source: https://github.com/lore-sh/lore

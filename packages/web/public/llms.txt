@@ -1,0 +1,16 @@
+# Lore
+
+> Lore is an open-source personal database for the AI era. Data lives in local SQLite, AI agents handle structuring, and every change is versioned like Git. No schema design, no migrations, no cloud required.
+
+## Docs
+
+- [Getting Started](https://getlore.sh/): Product overview and one-line install command.
+- [GitHub Repository](https://github.com/lore-sh/lore): Source code for CLI, core engine, studio UI, and website.
+- [Full Documentation](https://getlore.sh/llms-full.txt): How Lore works, CLI commands, use cases, and the operation plan format.
+
+## Optional
+
+- [CLI Package](https://github.com/lore-sh/lore/tree/main/packages/cli): CLI source code.
+- [Core Package](https://github.com/lore-sh/lore/tree/main/packages/core): Engine source code.
+- [Studio Package](https://github.com/lore-sh/lore/tree/main/packages/studio): Web UI source code.
+- [Install Script](https://getlore.sh/install): Shell installer script.
