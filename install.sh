@@ -6,6 +6,7 @@ LORE_VERSION="${LORE_VERSION:-}"
 LORE_INSTALL_DIR="${LORE_INSTALL_DIR:-$HOME/.local/bin}"
 LORE_RELEASE_BASE_URL="${LORE_RELEASE_BASE_URL:-https://github.com/${LORE_REPO}/releases/download}"
 LORE_LATEST_URL="${LORE_LATEST_URL:-https://github.com/${LORE_REPO}/releases/latest}"
+LORE_SELF_CHECK_TIMEOUT="${LORE_SELF_CHECK_TIMEOUT:-10}"
 LORE_INSTALL_TEMP_DIR=""
 
 log() {
@@ -19,6 +20,36 @@ die() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
+}
+
+usage() {
+  cat <<'USAGE'
+Usage: install.sh [--version <semver>] [-h|--help]
+
+Environment variables:
+  LORE_VERSION              version to install (for example: 0.1.2 or v0.1.2)
+  LORE_INSTALL_DIR          install destination directory (default: ~/.local/bin)
+  LORE_SELF_CHECK_TIMEOUT   seconds for binary self-check timeout (default: 10)
+USAGE
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --version)
+        [[ -n "${2:-}" ]] || die "Missing value for --version"
+        LORE_VERSION="$2"
+        shift 2
+        ;;
+      *)
+        die "Unknown option: $1"
+        ;;
+    esac
+  done
 }
 
 normalize_os() {
@@ -42,9 +73,21 @@ reject_musl() {
 
 normalize_arch() {
   local machine_arch
+  local machine_os
   machine_arch="$(uname -m)"
+  machine_os="$(uname -s)"
   case "$machine_arch" in
-    x86_64|amd64) printf 'x64\n' ;;
+    x86_64|amd64)
+      if [[ "$machine_os" == "Darwin" ]]; then
+        local rosetta_translated
+        rosetta_translated="$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)"
+        if [[ "$rosetta_translated" == "1" ]]; then
+          printf 'arm64\n'
+          return
+        fi
+      fi
+      printf 'x64\n'
+      ;;
     arm64|aarch64) printf 'arm64\n' ;;
     *) die "Unsupported architecture: $machine_arch (supported: x64, arm64)" ;;
   esac
@@ -97,7 +140,34 @@ cleanup() {
   fi
 }
 
+run_version_check() {
+  local binary_path="$1"
+  local timeout_seconds="$LORE_SELF_CHECK_TIMEOUT"
+  local pid
+  local elapsed=0
+
+  if ! [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || [[ "$timeout_seconds" -lt 1 ]]; then
+    timeout_seconds=10
+  fi
+
+  "$binary_path" --version >/dev/null &
+  pid=$!
+
+  while kill -0 "$pid" >/dev/null 2>&1; do
+    if [[ "$elapsed" -ge "$timeout_seconds" ]]; then
+      kill "$pid" >/dev/null 2>&1 || true
+      wait "$pid" >/dev/null 2>&1 || true
+      return 124
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  wait "$pid"
+}
+
 main() {
+  parse_args "$@"
   require_cmd curl
   require_cmd tar
   require_cmd uname
@@ -116,6 +186,8 @@ main() {
   local actual_hash
   local extracted_binary
   local install_path
+  local staged_path
+  local backup_path
 
   os_name="$(normalize_os)"
   reject_musl "$os_name"
@@ -150,10 +222,61 @@ main() {
 
   mkdir -p "$LORE_INSTALL_DIR"
   install_path="$LORE_INSTALL_DIR/lore"
-  cp "$extracted_binary" "$install_path"
-  chmod 755 "$install_path"
+  staged_path="$(mktemp "$LORE_INSTALL_DIR/.lore.new.XXXXXX")"
+  backup_path=""
 
-  "$install_path" --version >/dev/null || die "Installed binary failed self-check"
+  cp "$extracted_binary" "$staged_path" || {
+    rm -f "$staged_path"
+    die "Failed to stage lore binary"
+  }
+  chmod 755 "$staged_path" || {
+    rm -f "$staged_path"
+    die "Failed to set execute permission on staged binary"
+  }
+
+  if run_version_check "$staged_path"; then
+    :
+  else
+    local check_status=$?
+    rm -f "$staged_path"
+    if [[ "$check_status" -eq 124 ]]; then
+      die "Downloaded binary self-check timed out"
+    fi
+    die "Downloaded binary failed self-check"
+  fi
+
+  if [[ -f "$install_path" ]]; then
+    backup_path="$(mktemp "$LORE_INSTALL_DIR/.lore.backup.XXXXXX")"
+    cp "$install_path" "$backup_path" || {
+      rm -f "$staged_path" "$backup_path"
+      die "Failed to back up current lore binary"
+    }
+  fi
+
+  mv -f "$staged_path" "$install_path" || {
+    rm -f "$staged_path"
+    [[ -n "$backup_path" ]] && rm -f "$backup_path"
+    die "Failed to install lore binary"
+  }
+
+  if run_version_check "$install_path"; then
+    :
+  else
+    local check_status=$?
+    if [[ -n "$backup_path" ]]; then
+      mv -f "$backup_path" "$install_path" || die "Installed binary failed self-check and rollback failed"
+      if [[ "$check_status" -eq 124 ]]; then
+        die "Installed binary self-check timed out and was rolled back"
+      fi
+      die "Installed binary failed self-check and was rolled back"
+    fi
+    if [[ "$check_status" -eq 124 ]]; then
+      die "Installed binary self-check timed out"
+    fi
+    die "Installed binary failed self-check"
+  fi
+
+  [[ -n "$backup_path" ]] && rm -f "$backup_path"
 
   log "Installed lore ${release_version} to ${install_path}"
   if [[ ":$PATH:" != *":${LORE_INSTALL_DIR}:"* ]]; then
