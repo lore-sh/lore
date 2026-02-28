@@ -97,6 +97,7 @@ describe("generateSkills", () => {
     const sharedSkillText = await Bun.file(sharedSkillPath).text();
     expect(sharedSkillText.includes("lore plan -f - <<'JSON'")).toBe(true);
     expect(sharedSkillText.includes("lore apply -f - <<'JSON'")).toBe(true);
+    expect(sharedSkillText.includes('"baseSchemaHash": "<copy schemaHash from lore schema>"')).toBe(true);
     expect(sharedSkillText.includes("lore plan '<plan JSON>'")).toBe(false);
     expect(sharedSkillText.includes("lore apply '<plan JSON>'")).toBe(false);
 

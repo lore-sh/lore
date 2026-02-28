@@ -56,7 +56,7 @@ Print the current database schema.
 lore schema [<table>]
 ```
 
-Without arguments, prints all tables with their columns, types, and constraints. With a table name, prints only that table's schema. The output includes the `baseSchemaHash` needed for plans.
+Without arguments, prints all tables with their columns, types, and constraints. With a table name, prints only that table's schema. The output includes `schemaHash`; copy it into plan `baseSchemaHash`.
 
 ### lore plan
 
@@ -67,6 +67,7 @@ lore plan -f <file|->
 ```
 
 Pass `-` to read from stdin. Returns risk level, predicted effects, and any validation errors.
+If `baseSchemaHash` does not match the current schema, this returns `STALE_PLAN` without running a dry-run simulation.
 
 ### lore apply
 

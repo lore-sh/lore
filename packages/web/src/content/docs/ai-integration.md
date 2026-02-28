@@ -38,7 +38,7 @@ The generated skill files instruct AI agents on:
 
 ### The Remember Flow
 1. Run `lore schema` to read the current database state
-2. Compose a JSON plan with the right `baseSchemaHash`
+2. Compose a JSON plan and copy `schemaHash` from `lore schema` into plan `baseSchemaHash`
 3. Run `lore apply -f -` to execute
 
 ### The Recall Flow

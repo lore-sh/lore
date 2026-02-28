@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { initDb, listCommits, query } from "../src";
+import { schemaHash } from "../src/inspect";
 import { applyPlan, createTestContext, planCheck, writePlanFile, withTmpDirCleanup, currentDb } from "./helpers";
 
 const testWithTmp = (name: string, fn: () => void | Promise<void>) => test(name, withTmpDirCleanup(fn));
@@ -96,6 +97,37 @@ describe("check", () => {
     const result = await planCheck(currentDb(), invalidRuntime);
     expect(result.ok).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  testWithTmp("returns STALE_PLAN when baseSchemaHash is outdated", async () => {
+    const { dir, dbPath } = createTestContext();
+    await initDb({ dbPath });
+
+    const initialHash = schemaHash(currentDb());
+    const setupPlan = await writePlanFile(dir, "setup-stale-plan-check.json", {
+      message: "create stale_check table",
+      operations: [
+        {
+          type: "create_table",
+          table: "stale_check",
+          columns: [{ name: "id", type: "INTEGER", primaryKey: true }],
+        },
+      ],
+    });
+    await applyPlan(currentDb(), setupPlan);
+
+    const stalePlan = await writePlanFile(dir, "stale-plan-check.json", {
+      baseSchemaHash: initialHash,
+      message: "stale insert",
+      operations: [{ type: "insert", table: "stale_check", values: { id: 1 } }],
+    });
+    const result = await planCheck(currentDb(), stalePlan);
+    expect(result.ok).toBe(false);
+    expect(result.risk).toBe("high");
+    expect(result.errors[0]).toMatchObject({
+      code: "STALE_PLAN",
+      detail: { expected: initialHash },
+    });
   });
 
   testWithTmp("throws on legacy scalar column default payload", async () => {

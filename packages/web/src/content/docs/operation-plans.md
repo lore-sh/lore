@@ -20,9 +20,11 @@ Every write to Lore goes through a JSON plan. The plan describes what to change,
 
 | Field | Description |
 |-------|-------------|
-| `baseSchemaHash` | SHA-256 of the current schema, obtained from `lore schema` output |
+| `baseSchemaHash` | SHA-256 of the current schema. Copy `schemaHash` from `lore schema` output |
 | `message` | Commit message describing the change |
 | `operations` | Array of operations to execute in order |
+
+Generate plans immediately after `lore schema` and copy `schemaHash` into `baseSchemaHash`. If the schema changes before `lore plan` or `lore apply`, Lore returns `STALE_PLAN` and the plan must be regenerated.
 
 ## Schema Operations
 

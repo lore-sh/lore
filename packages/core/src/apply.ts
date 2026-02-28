@@ -104,6 +104,7 @@ function dryRunWithDb(db: Database, operations: Operation[]) {
 
 export function check(db: Database, plan: Plan) {
   const checkedAt = new Date().toISOString();
+  const currentSchemaHash = schemaHash(db);
   let schemaOperations = 0;
   let destructiveOperations = 0;
   const touchedTables = new Set<string>();
@@ -133,6 +134,31 @@ export function check(db: Database, plan: Plan) {
       });
     }
   }
+  if (plan.baseSchemaHash.toLowerCase() !== currentSchemaHash.toLowerCase()) {
+    return {
+      ok: false,
+      risk: "high" as const,
+      errors: [{
+        code: "STALE_PLAN",
+        message: "Plan was generated from an outdated schema",
+        detail: {
+          expected: plan.baseSchemaHash,
+          actual: currentSchemaHash,
+        },
+      }],
+      warnings,
+      summary: {
+        operations: plan.operations.length,
+        schemaOperations,
+        dataOperations: plan.operations.length - schemaOperations,
+        destructiveOperations,
+        touchedTables: Array.from(touchedTables).sort((a, b) => a.localeCompare(b)),
+        predicted: { rowEffects: 0, schemaEffects: 0, tables: [] },
+      },
+      checkedAt,
+    };
+  }
+
   const { errors, predicted } = dryRunWithDb(db, plan.operations);
   const summary = {
     operations: plan.operations.length,

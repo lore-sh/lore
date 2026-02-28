@@ -51,6 +51,7 @@ lore plan -f plan.json
 ```
 
 This runs the plan inside a savepoint that is always rolled back. It returns a risk assessment (`low`, `medium`, or `high`), counts of predicted row and schema effects, and any validation errors — without changing a single byte.
+If `baseSchemaHash` is stale, `lore plan` returns `STALE_PLAN` immediately and skips simulation.
 
 ## Schema Evolution
 

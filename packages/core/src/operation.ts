@@ -1144,9 +1144,21 @@ export function parsePlan(input: string): Plan {
 
   const result = Plan.safeParse(parsed);
   if (!result.success) {
-    throw new CodedError("INVALID_PLAN", result.error.issues.map((issue) => issue.message).join("; "));
+    throw new CodedError("INVALID_PLAN", formatPlanIssues(result.error.issues));
   }
 
   semanticValidation(result.data);
   return result.data;
+}
+
+function formatPlanIssues(issues: Array<{ path: PropertyKey[]; message: string }>): string {
+  return issues.map((issue) => formatPlanIssue(issue)).join("; ");
+}
+
+function formatPlanIssue(issue: { path: PropertyKey[]; message: string }): string {
+  const path = issue.path.length === 0 ? "$" : issue.path.map((segment) => String(segment)).join(".");
+  if (path === "baseSchemaHash" && issue.message.includes("received undefined")) {
+    return "baseSchemaHash: required; run lore schema and copy schemaHash into baseSchemaHash";
+  }
+  return `${path}: ${issue.message}`;
 }

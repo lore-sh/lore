@@ -205,7 +205,7 @@ You design all tables. Follow these conventions:
 schema -> plan -> apply
 \`\`\`
 
-1. Read current schema:
+1. Read current schema and copy \`schemaHash\` from output:
 \`\`\`bash
 lore schema
 \`\`\`
@@ -213,6 +213,7 @@ lore schema
 2. Build OperationPlan. Include schema changes and data mutations together:
 \`\`\`json
 {
+  "baseSchemaHash": "<copy schemaHash from lore schema>",
   "message": "track lunch expense 850 yen",
   "operations": [
     {
@@ -318,6 +319,7 @@ User says: "I booked a dentist appointment tomorrow at 2pm"
 # 2. Apply with table creation + insert
 lore apply -f - <<'JSON'
 {
+  "baseSchemaHash": "<copy schemaHash from lore schema>",
   "message": "dentist appointment 2026-02-21 14:00",
   "operations": [
     {
@@ -353,6 +355,7 @@ Schema already has \`expenses(id, date, item, amount, category, note)\` — loca
 \`\`\`bash
 lore apply -f - <<'JSON'
 {
+  "baseSchemaHash": "<copy schemaHash from lore schema>",
   "message": "lunch expense with location tracking",
   "operations": [
     {
@@ -380,6 +383,7 @@ User says: "I finished the passport renewal — picked it up today."
 \`\`\`bash
 lore apply -f - <<'JSON'
 {
+  "baseSchemaHash": "<copy schemaHash from lore schema>",
   "message": "mark passport renewal complete",
   "operations": [
     {
@@ -420,11 +424,13 @@ Every write goes through this JSON envelope passed to \`lore plan\` or \`lore ap
 
 \`\`\`json
 {
+  "baseSchemaHash": "<copy schemaHash from lore schema>",
   "message": "descriptive commit message",
   "operations": [...]
 }
 \`\`\`
 
+- \`baseSchemaHash\`: Required. Use \`schemaHash\` from \`lore schema\`.
 - \`message\`: Required, non-empty. Describes what this commit does.
 - \`operations\`: Required, at least one operation.
 

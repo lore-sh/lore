@@ -48,6 +48,6 @@ describe("parsePlan", () => {
           operations: [{ type: "delete", table: "users", where: { id: 1 } }],
         }),
       ),
-    ).toThrow();
+    ).toThrow("baseSchemaHash: required; run lore schema and copy schemaHash into baseSchemaHash");
   });
 });
